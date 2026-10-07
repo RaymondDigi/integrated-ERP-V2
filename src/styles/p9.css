@@ -1,0 +1,271 @@
+/* ==========================================================================
+   P9A Tax Deduction Card — paper-style document (always light), A4 landscape print
+   ========================================================================== */
+
+.hr-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.p9-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--status-info-border);
+  background: var(--status-info-bg);
+  color: var(--status-info-text);
+  font-size: 12.5px;
+}
+
+/* Horizontal scroll on narrow screens; the paper keeps its proportions */
+.p9-scroll {
+  overflow-x: auto;
+  padding: 4px 4px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+}
+
+.p9-paper {
+  --p9-ink: #111827;
+  --p9-muted: #4b5563;
+  --p9-line: #374151;
+  --p9-soft: #d1d5db;
+  --p9-shade: #f3f4f6;
+  min-width: 1180px;
+  margin: 16px auto;
+  padding: 28px 30px 22px;
+  background: #ffffff;
+  color: var(--p9-ink);
+  font-family: 'Inter', Arial, Helvetica, sans-serif;
+  font-size: 11px;
+  line-height: 1.3;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 12px 32px -8px rgba(0, 0, 0, 0.25);
+  border-radius: 2px;
+  page: p9;
+}
+
+/* Title */
+.p9-title {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+  border-bottom: 2px solid var(--p9-line);
+}
+.p9-title-center {
+  text-align: center;
+}
+.p9-authority {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.p9-dept {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+.p9-card {
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-top: 6px;
+}
+.p9-form-no {
+  position: absolute;
+  right: 0;
+  top: 0;
+  padding: 4px 12px;
+  border: 2px solid var(--p9-line);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.p9-fill {
+  display: inline-block;
+  min-width: 80px;
+  padding: 0 6px;
+  border-bottom: 1px dotted var(--p9-line);
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Particulars */
+.p9-particulars {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  gap: 8px 18px;
+  margin-bottom: 14px;
+}
+.p9-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.p9-field span {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--p9-muted);
+}
+.p9-field b {
+  padding-bottom: 2px;
+  border-bottom: 1px dotted var(--p9-line);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Table */
+.p9-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+}
+.p9-table th,
+.p9-table td {
+  border: 1px solid var(--p9-line);
+  padding: 4px 4px;
+}
+.p9-table thead th {
+  background: var(--p9-shade);
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+  vertical-align: middle;
+  line-height: 1.2;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--p9-ink);
+  position: static;
+}
+.p9-table thead th.p9-month-h {
+  width: 78px;
+}
+.p9-table thead tr.p9-sub th {
+  font-weight: 600;
+  font-size: 8.5px;
+}
+.p9-table thead tr.p9-letters th {
+  font-size: 10px;
+  font-weight: 800;
+  background: #e5e7eb;
+}
+.p9-table thead tr.p9-ksh th {
+  font-size: 8.5px;
+  font-weight: 600;
+  background: #ffffff;
+  color: var(--p9-muted);
+}
+.p9-table tbody td,
+.p9-table tfoot td {
+  text-align: right;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+.p9-table td.p9-month {
+  text-align: left;
+  font-weight: 700;
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+}
+.p9-table tbody tr:nth-child(even) td {
+  background: #fafafa;
+}
+.p9-table tbody tr.p9-empty td {
+  height: 22px;
+}
+.p9-table td.p9-key {
+  font-weight: 700;
+}
+.p9-table tfoot td {
+  background: var(--p9-shade);
+  font-weight: 800;
+  border-top: 2px solid var(--p9-line);
+}
+
+/* Totals + notes */
+.p9-totals {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 16px 0 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.p9-totals .p9-fill {
+  min-width: 160px;
+}
+.p9-important {
+  padding: 10px 12px;
+  border: 1px solid var(--p9-soft);
+  font-size: 10px;
+  color: var(--p9-muted);
+}
+.p9-important strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--p9-ink);
+  letter-spacing: 0.06em;
+}
+.p9-important ol {
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.p9-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--p9-soft);
+  font-size: 9.5px;
+  color: var(--p9-muted);
+}
+
+/* Print: landscape A4, form scaled to the page */
+@page p9 {
+  size: A4 landscape;
+  margin: 8mm;
+}
+
+@media print {
+  body.ess-printing .p9-scroll {
+    overflow: visible;
+    padding: 0;
+    border: none;
+    background: none;
+  }
+  body.ess-printing .p9-paper.ess-print-area {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    font-size: 9px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  body.ess-printing .p9-table th,
+  body.ess-printing .p9-table td {
+    padding: 2.5px 3px;
+  }
+  body.ess-printing .p9-table tbody td,
+  body.ess-printing .p9-table tfoot td {
+    font-size: 8.5px;
+  }
+  body.ess-printing .p9-table thead th {
+    font-size: 7.5px;
+  }
+}

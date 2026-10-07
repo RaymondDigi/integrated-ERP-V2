@@ -1,0 +1,414 @@
+/* ========================================================
+   Leave management (HR › Leave)
+   ======================================================== */
+
+.lv-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.lv-toolbar .form-control {
+  width: auto;
+  min-width: 150px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.lv-toolbar .lv-grow {
+  flex: 1;
+}
+.lv-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.lv-card-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.lv-card-head p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.lv-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.lv-scroll .hr-table th,
+.lv-scroll .hr-table td {
+  white-space: nowrap;
+}
+.lv-scroll .hr-table td.lv-wrap {
+  white-space: normal;
+  min-width: 200px;
+}
+.lv-num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}
+.lv-pos {
+  color: var(--status-success);
+}
+.lv-neg {
+  color: var(--status-critical);
+}
+.lv-muted {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+.lv-mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.lv-strong {
+  font-weight: 600;
+}
+.lv-click {
+  cursor: pointer;
+}
+.lv-empty {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+.lv-row-muted td {
+  opacity: 0.65;
+}
+
+/* Approval chain */
+.lv-chain {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.lv-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  background: var(--bg-surface);
+}
+.lv-step.done {
+  color: var(--status-success-text, var(--status-success));
+  background: var(--status-success-bg);
+  border-color: var(--status-success-border);
+}
+.lv-step.current {
+  color: var(--status-warning-text, var(--status-warning));
+  background: var(--status-warning-bg);
+  border-color: var(--status-warning-border);
+}
+.lv-step.rejected {
+  color: var(--status-critical-text, var(--status-critical));
+  background: var(--status-critical-bg);
+  border-color: var(--status-critical-border);
+}
+.lv-chain-arrow {
+  color: var(--text-tertiary);
+}
+
+/* Messages */
+.lv-msgs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lv-msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  line-height: 1.4;
+  border: 1px solid transparent;
+}
+.lv-msg svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.lv-msg.error {
+  color: var(--status-critical-text, var(--status-critical));
+  background: var(--status-critical-bg);
+  border-color: var(--status-critical-border);
+}
+.lv-msg.warn {
+  color: var(--status-warning-text, var(--status-warning));
+  background: var(--status-warning-bg);
+  border-color: var(--status-warning-border);
+}
+.lv-msg.ok {
+  color: var(--status-success-text, var(--status-success));
+  background: var(--status-success-bg);
+  border-color: var(--status-success-border);
+}
+.lv-msg.info {
+  color: var(--text-secondary);
+  background: var(--bg-surface-subtle);
+  border-color: var(--border-subtle);
+}
+
+/* Forms */
+.lv-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+.lv-form-grid .lv-span-2 {
+  grid-column: 1 / -1;
+}
+.lv-form-grid-3 .lv-span-2,
+.lv-signoff .lv-span-2 {
+  grid-column: span 2;
+}
+.lv-form-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+.lv-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.lv-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand-primary);
+}
+.lv-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-2);
+}
+.lv-figure {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+}
+.lv-figure span {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.lv-figure strong {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.lv-figure small {
+  display: block;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.lv-figure.warn strong {
+  color: var(--status-warning);
+}
+.lv-figure.bad strong {
+  color: var(--status-critical);
+}
+
+.lv-section-title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* Key/value list */
+.lv-kv {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+.lv-kv div {
+  min-width: 0;
+}
+.lv-kv dt {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.lv-kv dd {
+  margin: 1px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Type selector chips in the ledger drawer */
+.lv-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.lv-chip {
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.lv-chip b {
+  display: block;
+  font-size: 15px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.lv-chip.active {
+  border-color: var(--brand-primary);
+  background: var(--brand-subtle);
+  color: var(--brand-primary);
+}
+
+.lv-formula {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.lv-formula b {
+  color: var(--text-primary);
+}
+
+/* Editable cells */
+.lv-cell-input {
+  width: 72px;
+  padding: 4px 6px !important;
+  font-size: 12.5px !important;
+  text-align: right;
+}
+.lv-cell-select {
+  padding: 4px 6px !important;
+  font-size: 12px !important;
+  width: auto;
+}
+.lv-matrix td {
+  vertical-align: top !important;
+}
+.lv-matrix .lv-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 150px;
+}
+
+.lv-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.lv-signoff {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.lv-history {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lv-history li {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.lv-history li:last-child {
+  border-bottom: 0;
+}
+.lv-history b {
+  color: var(--text-primary);
+}
+
+.lv-body-pad {
+  padding: var(--space-4);
+}
+
+@media (max-width: 900px) {
+  .lv-two-col {
+    grid-template-columns: 1fr;
+  }
+  .lv-signoff {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .lv-form-grid,
+  .lv-form-grid-3,
+  .lv-kv,
+  .lv-signoff {
+    grid-template-columns: 1fr;
+  }
+  .lv-form-grid-3 .lv-span-2,
+  .lv-signoff .lv-span-2 {
+    grid-column: auto;
+  }
+  .lv-toolbar .form-control {
+    min-width: 0;
+    flex: 1 1 140px;
+  }
+  .lv-card-head,
+  .lv-toolbar {
+    padding: var(--space-3);
+  }
+}
+
+/* Keep row actions in view on wide tables */
+.hr-table .lv-sticky-actions {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--bg-surface);
+  box-shadow: -8px 0 10px -8px rgba(0, 0, 0, 0.18);
+}
+.hr-table thead .lv-sticky-actions {
+  background: var(--bg-surface-subtle, var(--bg-surface));
+}

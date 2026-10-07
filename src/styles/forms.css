@@ -1,0 +1,1350 @@
+/* Enterprise Mission Control - Comprehensive Forms & Inputs Styles */
+
+/* ==========================================================================
+   Form Layout & Grouping
+   ========================================================================== */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 16px;
+}
+
+.col-12 { grid-column: span 12; }
+.col-8  { grid-column: span 8; }
+.col-6  { grid-column: span 6; }
+.col-4  { grid-column: span 4; }
+.col-3  { grid-column: span 3; }
+
+@media (max-width: 900px) {
+  .col-8, .col-6, .col-4, .col-3 {
+    grid-column: span 12;
+  }
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+
+.form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.form-label {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.form-label .required-star {
+  color: var(--status-critical);
+  font-weight: 700;
+}
+
+.form-label-dirty-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--status-warning);
+  display: inline-block;
+  box-shadow: 0 0 6px var(--status-warning);
+}
+
+.form-label-extra {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.form-helper-text {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+.form-error-text {
+  font-size: 11px;
+  color: var(--status-critical-text);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.form-warning-text {
+  font-size: 11px;
+  color: var(--status-warning-text);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.form-char-count {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Input Controls (Base & Variants)
+   ========================================================================== */
+.form-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.form-control {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  padding: 8px 12px;
+  outline: none;
+  transition: all var(--transition-fast);
+  font-family: var(--font-sans);
+}
+
+.form-control::placeholder {
+  color: var(--text-muted);
+}
+
+.form-control:hover:not(:disabled):not(:read-only) {
+  border-color: var(--border-emphasis);
+  background: var(--bg-surface-subtle);
+}
+
+.form-control:focus {
+  border-color: var(--border-focus);
+  background: var(--bg-surface-subtle);
+  box-shadow: 0 0 0 2px var(--brand-subtle);
+}
+
+/* Input States */
+.form-control.is-valid {
+  border-color: var(--status-success);
+  padding-right: 36px;
+}
+
+.form-control.is-valid:focus {
+  box-shadow: 0 0 0 2px var(--status-success-bg);
+}
+
+.form-control.is-invalid {
+  border-color: var(--status-critical);
+  background-color: rgba(239, 68, 68, 0.04);
+  padding-right: 36px;
+}
+
+.form-control.is-invalid:focus {
+  box-shadow: 0 0 0 2px var(--status-critical-bg);
+}
+
+.form-control.is-warning {
+  border-color: var(--status-warning);
+  padding-right: 36px;
+}
+
+.form-control:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-color: var(--border-subtle);
+}
+
+.form-control:read-only:not(:disabled) {
+  background-color: var(--bg-surface-subtle);
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+/* Input with Icons */
+.form-control.has-leading-icon {
+  padding-left: 36px;
+}
+
+.form-control.has-trailing-icon {
+  padding-right: 36px;
+}
+
+.input-leading-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+.input-trailing-icon {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.input-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 3px;
+  transition: color var(--transition-fast);
+}
+
+.input-action-btn:hover {
+  color: var(--text-primary);
+}
+
+/* Monospace & Number Inputs */
+.form-control.font-mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+}
+
+/* Floating Label Variant */
+.form-floating-wrapper {
+  position: relative;
+}
+
+.form-floating-input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  padding: 18px 12px 6px 12px;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.form-floating-input:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--brand-subtle);
+}
+
+.form-floating-label {
+  position: absolute;
+  top: 6px;
+  left: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  transition: all var(--transition-fast);
+}
+
+/* ==========================================================================
+   Password Strength Meter
+   ========================================================================== */
+.password-meter-container {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.password-meter-bars {
+  display: flex;
+  gap: 4px;
+  height: 4px;
+}
+
+.password-meter-segment {
+  flex: 1;
+  background: var(--border-subtle);
+  border-radius: 2px;
+  transition: background 0.25s ease;
+}
+
+.password-meter-segment.active-weak {
+  background: var(--status-critical);
+}
+
+.password-meter-segment.active-fair {
+  background: var(--status-warning);
+}
+
+.password-meter-segment.active-good {
+  background: var(--brand-primary);
+}
+
+.password-meter-segment.active-strong {
+  background: var(--status-success);
+}
+
+.password-criteria-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+
+.password-criterion {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  transition: color 0.15s;
+}
+
+.password-criterion.met {
+  color: var(--status-success-text);
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   Select Dropdowns & Tag Inputs
+   ========================================================================== */
+.custom-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+.tag-input-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  min-height: 40px;
+  transition: border-color var(--transition-fast);
+}
+
+.tag-input-container:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--brand-subtle);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  border-radius: var(--radius-xs);
+  animation: fadeIn 0.15s ease;
+}
+
+.tag-chip.tag-primary {
+  background: var(--brand-subtle);
+  border-color: rgba(35, 120, 87, 0.4);
+  color: var(--text-accent);
+}
+
+.tag-remove-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 1px;
+}
+
+.tag-remove-btn:hover {
+  color: var(--status-critical-text);
+}
+
+.tag-input-field {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: var(--font-xs);
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 100px;
+  padding: 2px 4px;
+}
+
+/* ==========================================================================
+   Range Sliders
+   ========================================================================== */
+.range-slider-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.range-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-surface-elevated);
+  outline: none;
+  cursor: pointer;
+}
+
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--brand-primary);
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(35, 120, 87, 0.6);
+  border: 2px solid #ffffff;
+  transition: transform 0.1s ease;
+}
+
+.range-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.range-slider-value {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 44px;
+  text-align: right;
+}
+
+/* ==========================================================================
+   Toggle Switches
+   ========================================================================== */
+.switch-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch-track {
+  width: 38px;
+  height: 20px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  position: relative;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.switch-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: all var(--transition-fast);
+}
+
+.switch-control.checked .switch-track {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+}
+
+.switch-control.checked .switch-thumb {
+  transform: translateX(18px);
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.switch-control.danger.checked .switch-track {
+  background: var(--status-critical);
+  border-color: var(--status-critical);
+}
+
+.switch-label-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.switch-title {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.switch-desc {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* ==========================================================================
+   Card Selection (Radio & Checkbox Cards)
+   ========================================================================== */
+.card-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.selection-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  transition: all var(--transition-fast);
+  position: relative;
+}
+
+.selection-card:hover {
+  border-color: var(--border-emphasis);
+  background: var(--bg-hover);
+}
+
+.selection-card.selected {
+  border-color: var(--brand-primary);
+  background: var(--brand-subtle);
+  box-shadow: 0 0 0 1px var(--brand-primary);
+}
+
+.selection-card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.selection-card.selected .selection-card-icon {
+  background: var(--brand-primary);
+  color: var(--brand-on-primary);
+}
+
+.selection-card-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.selection-card-title {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.selection-card-desc {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.35;
+}
+
+/* Segmented Buttons Group */
+.segmented-control {
+  display: inline-flex;
+  background: var(--bg-surface-elevated);
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  gap: 2px;
+}
+
+.segmented-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.segmented-btn:hover {
+  color: var(--text-primary);
+}
+
+.segmented-btn.active {
+  background: var(--brand-primary);
+  color: var(--brand-on-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+@media (max-width: 640px) {
+  .segmented-control {
+    display: flex;
+    overflow-x: auto;
+    max-width: 100%;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .segmented-control::-webkit-scrollbar {
+    display: none;
+  }
+  .segmented-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+}
+
+/* ==========================================================================
+   File Drag & Drop Upload Zone
+   ========================================================================== */
+.dropzone-container {
+  border: 2px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  text-align: center;
+  background: var(--bg-surface-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.dropzone-container:hover, .dropzone-container.is-dragover {
+  border-color: var(--brand-primary);
+  background: var(--brand-subtle);
+}
+
+.dropzone-icon-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--bg-surface-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.uploaded-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.uploaded-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  gap: 12px;
+}
+
+.uploaded-file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.uploaded-file-name {
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.uploaded-file-size {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+/* ==========================================================================
+   Sticky Bottom / Floating Form Actions Toolbar
+   ========================================================================== */
+.form-actions-bar {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-default);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 20;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  margin-top: 24px;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.form-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.form-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dirty-state-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: var(--status-warning-bg);
+  border: 1px solid var(--status-warning-border);
+  color: var(--status-warning-text);
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.clean-state-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: var(--status-success-bg);
+  border: 1px solid var(--status-success-border);
+  color: var(--status-success-text);
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   Validation Summary Callout
+   ========================================================================== */
+.validation-summary {
+  background: var(--status-critical-bg);
+  border: 1px solid var(--status-critical-border);
+  border-left: 4px solid var(--status-critical);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.validation-summary-title {
+  font-size: var(--font-xs);
+  font-weight: 700;
+  color: var(--status-critical-text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.validation-summary-list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.validation-summary-list li {
+  margin-bottom: 2px;
+}
+
+/* ==========================================================================
+   User Profile Specific Styles
+   ========================================================================== */
+.profile-banner-hero {
+  position: relative;
+  background: linear-gradient(135deg, rgba(35, 120, 87, 0.25) 0%, rgba(139, 92, 246, 0.2) 50%, rgba(17, 24, 39, 0.9) 100%);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.profile-hero-content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 768px) {
+  .profile-hero-content {
+    flex-direction: column;
+  }
+}
+
+.profile-avatar-stack {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.profile-avatar-large {
+  width: 76px;
+  height: 76px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #237857, #7c3aed);
+  border: 3px solid var(--bg-surface);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.profile-avatar-upload-badge {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-emphasis);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.profile-avatar-upload-badge:hover {
+  background: var(--brand-primary);
+  color: var(--brand-on-primary);
+}
+
+.profile-details-column {
+  flex: 1;
+}
+
+.profile-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.profile-display-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.profile-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.profile-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.profile-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.profile-stat-box {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}
+
+.profile-stat-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Profile Navigation Tabs */
+.profile-tabs-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-default);
+  margin-bottom: 20px;
+  overflow-x: auto;
+}
+
+.profile-tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 16px;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+
+.profile-tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.profile-tab-btn.active {
+  color: var(--brand-primary);
+  border-bottom-color: var(--brand-primary);
+}
+
+/* User Profile Header Dropdown Menu */
+.profile-dropdown-menu {
+  position: absolute;
+  top: 48px;
+  right: 12px;
+  width: 260px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-emphasis);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  overflow: hidden;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.profile-dropdown-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.profile-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  font-size: var(--font-xs);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.profile-dropdown-item:hover {
+  background: var(--bg-hover);
+}
+
+.profile-dropdown-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 4px 0;
+}
+
+/* ==========================================================================
+   Date, Time & Calendar Dropdown Components
+   ========================================================================== */
+.datepicker-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+
+.datepicker-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.datepicker-trigger:hover {
+  border-color: var(--border-emphasis);
+  background: var(--bg-surface-subtle);
+}
+
+.datepicker-trigger.active {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--brand-subtle);
+  background: var(--bg-surface-subtle);
+}
+
+.datepicker-trigger-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.datepicker-trigger-placeholder {
+  color: var(--text-muted);
+}
+
+.datepicker-trigger-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-tertiary);
+}
+
+/* Dropdown Popover */
+.datepicker-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-emphasis);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 120;
+  padding: 14px;
+  width: 320px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.datepicker-popover.range-popover {
+  width: 340px;
+}
+
+/* Quick Presets Bar */
+.calendar-presets-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.calendar-preset-chip {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.calendar-preset-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+
+.calendar-preset-chip.active {
+  background: var(--brand-primary);
+  color: var(--brand-on-primary);
+  border-color: var(--brand-primary);
+}
+
+/* Calendar Header */
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.calendar-month-year {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.calendar-nav-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.calendar-nav-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+
+/* Weekday Grid Header */
+.calendar-weekdays-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 6px;
+  text-align: center;
+}
+
+.calendar-weekday-cell {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  padding: 4px 0;
+}
+
+/* Days Grid */
+.calendar-days-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.calendar-day-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+  user-select: none;
+}
+
+.calendar-day-cell:hover:not(.disabled) {
+  background: var(--bg-hover);
+}
+
+.calendar-day-cell.outside-month {
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
+.calendar-day-cell.today {
+  font-weight: 700;
+  border: 1px solid var(--brand-primary);
+}
+
+.calendar-day-cell.selected {
+  background: var(--brand-primary) !important;
+  color: var(--brand-on-primary) !important;
+  font-weight: 700;
+  box-shadow: 0 0 8px rgba(35, 120, 87, 0.4);
+}
+
+.calendar-day-cell.range-start {
+  background: var(--brand-primary) !important;
+  color: var(--brand-on-primary) !important;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  font-weight: 700;
+}
+
+.calendar-day-cell.range-mid {
+  background: rgba(35, 120, 87, 0.18) !important;
+  color: var(--text-accent) !important;
+  border-radius: 0;
+}
+
+.calendar-day-cell.range-end {
+  background: var(--brand-primary) !important;
+  color: var(--brand-on-primary) !important;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  font-weight: 700;
+}
+
+.calendar-day-cell.disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Time Picker Popup */
+.timepicker-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-emphasis);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 120;
+  padding: 14px;
+  width: 280px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.timepicker-columns {
+  display: flex;
+  gap: 8px;
+  height: 180px;
+  margin-top: 8px;
+}
+
+.timepicker-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.timepicker-col-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  text-align: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.timepicker-item {
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  text-align: center;
+  transition: all var(--transition-fast);
+}
+
+.timepicker-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.timepicker-item.active {
+  background: var(--brand-primary);
+  color: var(--brand-on-primary);
+  font-weight: 700;
+}
+
+.timepicker-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.timepicker-chip {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.timepicker-chip:hover {
+  background: var(--brand-primary);
+  color: var(--brand-on-primary);
+  border-color: var(--brand-primary);
+}
+
+/* Date/Time Popover Footer Actions */
+.datepicker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.datepicker-footer-preview {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+

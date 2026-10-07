@@ -1,0 +1,358 @@
+/* ==========================================================================
+   Module launcher — floating, dismissable module switcher
+   ========================================================================== */
+
+.ml-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(60% 50% at 50% 0%, rgba(139, 227, 179, 0.18), transparent 70%),
+    rgba(10, 28, 22, 0.42);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  animation: mlFade 0.25s var(--ease-out) backwards;
+}
+
+.ml-panel {
+  width: min(980px, 100%);
+  max-height: min(860px, calc(100dvh - 48px));
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: 24px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  overflow: hidden;
+  animation: mlRise 0.38s var(--ease-out) backwards;
+}
+
+/* Head */
+.ml-head,
+.ml-search,
+.ml-foot {
+  flex-shrink: 0;
+}
+.ml-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 28px 16px;
+  background:
+    radial-gradient(70% 160% at 0% 0%, var(--brand-subtle), transparent 65%),
+    var(--bg-surface);
+}
+.ml-head-text {
+  flex: 1;
+  min-width: 0;
+}
+.ml-eyebrow {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-primary);
+}
+.ml-head h2 {
+  margin-top: 2px;
+  font-family: var(--font-heading);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+.ml-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+}
+.ml-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  transform: rotate(90deg);
+}
+
+/* Search */
+.ml-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 28px 6px;
+  padding: 0 14px;
+  height: 42px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--bg-surface-subtle);
+  color: var(--text-tertiary);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.ml-search:focus-within {
+  border-color: var(--brand-primary);
+  box-shadow: var(--ring);
+}
+.ml-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+}
+
+/* Body */
+.ml-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 28px 20px;
+  scrollbar-width: thin;
+}
+.ml-group + .ml-group {
+  margin-top: 18px;
+}
+.ml-group h3 {
+  margin-bottom: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.ml-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 10px;
+}
+.ml-empty {
+  padding: 40px 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
+/* Tiles */
+.ml-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 18px 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--bg-surface);
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  animation: mlTileIn 0.4s var(--ease-out) backwards;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast),
+    transform var(--transition-fast),
+    background-color var(--transition-fast);
+}
+.ml-tile:hover,
+.ml-tile:focus-visible {
+  border-color: color-mix(in srgb, var(--ml-color) 45%, transparent);
+  background: color-mix(in srgb, var(--ml-color) 5%, var(--bg-surface));
+  box-shadow: 0 10px 28px -12px color-mix(in srgb, var(--ml-color) 55%, transparent);
+  transform: translateY(-2px);
+  outline: none;
+}
+.ml-tile:focus-visible {
+  box-shadow: var(--ring);
+}
+.ml-orb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  margin-bottom: 8px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.55), transparent 55%),
+    color-mix(in srgb, var(--ml-color) 16%, var(--bg-surface));
+  color: var(--ml-color);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ml-color) 22%, transparent),
+    0 4px 12px -6px color-mix(in srgb, var(--ml-color) 60%, transparent);
+  transition: transform 0.25s var(--ease-spring, var(--ease-out));
+}
+[data-theme='dark'] .ml-orb {
+  background:
+    radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.1), transparent 55%),
+    color-mix(in srgb, var(--ml-color) 22%, var(--bg-surface));
+  color: color-mix(in srgb, var(--ml-color) 55%, #ffffff);
+}
+.ml-tile:hover .ml-orb {
+  transform: scale(1.07);
+}
+.ml-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+.ml-desc {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ml-out {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.ml-tile:hover .ml-out,
+.ml-tile:focus-visible .ml-out {
+  opacity: 1;
+}
+
+/* People & Payroll — the app you are in */
+.ml-tile-home {
+  border-color: color-mix(in srgb, var(--brand-primary) 40%, transparent);
+  background:
+    radial-gradient(120% 90% at 50% 0%, var(--brand-subtle), transparent 70%),
+    var(--bg-surface);
+}
+.ml-tile-home .ml-orb {
+  background: linear-gradient(145deg, #237857, #153e33);
+  color: #8be3b3;
+}
+.ml-here {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--brand-primary);
+  color: var(--brand-on-primary, #fff);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Foot */
+.ml-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 28px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface-subtle);
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+}
+.ml-foot kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--border-default);
+  border-radius: 5px;
+  background: var(--bg-surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+@keyframes mlFade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes mlRise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+}
+@keyframes mlTileIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (max-width: 640px) {
+  .ml-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .ml-panel {
+    max-height: calc(100dvh - 24px);
+    border-radius: 22px 22px 0 0;
+  }
+  .ml-head {
+    padding: 18px 16px 12px;
+  }
+  .ml-head h2 {
+    font-size: 17px;
+  }
+  .ml-search {
+    margin: 0 16px 4px;
+  }
+  .ml-body {
+    padding: 8px 16px 16px;
+  }
+  .ml-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .ml-tile {
+    padding: 14px 8px 12px;
+  }
+  .ml-orb {
+    width: 50px;
+    height: 50px;
+  }
+  .ml-desc {
+    display: none;
+  }
+  .ml-foot {
+    padding: 10px 16px;
+  }
+  .ml-foot > span {
+    display: none;
+  }
+  .ml-foot .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-overlay,
+  .ml-panel,
+  .ml-tile {
+    animation: none;
+  }
+  .ml-tile,
+  .ml-orb,
+  .ml-close {
+    transition: none;
+  }
+}

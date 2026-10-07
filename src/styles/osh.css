@@ -1,0 +1,538 @@
+/* Occupational Safety & Health (#11) */
+
+.osh-kv-gap {
+  margin-bottom: var(--space-5);
+}
+.osh-kv-pill {
+  margin: 3px 0 2px;
+}
+.osh-kv-pill .digicraft-status-pill {
+  display: inline-flex;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+}
+.osh-bad {
+  color: var(--status-critical) !important;
+}
+.osh-warn {
+  color: var(--status-warning) !important;
+}
+.osh-h3 {
+  margin: 0 0 var(--space-3);
+  font-size: 15px;
+  font-weight: 700;
+}
+.osh-h4 {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Sections inside modals */
+.osh-sec {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-3);
+}
+.osh-sec h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.osh-sec p {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.osh-sec.osh-alert {
+  border: 1px solid var(--status-critical-border, #fecaca);
+  background: color-mix(in srgb, var(--status-critical) 6%, transparent);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.osh-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.osh-inline-form .form-control {
+  width: auto;
+  min-width: 130px;
+  flex: 0 1 auto;
+}
+.osh-inline-form .grow {
+  flex: 1 1 220px;
+}
+.osh-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.osh-mini .form-control {
+  min-width: 0;
+  width: 86px;
+}
+.osh-footer-input {
+  width: auto;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.osh-row-actions {
+  white-space: nowrap;
+}
+.osh-row-actions .btn + .btn {
+  margin-left: 4px;
+}
+
+.osh-check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.osh-checkcol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.osh-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.osh-tags .form-control {
+  width: auto;
+  flex: 1 1 180px;
+}
+.osh-tag {
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface-subtle);
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.osh-whys {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.osh-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.osh-history li {
+  padding: 3px 0;
+}
+.osh-history span {
+  display: inline-block;
+  min-width: 88px;
+  color: var(--text-tertiary);
+}
+
+.osh-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.osh-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.osh-list li:last-child {
+  border-bottom: none;
+}
+.osh-list li > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.osh-list strong {
+  font-size: 13px;
+}
+
+.osh-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+  gap: 4px 12px;
+  font-size: 12.5px;
+}
+.osh-checks li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+.osh-checks svg {
+  color: var(--status-success);
+  flex: none;
+}
+
+.osh-calc td.num {
+  white-space: nowrap;
+}
+
+/* PPE */
+.osh-ppe-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.osh-ppe-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  margin: 1px 2px 1px 0;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  background: var(--bg-surface-subtle);
+}
+.osh-ppe-chip.ok {
+  color: var(--status-success-text, #047857);
+  border-color: var(--status-success-border, #a7f3d0);
+  background: var(--status-success-bg, #ecfdf5);
+}
+.osh-ppe-chip.soon {
+  color: var(--status-warning-text, #b45309);
+  border-color: var(--status-warning-border, #fde68a);
+  background: var(--status-warning-bg, #fffbeb);
+}
+.osh-ppe-chip.due,
+.osh-ppe-chip.missing {
+  color: var(--status-critical-text, #b91c1c);
+  border-color: var(--status-critical-border, #fecaca);
+  background: var(--status-critical-bg, #fef2f2);
+}
+.osh-ppe-chip.missing {
+  border-style: dashed;
+}
+.osh-legend {
+  margin-top: var(--space-3);
+}
+.osh-issue .form-control {
+  min-width: 90px;
+}
+.osh-qty {
+  width: 64px;
+  min-width: 0 !important;
+}
+
+/* Inspections */
+.osh-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.osh-checklist li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px;
+}
+.osh-finding {
+  flex-basis: 100%;
+  margin-top: 0;
+}
+.osh-seg {
+  display: inline-flex;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.osh-seg button {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.osh-seg button + button {
+  border-left: 1px solid var(--border-default);
+}
+.osh-seg button.active.ok {
+  background: var(--status-success-bg, #ecfdf5);
+  color: var(--status-success-text, #047857);
+}
+.osh-seg button.active.fail {
+  background: var(--status-critical-bg, #fef2f2);
+  color: var(--status-critical-text, #b91c1c);
+}
+.osh-seg button.active.na {
+  background: var(--bg-surface-subtle);
+  color: var(--text-primary);
+}
+
+.osh-jha-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+  gap: var(--space-3);
+}
+.osh-jha {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  background: var(--bg-surface-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.osh-jha-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.osh-jha-head > div {
+  display: flex;
+  flex-direction: column;
+}
+.osh-jha ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.osh-jha .btn {
+  align-self: flex-start;
+}
+
+/* Committee */
+.osh-members {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
+  gap: 8px;
+}
+.osh-members li {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.osh-minutes {
+  border-top: 1px solid var(--border-subtle);
+  padding: 10px 0;
+}
+.osh-minutes p {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.osh-minutes-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Dashboard */
+.osh-two {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: var(--space-5);
+}
+.osh-two > .pr-card {
+  margin-bottom: var(--space-5);
+}
+.osh-alerts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.osh-alerts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  border: 1px solid var(--border-subtle);
+}
+.osh-alerts li span {
+  flex: 1;
+  min-width: 0;
+}
+.osh-alerts li.critical {
+  background: color-mix(in srgb, var(--status-critical) 7%, transparent);
+  border-color: color-mix(in srgb, var(--status-critical) 30%, transparent);
+}
+.osh-alerts li.critical > svg {
+  color: var(--status-critical);
+  flex: none;
+}
+.osh-alerts li.warning {
+  background: color-mix(in srgb, var(--status-warning) 7%, transparent);
+  border-color: color-mix(in srgb, var(--status-warning) 30%, transparent);
+}
+.osh-alerts li.warning > svg {
+  color: var(--status-warning);
+  flex: none;
+}
+.osh-mini-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: var(--space-3);
+}
+.osh-mini-stats > div {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+}
+.osh-mini-stats strong {
+  font-size: 18px;
+}
+.osh-mini-stats span {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* DOSH Form 1 */
+.osh-f1 {
+  font-size: 12.5px;
+}
+.osh-f1-head {
+  text-align: center;
+  border-bottom: 2px solid var(--text-primary);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.osh-f1-head h2 {
+  margin: 8px 0 2px;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+.osh-f1-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.osh-f1-table td {
+  border: 1px solid var(--border-default);
+  padding: 6px 8px;
+  vertical-align: top;
+}
+.osh-f1-part td {
+  background: var(--bg-surface-subtle);
+  font-weight: 700;
+}
+.osh-f1-n {
+  width: 28px;
+  text-align: center;
+  color: var(--text-tertiary);
+}
+.osh-f1-l {
+  width: 34%;
+  color: var(--text-secondary);
+}
+.osh-f1-sign {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  margin-top: 28px;
+}
+
+@media (max-width: 900px) {
+  .osh-two {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+@media (max-width: 640px) {
+  .osh-inline-form .form-control {
+    flex: 1 1 140px;
+  }
+  .osh-list li {
+    flex-wrap: wrap;
+  }
+  .osh-f1-l {
+    width: 40%;
+  }
+}
+
+@media print {
+  /* Another module hides modal overlays when printing; keep the one holding Form 1 */
+  body.ess-printing .req-modal-overlay:has(.osh-f1.ess-print-area) {
+    display: block !important;
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    height: auto;
+    padding: 0;
+    background: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    animation: none;
+  }
+  body.ess-printing .req-modal:has(.osh-f1),
+  body.ess-printing .req-modal-body:has(.osh-f1) {
+    max-height: none;
+    overflow: visible;
+    transform: none;
+    animation: none;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+  }
+  body.ess-printing .osh-f1.ess-print-area {
+    position: static;
+    padding: 0;
+  }
+  body.ess-printing .osh-f1 {
+    font-size: 11.5px;
+  }
+  body.ess-printing .osh-f1-table td {
+    border-color: #555;
+  }
+  body.ess-printing .osh-f1-part td {
+    background: #eee;
+  }
+}
