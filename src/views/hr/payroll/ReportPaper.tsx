@@ -1,7 +1,7 @@
 import React from 'react';
-import { Download, Printer } from 'lucide-react';
+import { Download, FileSpreadsheet, Printer } from 'lucide-react';
 import { printArea } from '../../ess/EssRecords';
-import { downloadCsv, kes } from './reports';
+import { downloadCsv, downloadExcel, kes } from './reports';
 
 export type Cell = string | number;
 
@@ -31,11 +31,25 @@ export const ReportPaper: React.FC<{ report: Report; company: string; preparedBy
       [report.title, report.subtitle],
       report.sections.flatMap((s) => [[], [s.heading ?? ''], s.columns.map((c) => c.label), ...s.rows, ...(s.foot ? [s.foot] : [])])
     );
+  const excel = () =>
+    downloadExcel(
+      `${report.title} ${report.subtitle}`,
+      report.sections.map((s, i) => ({
+        name: s.heading ?? (report.sections.length > 1 ? `Part ${i + 1}` : report.title),
+        title: `${company} — ${report.title}, ${report.subtitle}${s.heading ? ` — ${s.heading}` : ''}`,
+        header: s.columns.map((c) => c.label),
+        rows: s.rows,
+        foot: s.foot
+      }))
+    );
   return (
     <>
       <div className="pr-toolbar pr-no-print" style={{ justifyContent: 'flex-end', marginBottom: 10 }}>
+        <button className="btn btn-secondary" onClick={excel}>
+          <FileSpreadsheet size={15} /> Export to Excel
+        </button>
         <button className="btn btn-secondary" onClick={csv}>
-          <Download size={15} /> Export CSV
+          <Download size={15} /> CSV
         </button>
         <button className="btn btn-primary" onClick={printArea}>
           <Printer size={15} /> Print
