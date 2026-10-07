@@ -19,9 +19,19 @@ export interface Report {
   kpis?: { label: string; value: string; sub?: string }[];
   sections: Section[];
   footnote?: string;
+  /** Sign-off lines printed at the end (e.g. Prepared by, Checked by, Approved by) */
+  signatures?: string[];
+  /** Wide reports print on landscape paper */
+  landscape?: boolean;
+  /** Rows styled as subtotals (by section index → row indexes) */
+  subtotalRows?: Record<number, number[]>;
+  /** Rows that are group headings spanning the table (by section index → row indexes) */
+  headingRows?: Record<number, number[]>;
+  /** Show zero amounts as blanks (dense registers) */
+  blankZero?: boolean;
 }
 
-const fmt = (c: Cell, num?: boolean) => (num && typeof c === 'number' ? kes(c) : c);
+const fmt = (c: Cell, num?: boolean, blankZero?: boolean) => (num && typeof c === 'number' ? (blankZero && c === 0 ? '' : kes(c)) : c);
 
 /** A printable report on paper, with print and CSV export. */
 export const ReportPaper: React.FC<{ report: Report; company: string; preparedBy?: string }> = ({ report, company, preparedBy = 'Rose Chepkoech, HR & Payroll Officer' }) => {
@@ -55,7 +65,7 @@ export const ReportPaper: React.FC<{ report: Report; company: string; preparedBy
           <Printer size={15} /> Print
         </button>
       </div>
-      <div className="pr-paper ess-print-area pr-print-stack">
+      <div className={`pr-paper ess-print-area pr-print-stack ${report.landscape ? 'pr-wide' : ''}`}>
         <div className="pr-paper-head">
           <div>
             <h2>{company.toUpperCase()}</h2>
@@ -100,15 +110,21 @@ export const ReportPaper: React.FC<{ report: Report; company: string; preparedBy
                 </tr>
               </thead>
               <tbody>
-                {s.rows.map((r, k) => (
-                  <tr key={k}>
-                    {r.map((c, j) => (
-                      <td key={j} className={s.columns[j]?.num ? 'num' : undefined}>
-                        {fmt(c, s.columns[j]?.num)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                {s.rows.map((r, k) =>
+                  report.headingRows?.[i]?.includes(k) ? (
+                    <tr key={k} className="pr-group-row">
+                      <td colSpan={s.columns.length}>{r[0]}</td>
+                    </tr>
+                  ) : (
+                    <tr key={k} className={report.subtotalRows?.[i]?.includes(k) ? 'total' : undefined}>
+                      {r.map((c, j) => (
+                        <td key={j} className={s.columns[j]?.num ? 'num' : undefined}>
+                          {fmt(c, s.columns[j]?.num, report.blankZero)}
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                )}
                 {s.rows.length === 0 && (
                   <tr>
                     <td colSpan={s.columns.length} className="pr-muted">
@@ -131,6 +147,19 @@ export const ReportPaper: React.FC<{ report: Report; company: string; preparedBy
           </div>
         ))}
         {report.footnote && <div className="pr-paper-foot">{report.footnote}</div>}
+        {report.signatures && (
+          <div className="pr-signatures">
+            {report.signatures.map((who) => (
+              <div key={who}>
+                <span className="pr-sign-line" />
+                <strong>{who}</strong>
+                <span>Name ____________________</span>
+                <span>Signature __________  Date ________</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {report.landscape && <style>{'@media print { @page { size: A4 landscape; margin: 8mm; } }'}</style>}
       </div>
     </>
   );

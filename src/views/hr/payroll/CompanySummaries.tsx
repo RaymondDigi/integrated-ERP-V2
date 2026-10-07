@@ -1,21 +1,23 @@
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../../../context/AppContext';
-import { CATEGORY_LABEL, componentById } from '../../../data/payComponents';
+import { componentById } from '../../../data/payComponents';
 import { Printer } from 'lucide-react';
 import { Pager, usePaged } from '../../../components/common/Pager';
 import { printArea } from '../../ess/EssRecords';
 import { PayslipDocument } from './PayslipDocument';
 import { ReportPaper, type Report } from './ReportPaper';
+import { itemCatalog, itemName, itemValue } from './itemListing';
 import { PeriodSelect, useCompanyName } from './shared';
-import { byComponent, group, kes, measure, payRail, periodOf, recentPeriods, rowsFor, totals, type Period, type Row } from './reports';
+import { byComponent, DIMENSIONS, dimension, group, kes, measure, payRail, periodOf, recentPeriods, rowsFor, totals, type Period, type Row } from './reports';
 
-type ReportId = 'payroll' | 'department' | 'statutory' | 'p10' | 'nssf' | 'shif' | 'ahl' | 'nita' | 'items' | 'payslips' | 'bank' | 'thirdparty' | 'variance' | 'journal';
+type ReportId = 'payroll' | 'itemtotals' | 'department' | 'statutory' | 'p10' | 'nssf' | 'shif' | 'ahl' | 'nita' | 'items' | 'payslips' | 'bank' | 'thirdparty' | 'variance' | 'journal';
 
 export const COMPANY_REPORTS: { id: ReportId; name: string; about: string; group: string }[] = [
-  { id: 'payroll', name: 'Payroll summary', about: 'Earnings, benefits and deductions by pay item, with last month alongside', group: 'Payroll' },
+  { id: 'payroll', name: 'Payroll summary', about: 'Every employee on a row with each pay item through to net pay, subtotals by department or branch, and sign-off', group: 'Payroll' },
+  { id: 'itemtotals', name: 'Pay item totals', about: 'Earnings, benefits and deductions by pay item, with last month alongside', group: 'Payroll' },
   { id: 'department', name: 'Department summary', about: 'Headcount, pay, statutory deductions and cost by department', group: 'Payroll' },
   { id: 'payslips', name: 'Company payslips', about: 'Every employee’s payslip for the period, ready to print', group: 'Payroll' },
-  { id: 'items', name: 'Payroll items listing', about: 'Every posted item by pay item — print one item type or all', group: 'Payroll' },
+  { id: 'items', name: 'Payroll items listing', about: 'Pick a pay item (e.g. Acting allowance) to list every employee with it, employee and employer amounts, totals and sign-off', group: 'Payroll' },
   { id: 'statutory', name: 'Statutory remittances', about: 'PAYE, NSSF, SHIF, housing levy and NITA due by the 9th, with schedules', group: 'Statutory' },
   { id: 'p10', name: 'PAYE return (KRA P10)', about: 'Per-employee PAYE working for the iTax P10 upload', group: 'Statutory' },
   { id: 'nssf', name: 'NSSF return', about: 'Tier I and II contributions by employee and employer', group: 'Statutory' },
@@ -35,12 +37,117 @@ const dueDate = (p: Period) => {
   return d.toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric' });
 };
 
-const build = (id: ReportId, rows: Row[], prev: Row[], p: Period, pp: Period, scopeLabel: string, companyName: (o: string) => string, detail: boolean, itemFilter = ''): Report => {
+const SYSTEM_EARN = ['BASIC', 'HOUSE', 'TRANSPORT', 'OVERTIME', 'WAGES'];
+
+/**
+ * Payroll summary: one row per employee with every pay item through to net pay, subtotals per group
+ * (department, branch, …), a grand total and sign-off lines. Prints on landscape paper.
+ */
+const payrollSummary = (rows: Row[], p: Period, scopeLabel: string, groupBy: string, companyName: (o: string) => string): Report => {
+  // Columns for every item that appears this period
+  const earnIds = new Set<string>();
+  const dedIds = new Set<string>();
+  for (const { p: s } of rows) {
+    s.earnings.forEach((l) => !SYSTEM_EARN.includes(l.componentId) && earnIds.add(l.componentId));
+    s.pretax.filter((l) => l.flags.cash).forEach((l) => dedIds.add(l.componentId));
+    s.deductions.filter((d) => d.deducted).forEach((d) => dedIds.add(d.componentId));
+  }
+  const earnCols = [...earnIds].sort((a, b) => componentById(a).name.localeCompare(componentById(b).name));
+  const dedCols = [...dedIds].sort((a, b) => (componentById(a).priority ?? 9) - (componentById(b).priority ?? 9) || componentById(a).name.localeCompare(componentById(b).name));
+  const earn = (r: Row, id: string) => r.p.earnings.filter((l) => l.componentId === id).reduce((t, l) => t + l.amount, 0);
+  const ded = (r: Row, id: string) => r.p.pretax.filter((l) => l.componentId === id && l.flags.cash).reduce((t, l) => t + l.amount, 0) + r.p.deductions.filter((d) => d.componentId === id).reduce((t, d) => t + d.deducted, 0);
+  const values = (r: Row): number[] => [
+    r.p.casual ? r.p.daysWorked : r.p.daysPaid,
+    r.p.basic + r.p.wages,
+    r.p.houseAllowance,
+    r.p.transportAllowance,
+    r.p.overtime,
+    ...earnCols.map((c) => earn(r, c)),
+    r.p.gross,
+    r.p.nssf,
+    r.p.shif,
+    r.p.ahl,
+    r.p.paye,
+    ...dedCols.map((c) => ded(r, c)),
+    r.p.totalDeductions,
+    r.p.net
+  ];
+  const columns = [
+    { label: 'Staff no.' },
+    { label: 'Employee' },
+    { label: 'Days', num: true },
+    { label: 'Basic / wages', num: true },
+    { label: 'House', num: true },
+    { label: 'Transport', num: true },
+    { label: 'Overtime', num: true },
+    ...earnCols.map((c) => ({ label: componentById(c).name, num: true })),
+    { label: 'Gross pay', num: true },
+    { label: 'NSSF', num: true },
+    { label: 'SHIF', num: true },
+    { label: 'Housing levy', num: true },
+    { label: 'PAYE', num: true },
+    ...dedCols.map((c) => ({ label: componentById(c).name.replace(/ — .*/, ''), num: true })),
+    { label: 'Total deductions', num: true },
+    { label: 'Net pay', num: true }
+  ];
+  const add = (a: number[], b: number[]) => a.map((x, i) => x + b[i]);
+  const totalOf = (rs: Row[]) => rs.reduce((acc, r) => add(acc, values(r)), values(rs[0]).map(() => 0));
+  const dim = groupBy === 'none' ? null : dimension(groupBy);
+  const groups = dim
+    ? [...new Map(rows.map((r) => [dim.get(r, companyName), [] as Row[]])).keys()].sort().map((k) => ({ key: k, rows: rows.filter((r) => dim.get(r, companyName) === k) }))
+    : [{ key: '', rows }];
+  const body: (string | number)[][] = [];
+  const subtotal: number[] = [];
+  const headings: number[] = [];
+  for (const g of groups) {
+    if (dim) {
+      headings.push(body.length);
+      body.push([`${dim.label}: ${g.key}`]);
+    }
+    [...g.rows]
+      .sort((a, b) => a.e.fullName.localeCompare(b.e.fullName))
+      .forEach((r) => body.push([r.e.staffId, r.e.fullName, ...values(r)]));
+    if (dim) {
+      const t: (string | number)[] = totalOf(g.rows);
+      t[0] = '';
+      subtotal.push(body.length);
+      body.push([`Subtotal — ${g.key}`, `${g.rows.length} employee${g.rows.length === 1 ? '' : 's'}`, ...t]);
+    }
+  }
+  const grand = rows.length ? totalOf(rows) : columns.slice(2).map(() => 0);
+  return {
+    title: 'Payroll summary',
+    subtitle: `${p.label} · ${scopeLabel}${dim ? ` · by ${dim.label.toLowerCase()}` : ''}`,
+    kpis: [
+      { label: 'Employees paid', value: String(rows.length) },
+      { label: 'Gross pay', value: `KES ${kes(grand[columns.findIndex((c) => c.label === 'Gross pay') - 2])}` },
+      { label: 'Total deductions', value: `KES ${kes(grand[grand.length - 2])}` },
+      { label: 'Net pay', value: `KES ${kes(grand[grand.length - 1])}` }
+    ],
+    sections: [
+      {
+        columns,
+        rows: body,
+        foot: ['Grand total', `${rows.length} employees`, '', ...grand.slice(1)],
+        note: 'Days column: days paid out of 30 (daily-rated staff: days worked). Loans show the amount recovered this month. Non-cash benefits are taxed but not paid, so they are not in gross pay.'
+      }
+    ],
+    subtotalRows: { 0: subtotal },
+    headingRows: { 0: headings },
+    blankZero: true,
+    landscape: true,
+    signatures: ['Prepared by (Payroll Officer)', 'Checked by (HR Manager)', 'Approved by (Finance Manager)', 'Authorised by (Managing Director)']
+  };
+};
+
+const build = (id: ReportId, rows: Row[], prev: Row[], p: Period, pp: Period, scopeLabel: string, companyName: (o: string) => string, detail: boolean, itemFilter = '', groupBy = 'department'): Report => {
   const subtitle = `${p.label} · ${scopeLabel}`;
   const gross = sum(rows, (r) => r.p.gross);
   const net = sum(rows, (r) => r.p.net);
 
-  if (id === 'payroll') {
+  if (id === 'payroll') return payrollSummary(rows, p, scopeLabel, groupBy, companyName);
+
+  if (id === 'itemtotals') {
     const now = byComponent(rows);
     const before = byComponent(prev);
     const prevOf = (list: { id: string; amount: number }[], cid: string) => list.find((x) => x.id === cid)?.amount ?? 0;
@@ -48,7 +155,7 @@ const build = (id: ReportId, rows: Row[], prev: Row[], p: Period, pp: Period, sc
     const line = (label: string, [a, b]: number[], n = '') => [label, n, a, b, a - b];
     const cols = [{ label: 'Item' }, { label: 'Employees', num: true }, { label: p.label, num: true }, { label: pp.label, num: true }, { label: 'Change', num: true }];
     return {
-      title: 'Payroll summary',
+      title: 'Pay item totals',
       subtitle,
       kpis: [
         { label: 'Employees paid', value: String(rows.length), sub: `${rows.filter((r) => r.p.casual).length} daily-rated · ${prev.length} last month` },
@@ -303,33 +410,77 @@ const build = (id: ReportId, rows: Row[], prev: Row[], p: Period, pp: Period, sc
     };
   }
   if (id === 'items') {
-    type L = { comp: string; staff: string; label: string; ref: string; amount: number };
-    const lines: L[] = [];
-    for (const r of rows) {
-      [...r.p.earnings, ...r.p.benefits, ...r.p.pretax]
-        .filter((l) => l.itemId && (!itemFilter || l.componentId === itemFilter))
-        .forEach((l) => lines.push({ comp: l.componentId, staff: `${r.e.staffId} ${r.e.fullName}`, label: l.label, ref: l.ref ?? '', amount: l.amount }));
-      r.p.deductions
-        .filter((d) => d.itemId && (!itemFilter || d.componentId === itemFilter))
-        .forEach((d) => lines.push({ comp: d.componentId, staff: `${r.e.staffId} ${r.e.fullName}`, label: d.label, ref: d.ref ?? '', amount: d.deducted }));
+    const sign = ['Prepared by (Payroll Officer)', 'Checked by (HR Manager)', 'Approved by (Finance Manager)'];
+    if (!itemFilter) {
+      // Overview: every item this period with headcount and totals
+      const cat = itemCatalog(rows);
+      const lines = cat.map((d) => {
+        const vals = rows.map((r) => itemValue(r, d.id)).filter((v): v is NonNullable<typeof v> => !!v && (v.ee !== 0 || v.er !== 0));
+        return { d, n: vals.length, ee: vals.reduce((t, v) => t + v.ee, 0), er: vals.reduce((t, v) => t + v.er, 0) };
+      }).filter((l) => l.n);
+      return {
+        title: 'Payroll items listing',
+        subtitle,
+        kpis: [{ label: 'Pay items in use', value: String(lines.length), sub: 'Pick one on the left to list its employees' }],
+        sections: [
+          {
+            columns: [{ label: 'Pay item' }, { label: 'Type' }, { label: 'Employees', num: true }, { label: 'Employee amount', num: true }, { label: 'Employer amount', num: true }, { label: 'Total', num: true }],
+            rows: lines.map((l) => [l.d.name, l.d.group, l.n, l.ee, l.er, l.ee + l.er])
+          }
+        ],
+        signatures: sign,
+        blankZero: true
+      };
     }
-    const comps = [...new Set(lines.map((l) => l.comp))].sort((a, b) => componentById(a).name.localeCompare(componentById(b).name));
+    // One item: every employee who has it, with employee and employer amounts
+    const withItem = rows
+      .map((r) => ({ r, v: itemValue(r, itemFilter) }))
+      .filter((x): x is { r: Row; v: NonNullable<typeof x.v> } => !!x.v && (x.v.ee !== 0 || x.v.er !== 0));
+    const hasEr = withItem.some((x) => x.v.er);
+    const columns = [
+      { label: 'Staff no.' },
+      { label: 'Employee' },
+      { label: 'Department' },
+      { label: 'Reference / basis' },
+      { label: hasEr ? 'Employee amount' : 'Amount', num: true },
+      ...(hasEr ? [{ label: 'Employer amount', num: true }, { label: 'Total', num: true }] : [])
+    ];
+    const line = (x: (typeof withItem)[number]) => [x.r.e.staffId, x.r.e.fullName, x.r.e.department, x.v.ref, x.v.ee, ...(hasEr ? [x.v.er, x.v.ee + x.v.er] : [])];
+    const totals = (xs: typeof withItem) => {
+      const ee = xs.reduce((t, x) => t + x.v.ee, 0);
+      const er = xs.reduce((t, x) => t + x.v.er, 0);
+      return [ee, ...(hasEr ? [er, ee + er] : [])];
+    };
+    const dim = groupBy === 'none' ? null : dimension(groupBy);
+    const body: (string | number)[][] = [];
+    const headings: number[] = [];
+    const subtotals: number[] = [];
+    const keys = dim ? [...new Set(withItem.map((x) => dim.get(x.r, companyName)))].sort() : [''];
+    for (const k of keys) {
+      const xs = withItem.filter((x) => !dim || dim.get(x.r, companyName) === k).sort((a, b) => a.r.e.fullName.localeCompare(b.r.e.fullName));
+      if (dim) {
+        headings.push(body.length);
+        body.push([`${dim.label}: ${k}`]);
+      }
+      xs.forEach((x) => body.push(line(x)));
+      if (dim) {
+        subtotals.push(body.length);
+        body.push([`Subtotal — ${k}`, `${xs.length} employee${xs.length === 1 ? '' : 's'}`, '', '', ...totals(xs)]);
+      }
+    }
+    const t = totals(withItem);
     return {
-      title: itemFilter ? `Payroll items — ${componentById(itemFilter).name}` : 'Payroll items listing',
-      subtitle,
+      title: `Payroll item listing — ${itemName(itemFilter)}`,
+      subtitle: `${subtitle}${dim ? ` · by ${dim.label.toLowerCase()}` : ''}`,
       kpis: [
-        { label: 'Items', value: String(lines.length), sub: `${comps.length} pay item type${comps.length === 1 ? '' : 's'}` },
-        { label: 'Total', value: `KES ${kes(lines.reduce((s2, l) => s2 + l.amount, 0))}` }
+        { label: 'Employees', value: String(withItem.length) },
+        { label: hasEr ? 'Employee amount' : 'Total amount', value: `KES ${kes(t[0])}` },
+        ...(hasEr ? [{ label: 'Employer amount', value: `KES ${kes(t[1])}` }, { label: 'Total', value: `KES ${kes(t[2])}` }] : [])
       ],
-      sections: comps.map((c) => {
-        const ls = lines.filter((l) => l.comp === c);
-        return {
-          heading: `${componentById(c).name} (${CATEGORY_LABEL[componentById(c).category].toLowerCase()})`,
-          columns: [{ label: 'Employee' }, { label: 'Reference' }, { label: 'Amount', num: true }],
-          rows: ls.map((l) => [l.staff, l.ref, l.amount]),
-          foot: ['Total', `${ls.length} item${ls.length === 1 ? '' : 's'}`, ls.reduce((s2, l) => s2 + l.amount, 0)]
-        };
-      })
+      sections: [{ columns, rows: body, foot: ['Total', `${withItem.length} employee${withItem.length === 1 ? '' : 's'}`, '', '', ...t] }],
+      headingRows: { 0: headings },
+      subtotalRows: { 0: subtotals },
+      signatures: sign
     };
   }
 
@@ -526,8 +677,9 @@ export const CompanySummaries: React.FC = () => {
   const prev = useMemo(() => rowsFor(hrEmployees, orgKey.split(','), periodOf(p.year, p.month - 1), payrollCtx), [hrEmployees, orgKey, p.year, p.month, payrollCtx]);
   const scopeLabel = scope === 'company' ? companyName(selectedOrgId) : `Group — ${orgs.length} companies`;
   const [itemFilter, setItemFilter] = useState('');
-  const report = build(reportId, rows, prev, p, pp, scopeLabel, companyName, detail, itemFilter);
-  const itemComps = [...new Set(rows.flatMap((r) => [...r.p.earnings, ...r.p.benefits, ...r.p.pretax].filter((l) => l.itemId).map((l) => l.componentId).concat(r.p.deductions.filter((d) => d.itemId).map((d) => d.componentId))))];
+  const [groupBy, setGroupBy] = useState('department');
+  const report = build(reportId, rows, prev, p, pp, scopeLabel, companyName, detail, itemFilter, groupBy);
+  const itemComps = itemCatalog(rows);
   const hasDetail = ['statutory', 'bank', 'thirdparty'].includes(reportId);
 
   return (
@@ -574,15 +726,34 @@ export const CompanySummaries: React.FC = () => {
             <option value="group">Whole group (all companies)</option>
           </select>
         </div>
+        {(reportId === 'payroll' || (reportId === 'items' && itemFilter)) && (
+          <div>
+            <h4>Group and subtotal by</h4>
+            <select className="form-control" value={groupBy} onChange={(ev) => setGroupBy(ev.target.value)}>
+              <option value="none">No grouping — one list</option>
+              {DIMENSIONS.filter((d) => !['employee', 'band'].includes(d.key)).map((d) => (
+                <option key={d.key} value={d.key}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         {reportId === 'items' && (
           <div>
             <h4>Pay item</h4>
             <select className="form-control" value={itemFilter} onChange={(ev) => setItemFilter(ev.target.value)}>
-              <option value="">All pay items</option>
-              {itemComps.map((c) => (
-                <option key={c} value={c}>
-                  {componentById(c).name}
-                </option>
+              <option value="">All pay items — overview</option>
+              {(['Earnings', 'Non-cash benefits', 'Before-tax deductions', 'Deductions & loans', 'Statutory'] as const).map((g) => (
+                <optgroup key={g} label={g}>
+                  {itemComps
+                    .filter((c) => c.group === g)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                </optgroup>
               ))}
             </select>
           </div>
