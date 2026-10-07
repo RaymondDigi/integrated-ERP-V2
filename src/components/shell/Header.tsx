@@ -19,6 +19,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { HR_PROCESS_APPS } from '../../data/hrMockData';
 import { BrandLogo } from './BrandLogo';
+import { ROLE_LABEL, signOut, useSession } from '../../auth/session';
 import { FinanceCrumb } from '../../suites/finance/FinanceSuite';
 import { TradingCrumb } from '../../suites/commercial/trading/TradingSuite';
 import { ProcurementCrumb } from '../../suites/commercial/procurement/ProcurementSuite';
@@ -35,6 +36,7 @@ import { ApprovalsCrumb } from '../../suites/hub/Approvals';
 import { ExecutiveCrumb } from '../../suites/hub/Executive';
 
 export const Header: React.FC = () => {
+  const session = useSession();
   const {
     currentView,
     setCurrentView,
@@ -282,11 +284,11 @@ export const Header: React.FC = () => {
             aria-label="Open User Profile menu"
           >
             <div className="avatar-img-wrapper" style={{ background: '#237857', color: '#fff', fontWeight: 700 }}>
-              JK
+              {session?.initials ?? 'JK'}
             </div>
             <div className="profile-info">
-              <span className="profile-name">Joseph Kiprono</span>
-              <span className="profile-role">HR & Payroll Controller</span>
+              <span className="profile-name">{session?.name ?? 'Joseph Kiprono'}</span>
+              <span className="profile-role">{session?.title ?? 'HR & Payroll Controller'}</span>
             </div>
             <ChevronDown size={14} className="profile-chevron" />
           </button>
@@ -309,11 +311,17 @@ export const Header: React.FC = () => {
               }}
             >
               <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>Joseph Kiprono</div>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>j.kiprono@intergrated-erp.ke</div>
+                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>{session?.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{session?.email}</div>
                 <div style={{ fontSize: 10, color: 'var(--brand-primary)', fontWeight: 600, marginTop: 2 }}>
-                  Role: Group HR & Statutory Sign-off
+                  {session ? ROLE_LABEL[session.role] : ''}
                 </div>
+                {session && (
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                    Signed in {new Date(session.signedInAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} · session ends{' '}
+                    {new Date(session.expiresAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                )}
               </div>
 
               <button
@@ -366,15 +374,13 @@ export const Header: React.FC = () => {
                 className="dropdown-item text-critical"
                 onClick={() => {
                   setIsProfileDropdownOpen(false);
-                  addToast({
-                    type: 'info',
-                    title: 'Session Locked',
-                    message: 'User session logged out securely.'
-                  });
+                  setCurrentView('apps');
+                  setIsLauncherOpen(true);
+                  signOut();
                 }}
               >
                 <LogOut size={14} />
-                <span>Lock Session</span>
+                <span>Sign out</span>
               </button>
             </div>
           )}

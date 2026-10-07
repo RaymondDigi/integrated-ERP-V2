@@ -64,6 +64,8 @@ import { AiInsightsView } from './views/AiInsightsView';
 import { SettingsView } from './views/SettingsView';
 import { FormsInputsView } from './views/FormsInputsView';
 import { ProfileView } from './views/ProfileView';
+import { LoginView } from './views/auth/LoginView';
+import { useSession } from './auth/session';
 
 export const App: React.FC = () => {
   const { currentView, moduleTabs } = useApp();
@@ -75,7 +77,13 @@ export const App: React.FC = () => {
     window.scrollTo(0, 0);
   }, [currentView, tabKey]);
 
+  // Unified sign-in: nothing behind it until a session exists
+  const session = useSession();
+  if (!session) return <LoginView />;
+
   const renderView = () => {
+    // The self-service account only ever sees the employee portal
+    if (session.role === 'employee') return <EssPortalView />;
     switch (currentView) {
       // DigiCraft Apps Landing Page
       case 'apps':
