@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { ClipboardList, FileUp, Plus, Search, Users } from 'lucide-react';
+import { ClipboardList, FileUp, Plus, Printer, Search, Users } from 'lucide-react';
+import { printArea } from '../../ess/EssRecords';
 import { useApp } from '../../../context/AppContext';
 import { CATEGORY_LABEL, componentById, currentComponents, LOAN_COMPONENTS, type ComponentCategory, type PayComponentType } from '../../../data/payComponents';
 import { calcAmount, formulaVars, itemsFor, makeContext, payableIn, payslip } from '../../../data/payrollEngine';
@@ -7,7 +8,7 @@ import { Pager, usePaged } from '../../../components/common/Pager';
 import { calcSummary, needsQty } from './PayItemSetup';
 import type { PayItem } from '../../../data/payItems';
 import type { HREmployee } from '../../../types';
-import { Flags, forwardPeriods, Modal, PeriodSelect } from './shared';
+import { Flags, forwardPeriods, Modal, PeriodSelect, useCompanyName } from './shared';
 import { kes, periodOf, recentPeriods } from './reports';
 
 type Draft = Omit<PayItem, 'id' | 'orgId' | 'postedBy' | 'postedOn' | 'status'>;
@@ -493,11 +494,98 @@ const ImportModal: React.FC<{ employees: HREmployee[]; onClose: () => void }> = 
   );
 };
 
+/* ------------------------------------------------------------------ voucher */
+
+/** One payroll item on paper: who, what, how much, how it is taxed, who posted it — for files and sign-off. */
+const ItemVoucher: React.FC<{ item: PayItem; onClose: () => void }> = ({ item, onClose }) => {
+  const { hrEmployees, payrollCtx } = useApp();
+  const companyName = useCompanyName();
+  const e = hrEmployees.find((x) => x.staffId === item.staffId);
+  const c = componentById(item.componentId);
+  const p = periodOf(Number(item.period.slice(0, 4)), Number(item.period.slice(5, 7)) - 1);
+  const slip = e ? payslip(e, p.year, p.month, payrollCtx) : null;
+  const paid = slip ? [...slip.earnings, ...slip.benefits, ...slip.pretax].find((l) => l.itemId === item.id)?.amount ?? slip.deductions.find((d) => d.itemId === item.id)?.deducted : undefined;
+  const row = (k: string, v: React.ReactNode) => (
+    <tr>
+      <td style={{ width: '38%' }} className="pr-muted">
+        {k}
+      </td>
+      <td>{v}</td>
+    </tr>
+  );
+  return (
+    <Modal
+      title={`Payroll item ${item.id}`}
+      subtitle={`${c.name} · ${e?.fullName ?? item.staffId}`}
+      onClose={onClose}
+      width={720}
+      footer={
+        <div className="req-footer-actions">
+          <button className="btn btn-primary" onClick={printArea}>
+            <Printer size={15} /> Print voucher
+          </button>
+        </div>
+      }
+    >
+      <div className="ess-print-area">
+        <div className="pr-paper">
+          <div className="pr-paper-head">
+            <div>
+              <h2>{companyName(item.orgId).toUpperCase()}</h2>
+              <p>Payroll item voucher — {item.id}</p>
+            </div>
+            <div style={{ textAlign: 'right', fontSize: 12 }}>
+              Pay period <strong>{p.label}</strong>
+              <br />
+              <span className="pr-muted">{item.status === 'CANCELLED' ? 'Cancelled' : item.recurring ? `Monthly from ${item.period}${item.endPeriod ? ` to ${item.endPeriod}` : ''}` : 'One-off'}</span>
+            </div>
+          </div>
+          <table className="pr-doc">
+            <tbody>
+              {row('Employee', `${e?.fullName ?? ''} (${item.staffId})`)}
+              {row('Department / job', `${e?.department ?? ''} · ${e?.jobTitle ?? ''}`)}
+              {row('Pay item', `${c.name} — ${CATEGORY_LABEL[c.category].toLowerCase()}`)}
+              {row('Reference', item.reference)}
+              {item.quantity ? row('Quantity', `${item.quantity} ${(c.calc?.qtyLabel ?? 'units').toLowerCase()}`) : null}
+              {row('How the amount is set', calcSummary(c))}
+              {row(
+                'Amount',
+                <strong>
+                  KES {kes(paid ?? item.amount)}
+                  {paid !== undefined && paid !== item.amount ? ` (posted ${kes(item.amount)})` : ''}
+                </strong>
+              )}
+              {row('Statutory treatment', <Flags c={c} />)}
+              {row('Why', c.note)}
+              {item.note ? row('Note', item.note) : null}
+              {row('Posted', `${item.postedBy}, ${item.postedOn} (${item.source})`)}
+              {item.cancelledBy ? row('Cancelled by', item.cancelledBy) : null}
+            </tbody>
+          </table>
+          <div className="pr-two-col" style={{ marginTop: 36, fontSize: 12 }}>
+            <div>
+              ______________________
+              <br />
+              Prepared by (Payroll)
+            </div>
+            <div>
+              ______________________
+              <br />
+              Approved by (Finance)
+            </div>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
 /* ------------------------------------------------------------------ tab */
 
 export const PayrollItems: React.FC = () => {
   const { payItems, hrEmployees, selectedOrgId, payrollOpenPeriod, cancelPayItem, endRecurringPayItem, payrollCtx } = useApp();
   const [modal, setModal] = useState<'one' | 'bulk' | 'import' | null>(null);
+  const [voucher, setVoucher] = useState<PayItem | null>(null);
   const periods = [...forwardPeriods(payrollOpenPeriod, 2).slice(1).reverse(), ...recentPeriods(payrollOpenPeriod, 6)];
   const [period, setPeriod] = useState(payrollOpenPeriod.key);
   const [scope, setScope] = useState<'period' | 'all'>('period');
@@ -666,6 +754,9 @@ export const PayrollItems: React.FC = () => {
                       </div>
                     </td>
                     <td>
+                      <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 11 }} title="Print this item" aria-label={`Print ${i.id}`} onClick={() => setVoucher(i)}>
+                        <Printer size={12} />
+                      </button>{' '}
                       {editable(i) && !i.recurring && (
                         <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => cancelPayItem(i.id, 'Cancelled before payroll was posted')}>
                           Cancel
@@ -695,6 +786,7 @@ export const PayrollItems: React.FC = () => {
       </div>
 
       {modal === 'one' && <PostItemModal employees={employees} onClose={() => setModal(null)} />}
+      {voucher && <ItemVoucher item={voucher} onClose={() => setVoucher(null)} />}
       {modal === 'bulk' && <BulkModal employees={employees} onClose={() => setModal(null)} />}
       {modal === 'import' && <ImportModal employees={employees} onClose={() => setModal(null)} />}
     </>
