@@ -45,6 +45,7 @@ import {
   ESS_ACTIVE_APPRAISAL,
   ESS_ASSETS,
   INITIAL_ESS_PROFILE,
+  profileFromRecord,
   type EssProfileData,
   type EssAsset,
   type EssRequest,
@@ -112,7 +113,15 @@ export const EssPortalView: React.FC = () => {
   const [punches, setPunches] = useState<Punch[]>([]);
   const [leaveFormOpen, setLeaveFormOpen] = useState(false);
   const [requestPreset, setRequestPreset] = useState<EssRequestType | null>(null);
-  const [profile, setProfile] = useState<EssProfileData>(INITIAL_ESS_PROFILE);
+  // Contact details HR edits on the employee record flow into the portal profile
+  const recordForProfile = hrEmployees.find((e) => e.staffId === ESS_EMPLOYEE.staffId);
+  const [profile, setProfile] = useState<EssProfileData>(() => ({ ...INITIAL_ESS_PROFILE, ...profileFromRecord(recordForProfile) }));
+  const recordContactKey = JSON.stringify(profileFromRecord(recordForProfile));
+  const [syncedContactKey, setSyncedContactKey] = useState(recordContactKey);
+  if (recordContactKey !== syncedContactKey) {
+    setSyncedContactKey(recordContactKey);
+    setProfile((p) => ({ ...p, ...profileFromRecord(recordForProfile) }));
+  }
   const [assets, setAssets] = useState<EssAsset[]>(ESS_ASSETS);
   const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
 

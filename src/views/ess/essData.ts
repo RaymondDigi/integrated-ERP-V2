@@ -413,4 +413,17 @@ export const INITIAL_ESS_PROFILE: EssProfileData = {
   emPhone: ''
 };
 
+/** Contact details HR keeps on the employee record (Edit details in the employee master) for the portal profile. */
+export const profileFromRecord = (r?: HREmployee): Partial<EssProfileData> =>
+  r
+    ? {
+        phone: r.phone,
+        ...(r.personalEmail ? { personalEmail: r.personalEmail } : {}),
+        ...(r.address ? { address: r.address } : {}),
+        ...(r.maritalStatus ? { maritalStatus: r.maritalStatus as EssProfileData['maritalStatus'] } : {}),
+        ...(r.nextOfKin ? { kinName: r.nextOfKin.name, kinRelationship: r.nextOfKin.relationship, kinPhone: r.nextOfKin.phone } : {}),
+        ...(r.emergencyContact ? { emName: r.emergencyContact.name, emRelationship: r.emergencyContact.relationship, emPhone: r.emergencyContact.phone } : {})
+      }
+    : {};
+
 export const QUALIFICATIONS = ['Certificate', 'Diploma', "Bachelor's Degree", "Master's Degree", 'Doctorate', 'Professional Certification'];

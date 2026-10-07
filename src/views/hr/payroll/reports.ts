@@ -31,7 +31,9 @@ export const rowsFor = (list: HREmployee[], orgIds: string[], period: Period, ct
       .map((e) => ({ e, p: payslip(e, period.year, period.month, ctx) }))
   );
 
-export const payRail = (e: HREmployee) => (isCasual(e) ? 'M-Pesa' : (e.bankAccountMasked || 'Bank').split(' ')[0]);
+/** Where net pay goes: the employee's chosen rail, else M-Pesa for daily-rated staff and the bank for everyone else. */
+export const payRail = (e: HREmployee) =>
+  e.paymentMethod === 'MPESA' || (isCasual(e) && e.paymentMethod !== 'BANK') ? 'M-Pesa' : (e.bankAccountMasked || 'Bank').split(' ')[0];
 
 /* ------------------------------------------------------------------ measures */
 

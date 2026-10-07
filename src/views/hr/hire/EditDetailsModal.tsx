@@ -433,7 +433,7 @@ export const EditDetailsModal: React.FC<{ e: HREmployee; unmask?: boolean; onClo
           </button>
         </h4>
         <div className="pr-note">
-          <Lock size={13} /> Stored encrypted and kept masked. Type a full number only to replace it — leave blank to keep the one on file. Changes to the KRA PIN need a reason and are logged.
+          <Lock size={13} /> Stored encrypted and kept masked. Type a full number only to replace it — leave blank to keep the one on file. Replacing a number needs a reason and is logged.
         </div>
         <div className="pr-form-grid hi-edit-grid">
           <EF label="National ID" error={err('nationalId')} hint={<>On file <b className="hi-mono">{reveal(e.nationalIdMasked, unmask)}</b></>}>
