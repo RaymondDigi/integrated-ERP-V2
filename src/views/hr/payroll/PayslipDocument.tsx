@@ -196,10 +196,12 @@ export const PayslipDocument: React.FC<{ e: HREmployee; p: Payslip; ctx: Payroll
                 <td className="indent">Less personal relief</td>
                 <td className="num">({money(t.personalRelief)})</td>
               </tr>
-              <tr>
-                <td className="indent">Less housing relief (15% of AHL, max {kes(t.rateTable.paye.housingRelief.cap)})</td>
-                <td className="num">({money(t.housingRelief)})</td>
-              </tr>
+              {t.housingRelief > 0 && (
+                <tr>
+                  <td className="indent">Less housing relief</td>
+                  <td className="num">({money(t.housingRelief)})</td>
+                </tr>
+              )}
               <tr>
                 <td className="indent">Less PMF relief (15% of PMF contribution)</td>
                 <td className="num">({money(t.pmfRelief)})</td>

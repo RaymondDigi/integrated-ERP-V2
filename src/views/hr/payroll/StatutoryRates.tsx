@@ -151,10 +151,6 @@ const NewVersionModal: React.FC<{ onClose: () => void; onSaved: () => void; mode
           {num('personalRelief')}
         </label>
         <label className="req-field">
-          <span>Housing relief cap (KES / month)</span>
-          {num('housingCap')}
-        </label>
-        <label className="req-field">
           <span>PWD exemption (KES / month)</span>
           {num('pwd')}
         </label>
@@ -173,10 +169,6 @@ const NewVersionModal: React.FC<{ onClose: () => void; onSaved: () => void; mode
         <label className="req-field">
           <span>NSSF rate (%, each share)</span>
           {num('nssfRate')}
-        </label>
-        <label className="req-field">
-          <span>Housing relief (% of levy, 0 = off)</span>
-          {num('housingRate')}
         </label>
         <label className="req-field">
           <span>Insurance relief cap (KES / month)</span>
@@ -275,7 +267,7 @@ const Simulator: React.FC = () => {
       <div className="pr-card-head">
         <div>
           <h3>Statutory simulator</h3>
-          <p>Try any figures. Uses the rate version in force on the chosen date. Spec check: KES 150,000 gross (145,000 pensionable) gives PAYE 33,189 and net 103,956.</p>
+          <p>Try any figures. Uses the rate version in force on the chosen date. Check: KES 150,000 gross (145,000 pensionable) gives PAYE 33,527 and net 103,618 — personal relief only, no housing relief.</p>
         </div>
       </div>
       <div className="pr-builder" style={{ gridTemplateColumns: '320px minmax(0,1fr)' }}>
@@ -316,7 +308,7 @@ const Simulator: React.FC = () => {
             {r.bandLines.map((b) => row(r.method === 'HIGHEST_RATE' ? `Flat ${pctv(b.rate)} on ${kes(b.amount)}` : `Band ${b.band}: ${kes(b.amount)} × ${pctv(b.rate)}`, Math.round(b.tax * 100) / 100))}
             {row('Gross tax', Math.round(r.grossTax * 100) / 100)}
             {r.method === 'BANDS' && row('Personal relief', r.personalRelief, true)}
-            {r.method === 'BANDS' && row('Housing relief (15% of levy)', Math.round(r.housingRelief * 100) / 100, true)}
+            {r.housingRelief > 0 && row('Housing relief', Math.round(r.housingRelief * 100) / 100, true)}
             {r.pmfRelief > 0 && row('PMF relief', r.pmfRelief, true)}
             {r.insuranceRelief > 0 && row('Insurance relief', r.insuranceRelief, true)}
             {row('PAYE', r.paye, false, true)}
@@ -339,7 +331,7 @@ const Simulator: React.FC = () => {
   );
 };
 
-type ReliefKey = 'housingRelief' | 'insuranceRelief' | 'pmfRelief';
+type ReliefKey = 'insuranceRelief' | 'pmfRelief';
 
 /**
  * The PAYE reliefs and the switch for each. A change applies from the open payroll period through a rate
@@ -351,7 +343,6 @@ const ReliefSettings: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
   const cur = ratesOn(from);
   const [personal, setPersonal] = useState(String(cur.paye.personalRelief));
   const rows: { key: ReliefKey; name: string; base: string; where: string; previous: number }[] = [
-    { key: 'housingRelief', name: 'Affordable housing relief', base: 'of the employee’s housing levy', where: 'Every payslip: “Less housing relief” in the PAYE working', previous: 0.15 },
     { key: 'insuranceRelief', name: 'Insurance relief', base: 'of life / education premiums deducted through payroll', where: 'Payslips with an Insurance premium pay item', previous: 0.15 },
     { key: 'pmfRelief', name: 'Post-retirement medical fund relief', base: 'of PMF contributions', where: 'Payslips with a PMF pay item', previous: 0.15 }
   ];
@@ -377,7 +368,7 @@ const ReliefSettings: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
         <div>
           <h3>PAYE reliefs</h3>
           <p>
-            Reliefs come off the tax worked out from the PAYE bands. Each is held in the dated rate tables (<code>src/data/statutoryRates.ts</code> → <code>paye.housingRelief</code> etc.) and applied in the PAYE step of
+            Reliefs come off the tax worked out from the PAYE bands. Each is held in the dated rate tables (<code>src/data/statutoryRates.ts</code> → <code>paye.personalRelief</code>, <code>paye.insuranceRelief</code>, <code>paye.pmfRelief</code>) and applied in the PAYE step of
             the payroll engine (<code>computeStatutory</code> in <code>src/utils/statutory.ts</code>). Turning one on or off here applies from {payrollOpenPeriod.label}; paid months keep what they were paid with.
           </p>
         </div>
@@ -452,8 +443,7 @@ const ReliefSettings: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
         </table>
       </div>
       <div className="pr-note" style={{ marginTop: 10 }}>
-        Housing relief is on because the client payroll specification (§2, §5) asks for it alongside the housing levy being deducted before PAYE. Confirm with your tax adviser whether it still applies under the current Finance Act;
-        if not, turn it off here — the October payroll and later recalculate at once.
+        There is no housing relief: the employee’s housing levy is deducted from pay before PAYE is worked out, which replaced the old 15% relief. Payslips show only personal, insurance and PMF relief.
       </div>
     </div>
   );
@@ -537,7 +527,7 @@ export const StatutoryRates: React.FC = () => {
           <div>
             <span>Reliefs</span>
             <strong style={{ fontSize: 12 }}>
-              Personal {kes(current.paye.personalRelief)} · housing 15% (≤{kes(current.paye.housingRelief.cap)}) · insurance 15% (≤{kes(current.paye.insuranceRelief.cap)}) · PMF 15% (≤{kes(current.paye.pmfRelief.cap)})
+              Personal {kes(current.paye.personalRelief)} · insurance 15% (≤{kes(current.paye.insuranceRelief.cap)}) · PMF 15% (≤{kes(current.paye.pmfRelief.cap)}) · no housing relief (levy deducted before PAYE)
             </strong>
           </div>
           <div>

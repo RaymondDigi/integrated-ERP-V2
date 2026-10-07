@@ -162,7 +162,7 @@ export const computeStatutory = (i: StatutoryInputs): StatutoryResult => {
     method: 'BANDS',
     note: profile.pwdExempt
       ? `PWD exemption — first KES ${(profile.pwdExemptAmount ?? t.paye.pwdExemptMonthly).toLocaleString()} of taxable pay is exempt`
-      : 'Graduated PAYE bands less personal and housing relief'
+      : 'Graduated PAYE bands less personal relief'
   };
 };
 

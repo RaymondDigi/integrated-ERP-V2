@@ -57,7 +57,7 @@ export const EssPayslips: React.FC<{ payslips: Payslip[] }> = ({ payslips }) => 
   const earnings = d.earnings.map((l) => ({ label: l.label, amount: l.amount, note: l.ref }));
   const reliefs = Math.round(t.personalRelief + t.housingRelief + t.insuranceRelief + t.pmfRelief);
   const deductions: { label: string; amount: number; note?: string }[] = [
-    { label: `PAYE (after reliefs of ${formatKes(reliefs)})`, amount: s.payeNet, note: `Personal ${formatKes(t.personalRelief)} + housing ${formatKes(t.housingRelief)}${t.insuranceRelief ? ` + insurance ${formatKes(t.insuranceRelief)}` : ''}` },
+    { label: `PAYE (after reliefs of ${formatKes(reliefs)})`, amount: s.payeNet, note: `Personal ${formatKes(t.personalRelief)}${t.insuranceRelief ? ` + insurance ${formatKes(t.insuranceRelief)}` : ''}${t.pmfRelief ? ` + PMF ${formatKes(t.pmfRelief)}` : ''}` },
     { label: `NSSF (Tier I ${formatKes(t.nssfTierI)} + Tier II ${formatKes(t.nssfTierII)})`, amount: s.nssfTotalEe },
     { label: 'SHIF (2.75%)', amount: s.shif },
     { label: 'Housing Levy (1.5%)', amount: s.ahlEe },

@@ -58,7 +58,8 @@ const payeCommon = {
   bands: BANDS_2023,
   personalRelief: 2_400,
   insuranceRelief: { rate: 0.15, cap: 5_000 },
-  housingRelief: { rate: 0.15, cap: 9_000 },
+  // No housing relief: since Dec 2024 the housing levy is deducted before PAYE instead (kept at 0 so a gazette can restore it)
+  housingRelief: { rate: 0, cap: 0 },
   pmfRelief: { rate: 0.15, cap: 5_000 },
   pwdExemptMonthly: 150_000,
   secondaryRate: 0.35

@@ -130,7 +130,7 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
   const exportItax = () =>
     downloadCsv(
       `KRA P10 ${activeTenant.name} ${open.label}`,
-      ['KRA PIN', 'Employee', 'Residential status', 'Employment', 'Gross pay', 'Benefits', 'NSSF', 'SHIF', 'Housing levy', 'Pension', 'Mortgage interest', 'Taxable pay', 'Tax charged', 'Personal relief', 'Housing relief', 'Insurance relief', 'PAYE'],
+      ['KRA PIN', 'Employee', 'Residential status', 'Employment', 'Gross pay', 'Benefits', 'NSSF', 'SHIF', 'Housing levy', 'Pension', 'Mortgage interest', 'Taxable pay', 'Tax charged', 'Personal relief', 'Insurance relief', 'PAYE'],
       rows.map((r) => [
         r.e.kraPinMasked,
         r.e.fullName,
@@ -146,7 +146,6 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
         Math.round(r.p.tax.taxablePay),
         Math.round(r.p.tax.grossTax),
         r.p.tax.personalRelief,
-        Math.round(r.p.tax.housingRelief),
         Math.round(r.p.tax.insuranceRelief),
         r.p.paye
       ])
