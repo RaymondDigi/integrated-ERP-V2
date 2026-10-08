@@ -5,7 +5,7 @@ import { useFinance, type Collection } from './store';
 import { kes, permissions, ROLE_LABEL } from './engine';
 import { ACTORS } from './data';
 import { Stepper, Timeline } from '../ui/kit';
-import type { FinDocument, FinRole, Journal, Settlement } from './types';
+import type { FinDocument, FinRole, Journal, Memo, Settlement } from './types';
 import { CompanyLogo } from '../../views/CompanySetupView';
 
 export const useLookups = () => {
@@ -40,7 +40,7 @@ export const ActorSwitcher: React.FC<{ compact?: boolean }> = ({ compact }) => {
   );
 };
 
-type AnyDoc = FinDocument | Settlement | Journal;
+type AnyDoc = FinDocument | Settlement | Journal | Memo;
 
 /** Stepper, available actions and history for any finance document. */
 export const WorkflowPanel: React.FC<{ collection: Collection; doc: AnyDoc; onEdit?: () => void }> = ({ collection, doc, onEdit }) => {
@@ -73,7 +73,7 @@ export const WorkflowPanel: React.FC<{ collection: Collection; doc: AnyDoc; onEd
       )}
       {p.needed > 1 && doc.status !== 'POSTED' && doc.status !== 'VOID' && (
         <p className="sx-note">
-          <ShieldCheck size={13} /> Above {kes(1_000_000, { compact: true })}: needs the Finance Manager and the Finance Director.
+          <ShieldCheck size={13} /> Above {kes(p.limit, { compact: true })}: needs the Finance Manager and the Finance Director.
         </p>
       )}
       {p.reason && (

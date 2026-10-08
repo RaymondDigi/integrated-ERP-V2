@@ -1056,6 +1056,28 @@ export const subledgerActions = (c: Ctx) => {
     finNotify(p.preparedBy, `${p.number} was voided`, p.number, reason, 'warning');
     return done('Voided', `${p.number} reversed on ${date}; its documents are open again`);
   };
+  /** Voids every payment of an executed run (e.g. the bank rejected the whole file). */
+  const voidRun = (runId: string, reason: string, date = TODAY): Result => {
+    const g = guard() ?? managerOnly('Voiding a payment run');
+    if (g) return g;
+    const s = ref.current;
+    const run = s.paymentRuns.find((r) => r.id === runId);
+    if (!run || run.status !== 'POSTED') return fail('Only executed runs can be voided');
+    if (!reason.trim()) return fail('Give the reason');
+    const block = postingBlock(s, date);
+    if (block) return fail(block);
+    const pays = s.settlements.filter((p) => run.paymentIds.includes(p.id) && !p.voided);
+    const matched = pays.find((p) => s.bankLines.some((l) => l.matchedTo?.startsWith(`${p.id}:`)));
+    if (matched) return fail(`${matched.number} is already reconciled to the bank statement — void the others one by one`);
+    const ids = new Set(pays.map((p) => p.id));
+    commit({
+      ...s,
+      settlements: s.settlements.map((p) => (ids.has(p.id) ? { ...p, voided: { by: actor().name, at: c.now(), date, reason }, history: [...p.history, hist(c, `Voided with run ${run.number}`, reason)] } : p)),
+      paymentRuns: s.paymentRuns.map((r) => (r.id === runId ? { ...r, voidReason: reason, history: [...r.history, hist(c, 'Run voided', reason)] } : r))
+    });
+    finAudit(actor().name, 'Payment run voided', run.number, reason);
+    return done('Run voided', `${pays.length} payments reversed on ${date}`);
+  };
   /** Director override of a failed three-way match (price or quantity variance accepted). */
   const overrideMatch = (billId: string, reason: string): Result => {
     const g = guard() ?? directorOnly('Overriding a three-way match');
@@ -1235,6 +1257,7 @@ export const subledgerActions = (c: Ctx) => {
     generateBankFile,
     sendToBank,
     voidPayment,
+    voidRun,
     overrideMatch,
     recordMatch,
     requestLoan,

@@ -27,7 +27,9 @@ import type {
   FiscalYear,
   Journal,
   JournalTemplate,
+  InvoiceTemplate,
   Period,
+  RateCard,
   ReasonCode,
   ReportDefinition,
   TaxCode
@@ -454,6 +456,27 @@ export const glActions = (c: Ctx) => {
     finAudit(actor().name, 'Finance settings changed', Object.keys(patch).join(', '));
     return done('Settings saved', Object.keys(patch).join(', '));
   };
+  const saveRateCard = (r: RateCard): Result => {
+    const g = guard() ?? managerOnly('Maintaining rate cards');
+    if (g) return g;
+    const s = ref.current;
+    if (!r.name.trim() || !(r.rate > 0)) return fail('Enter the service and its rate');
+    if (!s.accounts.some((a) => a.code === r.account && a.type === 'INCOME')) return fail('Choose an income account');
+    const exists = s.rateCards.some((x) => x.id === r.id);
+    const clean = { ...r, id: r.id || c.uid('rt') };
+    commit({ ...s, rateCards: exists ? s.rateCards.map((x) => (x.id === r.id ? clean : x)) : [...s.rateCards, clean] });
+    return done('Rate card saved', `${clean.name}: ${clean.rate.toLocaleString()} per ${clean.unit.toLowerCase()}`);
+  };
+  const saveInvoiceTemplate = (t: InvoiceTemplate): Result => {
+    const g = guard() ?? managerOnly('Maintaining invoice layouts');
+    if (g) return g;
+    const s = ref.current;
+    if (!t.name.trim()) return fail('Name the layout');
+    const exists = s.invoiceTemplates.some((x) => x.id === t.id);
+    const clean = { ...t, id: t.id || c.uid('tpl') };
+    commit({ ...s, invoiceTemplates: exists ? s.invoiceTemplates.map((x) => (x.id === t.id ? clean : x)) : [...s.invoiceTemplates, clean] });
+    return done('Layout saved', clean.name);
+  };
   const saveReportDef = (d: ReportDefinition): Result => {
     const g = guard();
     if (g) return g;
@@ -709,6 +732,8 @@ export const glActions = (c: Ctx) => {
     updateSettings,
     saveReportDef,
     deleteReportDef,
+    saveRateCard,
+    saveInvoiceTemplate,
     fxRevaluation,
     intercompanyTransfer,
     runAllocation,

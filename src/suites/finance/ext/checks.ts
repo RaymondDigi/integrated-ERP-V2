@@ -1,5 +1,5 @@
 import { attachmentsFor } from '../../../platform/attachments';
-import { budgetLinesFor, docTotals, holdReason, journalTotals, lineNet, round2 } from '../engine';
+import { budgetLinesFor, holdReason, journalTotals, lineNet, round2 } from '../engine';
 import type { FinanceState, FinDocument, Journal, LedgerEntry, Memo, Settlement } from '../types';
 
 /** Field-level differences between two versions of a record, for the history and the audit trail. */
@@ -85,4 +85,3 @@ export const checklistFailures = (state: FinanceState, doc: FinDocument | Settle
   return failed;
 };
 
-export const docTotalsAny = (d: { lines: FinDocument['lines'] }) => docTotals(d);
