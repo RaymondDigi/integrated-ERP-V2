@@ -1,12 +1,15 @@
 import type { HistoryEntry } from '../finance/types';
 import type { BomLine, CalibrationResult, CalibrationSpec, ChecklistStep, MeterSpec, ReplacedPart, Warranty, WorkNote } from './maintenance/types';
 
-export type OpsRole = 'OFFICER' | 'STOREKEEPER' | 'TECHNICIAN' | 'QC' | 'MANAGER' | 'DRIVER' | 'TRANSPORT_MANAGER';
+/** CUSTOMER is the buyer's portal user (shipping instructions only); CREDIT is Finance's credit controller. */
+export type OpsRole = 'OFFICER' | 'STOREKEEPER' | 'TECHNICIAN' | 'QC' | 'MANAGER' | 'DRIVER' | 'TRANSPORT_MANAGER' | 'CUSTOMER' | 'CREDIT';
 
 export interface OpsActor {
   role: OpsRole;
   name: string;
   title: string;
+  /** Portal users act for one customer only */
+  customerId?: string;
 }
 
 /* ---------------- Warehousing ---------------- */
@@ -18,6 +21,10 @@ export interface Warehouse {
   capacity: number;
   /** The main warehouse holds whatever is not explicitly placed elsewhere. */
   main?: boolean;
+  /** Storage capacity in kg (tea godowns are planned by weight) */
+  capacityKg?: number;
+  kind?: 'GODOWN' | 'PORT' | 'FACTORY' | 'STUFFING_BASE';
+  archived?: boolean;
 }
 
 export interface StockMove {
@@ -27,7 +34,7 @@ export interface StockMove {
   qty: number;
   from?: string;
   to?: string;
-  kind: 'TRANSFER' | 'COUNT' | 'PRODUCTION_ISSUE' | 'PRODUCTION_OUTPUT' | 'MAINTENANCE_ISSUE' | 'ADJUSTMENT';
+  kind: 'TRANSFER' | 'COUNT' | 'PRODUCTION_ISSUE' | 'PRODUCTION_OUTPUT' | 'MAINTENANCE_ISSUE' | 'ADJUSTMENT' | 'SHIPMENT_LOADING';
   ref: string;
   by: string;
 }
@@ -58,6 +65,8 @@ export interface StockCount {
   date: string;
   lines: CountLine[];
   status: 'OPEN' | 'SUBMITTED' | 'APPROVED';
+  /** Annual wall-to-wall count or a periodic cycle count of a subset of items */
+  type?: 'ANNUAL' | 'CYCLE';
   countedBy?: string;
   approvedBy?: string;
   history: HistoryEntry[];
@@ -133,6 +142,17 @@ export interface Shipment {
   invoiceId?: string;
   invoiceNumber?: string;
   history: HistoryEntry[];
+  /** Shipping instruction this shipment was created from */
+  siId?: string;
+  siNumber?: string;
+  /** Warehouse the container is stuffed at (defaults to the Mombasa port store) */
+  stuffingBase?: string;
+  /** Tea shipments are loaded lot by lot from a container loading plan instead of SKU stock */
+  loadingPlan?: string;
+  /** Verified gross mass certificate (SOLAS) — required before the vessel sails */
+  vgm?: { number: string; grossKg: number; method: 'METHOD_1' | 'METHOD_2'; by: string; at: string };
+  /** Processing block (credit, quality or customer hold) */
+  blocked?: { reason: string; by: string; at: string };
 }
 
 /* ---------------- Transport & fleet ---------------- */

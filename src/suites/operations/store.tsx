@@ -6,7 +6,9 @@ import { useAccess } from '../../platform/access';
 import { addDays, round2, TODAY, localStamp } from '../finance/engine';
 import { buildOperationsSeed, OPS_ACTORS } from './data';
 import { LABOUR_RATE, materialNeed, shipBlockers, SHIP_STAGES, stockAt, shipValue, woCost } from './engine';
-import type { Batch, OperationsState, OpsRole, QualityCheck, Shipment, StockMove, WorkOrder } from './types';
+import type { Batch, OperationsState, OpsRole, QualityCheck, Shipment, StockMove, Warehouse, WorkOrder } from './types';
+import type { ShippingExtPage } from './shipping/pages';
+import type { WarehousingExtPage } from './warehousing/pages';
 import { notify } from '../../platform/outbox';
 import { audit } from '../../platform/audit';
 import { opsHooks } from './hooks';
@@ -14,7 +16,7 @@ import { completionBlockers, isOpenWo, LINE_HOURS, lineOutage, SPARES_STORE, woA
 import type { CalibrationResult, MaintExtPage, ReplacedPart } from './maintenance/types';
 import type { FleetExtPage } from './fleet/types';
 
-export type WarehousingPage = 'overview' | 'stock' | 'transfers' | 'counts' | 'movements';
+export type WarehousingPage = 'overview' | 'stock' | 'transfers' | 'counts' | 'movements' | WarehousingExtPage;
 export type ProductionPage =
   | 'overview'
   | 'batches'
@@ -31,7 +33,7 @@ export type ProductionPage =
   | 'planning'
   | 'simulation'
   | 'reports';
-export type ShippingPage = 'overview' | 'shipments' | 'documents';
+export type ShippingPage = 'overview' | 'shipments' | 'documents' | ShippingExtPage;
 export type FleetPage = 'overview' | 'vehicles' | 'trips' | 'fuel' | FleetExtPage;
 export type MaintenancePage = 'overview' | 'workorders' | 'preventive' | 'projects' | MaintExtPage;
 type Nav<P> = { page: P; focus: string | null };
@@ -41,6 +43,7 @@ const Ctx = createContext<ReturnType<typeof useOperationsStore> | null>(null);
 
 const useOperationsStore = () => {
   const { addToast } = useApp();
+  const access = useAccess();
   const finance = useFinance();
   const commercial = useCommercial();
   const [state, setState] = useState<OperationsState>(() =>
@@ -83,6 +86,9 @@ const useOperationsStore = () => {
   const move = (m: Omit<StockMove, 'id' | 'date' | 'by'>): StockMove => ({ ...m, id: uid('mv'), date: TODAY, by: actor.name });
   const is = (...roles: OpsRole[]) => roles.includes(actor.role);
   const pname = (sku: string) => products.find((p) => p.sku === sku)?.name ?? sku;
+  /** Viewer sign-ins are read only; portal and credit personas only act through Shipping instructions. */
+  const READ_ONLY = 'This is a read-only account — you can view records but not change them';
+  const blockedWriter = () => (!access.canWrite ? READ_ONLY : is('CUSTOMER', 'CREDIT') ? `${actor.title} cannot change warehouse or shipment records` : null);
 
   const setActor = (role: OpsRole) => {
     commit({ ...ref.current, actor: OPS_ACTORS[role] });
@@ -99,20 +105,50 @@ const useOperationsStore = () => {
   };
 
   /* ================= Warehousing ================= */
+  const warehouseHasStock = (id: string) => products.some((p) => p.kind !== 'SERVICE' && stockAt(ref.current, products, p.sku, id) > 0);
+  /** Add or edit a warehouse / godown (Operations Manager). */
+  const saveWarehouse = (w: Warehouse): Result => {
+    const s = ref.current;
+    const blocked = blockedWriter();
+    if (blocked) return fail(blocked);
+    if (!is('MANAGER')) return fail('Warehouses are set up by the Operations Manager');
+    if (!w.name.trim() || !w.location.trim()) return fail('Enter the warehouse name and location');
+    if (!(w.capacity > 0) || !((w.capacityKg ?? 1) > 0)) return fail('Capacity must be above zero');
+    const exists = s.warehouses.find((x) => x.id === w.id);
+    if (!exists && s.warehouses.some((x) => x.name.trim().toLowerCase() === w.name.trim().toLowerCase())) return fail('A warehouse with that name already exists');
+    if (w.archived && exists?.main) return fail('The main warehouse cannot be archived');
+    if (w.archived && exists && warehouseHasStock(w.id)) return fail('Move the stock out before archiving this warehouse');
+    const id = exists ? w.id : `WH-${w.name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase()}${s.warehouses.length + 1}`;
+    commit({ ...s, warehouses: exists ? s.warehouses.map((x) => (x.id === w.id ? { ...w } : x)) : [...s.warehouses, { ...w, id, main: false }] });
+    audit({ module: 'Warehousing', by: actor.name, action: exists ? (w.archived ? 'Warehouse archived' : 'Warehouse edited') : 'Warehouse added', ref: id, note: w.name });
+    return done(exists ? 'Warehouse saved' : 'Warehouse added', w.name, id);
+  };
+
   const requestTransfer = (from: string, to: string, lines: { sku: string; qty: number }[], reason: string): Result => {
     const s = ref.current;
+    const blocked = blockedWriter();
+    if (blocked) return fail(blocked);
     if (from === to) return fail('Choose two different warehouses');
+    if (s.warehouses.find((w) => w.id === to)?.archived) return fail('The destination warehouse is archived');
     const ls = lines.filter((l) => l.sku && l.qty > 0);
     if (!ls.length) return fail('Add at least one item');
     if (!reason.trim()) return fail('Say why the stock is moving');
+    // Stock already promised to other open requests from the same warehouse is not available again
+    for (const l of ls) {
+      const pending = s.transfers.filter((t) => t.status === 'REQUESTED' && t.from === from).reduce((x, t) => x + t.lines.filter((y) => y.sku === l.sku).reduce((a, y) => a + y.qty, 0), 0);
+      const have = stockAt(s, products, l.sku, from) - pending;
+      if (have < l.qty) return fail(`${pname(l.sku)}: only ${Math.max(0, have)} available at ${s.warehouses.find((w) => w.id === from)?.name}${pending ? ` (${pending} already requested)` : ''}`);
+    }
     const { number, sequence } = next(s, 'TRF');
     commit({ ...s, sequence, transfers: [{ id: uid('tr'), number, from, to, date: TODAY, lines: ls, status: 'REQUESTED', requestedBy: actor.name, reason, history: [log('Requested')] }, ...s.transfers] });
     return done('Transfer requested', `${number} — Stores will pick and dispatch`);
   };
   const dispatchTransfer = (id: string): Result => {
     const s = ref.current;
+    if (!access.canWrite) return fail(READ_ONLY);
     if (!is('STOREKEEPER', 'MANAGER')) return fail('Stores dispatches transfers — switch to John Kiprop');
     const t = s.transfers.find((x) => x.id === id)!;
+    if (t.status !== 'REQUESTED') return fail('Only requested transfers can be dispatched');
     for (const l of t.lines) {
       const have = stockAt(s, products, l.sku, t.from);
       if (have < l.qty) return fail(`${pname(l.sku)}: only ${have} at ${s.warehouses.find((w) => w.id === t.from)?.name}`);
@@ -124,8 +160,10 @@ const useOperationsStore = () => {
   };
   const receiveTransfer = (id: string): Result => {
     const s = ref.current;
+    if (!access.canWrite) return fail(READ_ONLY);
     if (!is('STOREKEEPER', 'MANAGER')) return fail('Stores receives transfers — switch to John Kiprop');
     const t = s.transfers.find((x) => x.id === id)!;
+    if (t.status !== 'IN_TRANSIT') return fail('Only transfers in transit can be received');
     let placed = s.placed;
     for (const l of t.lines) placed = place(placed, l.sku, t.to, l.qty);
     commit({
@@ -139,35 +177,58 @@ const useOperationsStore = () => {
   const cancelTransfer = (id: string): Result => {
     const s = ref.current;
     const t = s.transfers.find((x) => x.id === id)!;
+    const blocked = blockedWriter();
+    if (blocked) return fail(blocked);
+    if (t.requestedBy !== actor.name && !is('STOREKEEPER', 'MANAGER')) return fail('Only the requester, Stores or the Operations Manager can cancel a transfer');
     if (t.status !== 'REQUESTED') return fail('Only requested transfers can be cancelled');
     commit({ ...s, transfers: s.transfers.map((x) => (x.id === id ? { ...x, status: 'CANCELLED', history: [...x.history, log('Cancelled')] } : x)) });
     return done('Transfer cancelled', t.number);
   };
   /** Snapshot what the system expects, then Stores counts blind. */
-  const startCount = (warehouse: string): Result => {
+  /** A cycle count covers only the given items; an annual count covers everything in the warehouse. */
+  const startCount = (warehouse: string, opts?: { type?: 'ANNUAL' | 'CYCLE'; skus?: string[] }): Result => {
     const s = ref.current;
+    const blocked = blockedWriter();
+    if (blocked) return fail(blocked);
+    if (!is('STOREKEEPER', 'OFFICER', 'MANAGER')) return fail('Stock counts are started by Stores or Operations');
     if (s.counts.some((c) => c.warehouse === warehouse && c.status !== 'APPROVED')) return fail('A count is already open for this warehouse');
-    const lines = products.filter((p) => p.kind !== 'SERVICE' && stockAt(s, products, p.sku, warehouse) > 0).map((p) => ({ sku: p.sku, expected: stockAt(s, products, p.sku, warehouse), counted: null }));
+    const type = opts?.type ?? 'ANNUAL';
+    const lines = products
+      .filter((p) => p.kind !== 'SERVICE' && stockAt(s, products, p.sku, warehouse) > 0 && (type === 'ANNUAL' || !opts?.skus || opts.skus.includes(p.sku)))
+      .map((p) => ({ sku: p.sku, expected: stockAt(s, products, p.sku, warehouse), counted: null }));
+    if (!lines.length) return fail('Nothing in scope to count in this warehouse');
     const { number, sequence } = next(s, 'CNT');
     const id = uid('ct');
-    commit({ ...s, sequence, counts: [{ id, number, warehouse, date: TODAY, lines, status: 'OPEN', history: [log('Count started')] }, ...s.counts] });
+    commit({ ...s, sequence, counts: [{ id, number, warehouse, date: TODAY, lines, status: 'OPEN', type, history: [log(type === 'CYCLE' ? `Cycle count started — ${lines.length} items` : 'Count started')] }, ...s.counts] });
     return done('Stock count started', `${number}: ${lines.length} items to count`, id);
   };
-  const enterCount = (id: string, sku: string, counted: number | null) => {
+  const enterCount = (id: string, sku: string, counted: number | null): Result => {
     const s = ref.current;
+    const blocked = blockedWriter();
+    if (blocked) return fail(blocked);
+    if (!is('STOREKEEPER', 'MANAGER')) return fail('Counts are entered by Stores — switch to John Kiprop');
+    if (s.counts.find((c) => c.id === id)?.status !== 'OPEN') return fail('This count has already been submitted');
+    if (counted !== null && (counted < 0 || !Number.isFinite(counted))) return fail('Counted quantity cannot be negative');
     commit({ ...s, counts: s.counts.map((c) => (c.id === id ? { ...c, lines: c.lines.map((l) => (l.sku === sku ? { ...l, counted } : l)) } : c)) });
+    return { ok: true };
   };
   const submitCount = (id: string): Result => {
     const s = ref.current;
     const c = s.counts.find((x) => x.id === id)!;
+    const blocked = blockedWriter();
+    if (blocked) return fail(blocked);
+    if (!is('STOREKEEPER', 'MANAGER')) return fail('Counts are submitted by Stores — switch to John Kiprop');
+    if (c.status !== 'OPEN') return fail('This count has already been submitted');
     if (c.lines.some((l) => l.counted === null)) return fail('Count every line first');
     commit({ ...s, counts: s.counts.map((x) => (x.id === id ? { ...x, status: 'SUBMITTED', countedBy: actor.name, history: [...x.history, log('Count submitted')] } : x)) });
     return done('Count submitted', 'The Operations Manager approves any differences');
   };
   const approveCount = (id: string, note: string): Result => {
     const s = ref.current;
+    if (!access.canWrite) return fail(READ_ONLY);
     if (!is('MANAGER')) return fail('Stock adjustments are approved by the Operations Manager');
     const c = s.counts.find((x) => x.id === id)!;
+    if (c.status !== 'SUBMITTED') return fail('Only submitted counts can be approved');
     if (c.countedBy === actor.name) return fail('You counted this stock, so someone else must approve it');
     const diffs = c.lines.filter((l) => l.counted !== null && l.counted !== l.expected).map((l) => ({ sku: l.sku, delta: (l.counted as number) - l.expected }));
     if (diffs.length && !note.trim()) return fail('Explain the differences before approving');
@@ -299,15 +360,87 @@ const useOperationsStore = () => {
     const s = ref.current;
     commit({ ...s, shipments: s.shipments.map((x) => (x.id === id ? { ...x, ...patch, history: [...x.history, log(action, note)] } : x)) });
   };
+  const SAILED: Shipment['stage'][] = ['DEPARTED', 'ARRIVED', 'DELIVERED'];
+  /** New shipment, usually from a confirmed shipping instruction. */
+  const createShipment = (d: Pick<Shipment, 'customerId' | 'destination' | 'incoterm' | 'lines' | 'vessel' | 'line' | 'bookingRef' | 'etd' | 'eta'> & Partial<Pick<Shipment, 'siId' | 'siNumber' | 'stuffingBase' | 'docs'>>): Result => {
+    const s = ref.current;
+    const blocked = blockedWriter();
+    if (blocked) return fail(blocked);
+    if (!is('OFFICER', 'MANAGER')) return fail('Shipments are booked by the Operations Officer or Manager');
+    if (!d.customerId || !d.destination.trim()) return fail('Choose the buyer and destination');
+    if (!d.lines.length || d.lines.some((l) => !(l.qty > 0) || !(l.price > 0))) return fail('Every line needs a quantity and a price');
+    if (!d.vessel.trim() || !d.bookingRef.trim()) return fail('Enter the vessel and the booking reference');
+    if (d.eta < d.etd) return fail('ETA cannot be before ETD');
+    if (d.siId && s.shipments.some((x) => x.siId === d.siId)) return fail('A shipment already exists for this shipping instruction');
+    const { number, sequence } = next(s, 'SHP');
+    const docs = d.docs ?? [
+      { key: 'invoice', name: 'Commercial invoice', issuer: 'Finance', done: false },
+      { key: 'packing', name: 'Packing list', issuer: 'Stores', done: false },
+      { key: 'coo', name: 'Certificate of origin', issuer: 'Chamber of Commerce', done: false },
+      { key: 'phyto', name: 'Phytosanitary certificate', issuer: 'KEPHIS', done: false },
+      { key: 'entry', name: 'Export entry', issuer: 'KRA customs', done: false },
+      { key: 'bl', name: 'Bill of lading', issuer: 'Shipping line', done: false },
+      ...(d.incoterm === 'CIF' ? [{ key: 'insurance', name: 'Marine insurance certificate', issuer: 'Insurer', done: false }] : [])
+    ];
+    const id = uid('sh');
+    const rec: Shipment = { ...d, id, number, stage: 'BOOKED', docs, history: [log('Booked', d.siNumber ? `From shipping instruction ${d.siNumber}` : undefined)] };
+    commit({ ...s, sequence, shipments: [rec, ...s.shipments] });
+    audit({ module: 'Shipping', by: actor.name, action: 'Shipment booked', ref: number, note: d.siNumber });
+    return done('Shipment booked', `${number} on ${d.vessel}`, id);
+  };
+  /** Put a processing block on a shipment (credit, quality or customer hold) or lift it. */
+  const blockShipment = (id: string, reason: string | null): Result => {
+    const sh = ref.current.shipments.find((x) => x.id === id)!;
+    if (!access.canWrite) return fail(READ_ONLY);
+    if (!is('MANAGER', 'CREDIT')) return fail('Only the Operations Manager or the Credit Controller can block or release shipments');
+    if (reason !== null && !reason.trim()) return fail('Say why the shipment is blocked');
+    if (reason !== null && SAILED.includes(sh.stage)) return fail('The shipment has already sailed');
+    if (reason === null && !sh.blocked) return fail('This shipment is not blocked');
+    updateShipment(id, { blocked: reason === null ? undefined : { reason: reason.trim(), by: actor.name, at: now() } }, reason === null ? 'Block released' : 'Blocked', reason ?? sh.blocked?.reason);
+    audit({ module: 'Shipping', by: actor.name, action: reason === null ? 'Shipment unblocked' : 'Shipment blocked', ref: sh.number, note: reason ?? undefined });
+    return done(reason === null ? 'Block released' : 'Shipment blocked', sh.number);
+  };
+  /** Verified gross mass certificate for the container (SOLAS). */
+  const recordVgm = (id: string, v: { grossKg: number; method: 'METHOD_1' | 'METHOD_2' }): Result => {
+    const s = ref.current;
+    const sh = s.shipments.find((x) => x.id === id)!;
+    const blocked = blockedWriter();
+    if (blocked) return fail(blocked);
+    if (!is('STOREKEEPER', 'MANAGER')) return fail('Stores weighs and certifies the container — switch to John Kiprop');
+    if (!sh.container) return fail('Record the container number first');
+    if (SAILED.includes(sh.stage)) return fail('The shipment has already sailed');
+    if (!(v.grossKg > 0) || v.grossKg > 32_500) return fail('Gross mass must be above zero and within the 32,500 kg container limit');
+    const { number, sequence } = next(s, 'VGM');
+    commit({ ...s, sequence });
+    updateShipment(id, { vgm: { number, grossKg: v.grossKg, method: v.method, by: actor.name, at: TODAY } }, `VGM ${number} certified`, `${v.grossKg.toLocaleString()} kg · ${v.method === 'METHOD_1' ? 'weighed packed container' : 'sum of cargo + tare'}`);
+    return done('VGM certified', `${number}: ${v.grossKg.toLocaleString()} kg`, number);
+  };
+  /** Tea shipments are stuffed lot by lot from a container loading plan. */
+  const linkLoadingPlan = (id: string, plan: string, container: string, seal: string): Result => {
+    const sh = ref.current.shipments.find((x) => x.id === id)!;
+    if (!access.canWrite) return fail(READ_ONLY);
+    if (SAILED.includes(sh.stage)) return fail('The shipment has already sailed');
+    updateShipment(id, { loadingPlan: plan, container: container || sh.container, seal: seal || sh.seal }, `Loading plan ${plan} stuffed`, container ? `${container} · seal ${seal}` : undefined);
+    return { ok: true };
+  };
   const toggleDoc = (id: string, key: string, refNo: string): Result => {
     const sh = ref.current.shipments.find((x) => x.id === id)!;
     const doc = sh.docs.find((x) => x.key === key)!;
+    const blocked = blockedWriter();
+    if (blocked) return fail(blocked);
+    if (!is('OFFICER', 'STOREKEEPER', 'MANAGER')) return fail('Export documents are handled by Operations');
+    if (SAILED.includes(sh.stage) && doc.done) return fail('The shipment has sailed — its documents can no longer be withdrawn');
     if (key === 'invoice' && !sh.invoiceId) return fail('Raise the export invoice in Finance first');
     if (!doc.done && !refNo.trim()) return fail('Enter the document reference');
     updateShipment(id, { docs: sh.docs.map((x) => (x.key === key ? { ...x, done: !x.done, ref: x.done ? undefined : refNo } : x)) }, doc.done ? `${doc.name} withdrawn` : `${doc.name} received`, refNo || undefined);
     return { ok: true };
   };
   const setContainer = (id: string, container: string, seal: string): Result => {
+    const sh = ref.current.shipments.find((x) => x.id === id)!;
+    const blocked = blockedWriter();
+    if (blocked) return fail(blocked);
+    if (!is('OFFICER', 'STOREKEEPER', 'MANAGER')) return fail('Containers are recorded by Operations');
+    if (!['BOOKED', 'DOCUMENTS'].includes(sh.stage)) return fail('The container is already loaded');
     if (!/^[A-Z]{4}\s?\d{7}$/.test(container.trim())) return fail('Container numbers look like MSKU 1234567');
     if (!seal.trim()) return fail('Enter the seal number');
     updateShipment(id, { container: container.trim().toUpperCase(), seal: seal.trim() }, 'Container and seal recorded', `${container} · seal ${seal}`);
@@ -315,6 +448,10 @@ const useOperationsStore = () => {
   };
   const raiseExportInvoice = (id: string): Result => {
     const sh = ref.current.shipments.find((x) => x.id === id)!;
+    const blocked = blockedWriter();
+    if (blocked) return fail(blocked);
+    if (!is('OFFICER', 'MANAGER')) return fail('The export invoice is raised by the Operations Officer or Manager');
+    if (sh.blocked) return fail(`Shipment is blocked: ${sh.blocked.reason}`);
     if (sh.invoiceId) return fail('Already invoiced');
     const cust = finance.snapshot().parties.find((p) => p.id === sh.customerId);
     const r = finance.saveDocument(
@@ -341,20 +478,30 @@ const useOperationsStore = () => {
     const sh = s.shipments.find((x) => x.id === id)!;
     const i = SHIP_STAGES.indexOf(sh.stage);
     const nextStage = SHIP_STAGES[i + 1];
+    const blocked = blockedWriter();
+    if (blocked) return fail(blocked);
+    if (!is('OFFICER', 'STOREKEEPER', 'MANAGER')) return fail('Shipments are progressed by Operations');
     if (!nextStage) return fail('Already delivered');
     const blockers = shipBlockers(sh);
     if (blockers.length) return fail(`Still needed: ${blockers.join(', ')}`);
     if (nextStage === 'LOADED') {
       if (!is('STOREKEEPER', 'MANAGER')) return fail('Stores loads and seals the container — switch to John Kiprop');
-      for (const l of sh.lines) {
-        const have = stockAt(s, products, l.sku, 'WH-MSA');
-        if (have < l.qty) return fail(`Port store has only ${have} of ${l.description} — transfer stock to Mombasa first`);
+      if (sh.siId) {
+        // Tea lots leave the lot ledger when the loading plan is stuffed
+        if (!sh.loadingPlan) return fail('Stuff the container from its loading plan first (Warehousing › Loading plans)');
+      } else {
+        const base = sh.stuffingBase ?? 'WH-MSA';
+        const baseName = s.warehouses.find((w) => w.id === base)?.name ?? base;
+        for (const l of sh.lines) {
+          const have = stockAt(s, products, l.sku, base);
+          if (have < l.qty) return fail(`${baseName} has only ${have} of ${l.description} — transfer stock there first`);
+        }
+        const res = commercial.adjustStock(sh.lines.map((l) => ({ sku: l.sku, delta: -l.qty })));
+        if (!res.ok) return res;
+        let placed = s.placed;
+        for (const l of sh.lines) placed = place(placed, l.sku, base, -l.qty);
+        commit({ ...s, placed, moves: [...sh.lines.map((l) => move({ sku: l.sku, qty: -l.qty, from: base, kind: 'SHIPMENT_LOADING', ref: sh.number })), ...s.moves] });
       }
-      const res = commercial.adjustStock(sh.lines.map((l) => ({ sku: l.sku, delta: -l.qty })));
-      if (!res.ok) return res;
-      let placed = s.placed;
-      for (const l of sh.lines) placed = place(placed, l.sku, 'WH-MSA', -l.qty);
-      commit({ ...s, placed, moves: [...sh.lines.map((l) => move({ sku: l.sku, qty: -l.qty, from: 'WH-MSA', kind: 'ADJUSTMENT', ref: sh.number })), ...s.moves] });
     }
     updateShipment(id, { stage: nextStage }, { DOCUMENTS: 'Documents in progress', LOADED: 'Container loaded and sealed', DEPARTED: `Departed on ${sh.vessel}`, ARRIVED: `Arrived ${sh.destination}`, DELIVERED: 'Delivered to the buyer', BOOKED: '' }[nextStage]);
     return done('Shipment updated', `${sh.number}: ${nextStage.charAt(0) + nextStage.slice(1).toLowerCase()}`);
@@ -787,6 +934,11 @@ const useOperationsStore = () => {
     }, []),
     setActor,
     pname,
+    saveWarehouse,
+    createShipment,
+    blockShipment,
+    recordVgm,
+    linkLoadingPlan,
     requestTransfer,
     dispatchTransfer,
     receiveTransfer,

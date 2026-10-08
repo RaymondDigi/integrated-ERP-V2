@@ -28,7 +28,9 @@ export const OPS_ACTORS: Record<OpsRole, OpsActor> = {
   QC: { role: 'QC', name: 'Faith Akinyi', title: 'Quality Controller' },
   MANAGER: { role: 'MANAGER', name: 'Esther Muthoni', title: 'Operations Manager' },
   DRIVER: { role: 'DRIVER', name: 'Samuel Ouma', title: 'Driver' },
-  TRANSPORT_MANAGER: { role: 'TRANSPORT_MANAGER', name: 'Peter Njoroge', title: 'Transport Manager' }
+  TRANSPORT_MANAGER: { role: 'TRANSPORT_MANAGER', name: 'Peter Njoroge', title: 'Transport Manager' },
+  CUSTOMER: { role: 'CUSTOMER', name: 'Omar Al Habsi', title: 'Customer portal — Horizon Trading FZE', customerId: 'c8' },
+  CREDIT: { role: 'CREDIT', name: 'Grace Njeri', title: 'Credit Controller (Finance)' }
 };
 const { OFFICER: mary, STOREKEEPER: john, TECHNICIAN: kevin, QC: faith, MANAGER: esther } = OPS_ACTORS;
 
@@ -126,9 +128,10 @@ const docsFor = (done: string[], incoterm: Shipment['incoterm']): ShipDoc[] =>
 
 export const buildOperationsSeed = (com: CommercialState, financeInvoicesFor: (customerId: string) => { id: string; number: string }[]): OperationsState => {
   const warehouses = [
-    { id: 'WH-NBO', name: 'Main warehouse — Nairobi', location: 'Industrial Area, Nairobi', capacity: 4_000, main: true },
-    { id: 'WH-MSA', name: 'Port store — Mombasa', location: 'Shimanzi, Mombasa', capacity: 1_500 },
-    { id: 'WH-FAC', name: 'Factory materials store', location: 'Factory, Athi River', capacity: 1_200 }
+    { id: 'WH-NBO', name: 'Main warehouse — Nairobi', location: 'Industrial Area, Nairobi', capacity: 4_000, main: true, capacityKg: 400_000, kind: 'GODOWN' as const },
+    { id: 'WH-MSA', name: 'Port store — Mombasa', location: 'Shimanzi, Mombasa', capacity: 1_500, capacityKg: 600_000, kind: 'STUFFING_BASE' as const },
+    { id: 'WH-FAC', name: 'Factory materials store', location: 'Factory, Athi River', capacity: 1_200, capacityKg: 120_000, kind: 'FACTORY' as const },
+    { id: 'WH-CHG', name: 'Tea godown — Changamwe', location: 'Changamwe, Mombasa', capacity: 2_000, capacityKg: 900_000, kind: 'GODOWN' as const }
   ];
   const placed: Record<string, Record<string, number>> = {
     'BLK-25': { 'WH-MSA': 120 },
@@ -227,6 +230,7 @@ export const buildOperationsSeed = (com: CommercialState, financeInvoicesFor: (c
       eta: d(-38),
       container: 'MSKU 4410982',
       seal: 'ML-660421',
+      vgm: { number: num('VGM', 1), grossKg: 12_480, method: 'METHOD_1', by: john.name, at: d(-53) },
       docs: docsFor(['invoice', 'packing', 'coo', 'phyto', 'entry', 'bl'], 'FOB'),
       invoiceId: (earlier ?? latest)?.id,
       invoiceNumber: (earlier ?? latest)?.number,
@@ -250,6 +254,7 @@ export const buildOperationsSeed = (com: CommercialState, financeInvoicesFor: (c
       eta: d(8),
       container: 'MSCU 7712093',
       seal: 'MS-118204',
+      vgm: { number: num('VGM', 2), grossKg: 13_760, method: 'METHOD_1', by: john.name, at: d(-8) },
       docs: docsFor(['invoice', 'packing', 'coo', 'phyto', 'entry', 'bl'], 'FOB'),
       invoiceId: latest?.id,
       invoiceNumber: latest?.number,
@@ -554,6 +559,6 @@ export const buildOperationsSeed = (com: CommercialState, financeInvoicesFor: (c
     workOrders,
     schedules,
     projects,
-    sequence: { TRF: 4, CNT: 1, BAT: batches.length, SHP: 4, TRP: tn, WO: wn }
+    sequence: { TRF: 4, CNT: 1, BAT: batches.length, SHP: 4, TRP: tn, WO: wn, VGM: 2 }
   };
 };

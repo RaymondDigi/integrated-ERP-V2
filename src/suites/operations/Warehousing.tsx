@@ -7,9 +7,23 @@ import { fmtDate, kes, round2, TODAY } from '../finance/engine';
 import type { StockCount, Transfer } from './types';
 import { Chips, DataTable, DefList, Drawer, Field, Hero, LinkButton, Meter, Modal, Panel, Pill, SearchBox, Stat, SuitePage, Timeline, TodoList, greeting, type Column, type TodoItem } from '../ui/kit';
 import { SuiteSidebar, type SuiteNavGroup } from '../ui/SuiteSidebar';
-import { Crumb, OpsFooter, useFocus, useTopOnChange } from './parts';
+import { Crumb, useFocus, useTopOnChange } from './parts';
+import { Gavel, Layers, MapPin, ListChecks, CalendarCheck, Tags, Receipt, Printer, Thermometer, BarChart3, Undo2, Container } from 'lucide-react';
+import { isWarehousingExt, WH_EXT_LABEL } from './warehousing/pages';
+import { toBase } from './warehousing/engine';
+import { useAccess } from '../../platform/access';
+import { LogisticsFooter } from './warehousing/ui';
+import { useWarehouseExt } from './warehousing/store';
+import { LotsPage } from './warehousing/LotsPage';
+import { InboundPage } from './warehousing/InboundPage';
+import { AuctionPage } from './warehousing/AuctionPage';
+import { OutboundPage } from './warehousing/OutboundPage';
+import { TransportPage } from './warehousing/TransportPage';
+import { ReturnsPage } from './warehousing/ReturnsPage';
+import { BillingPage, CyclePage, ItemsPage, LocationsPage, PrintingPage, SensorsPage, TasksPage } from './warehousing/SetupPages';
+import { WhReportsPage } from './warehousing/ReportsPage';
 
-const LABEL: Record<WarehousingPage, string> = { overview: 'Overview', stock: 'Stock by location', transfers: 'Transfers', counts: 'Stock counts', movements: 'Movements' };
+const LABEL: Record<WarehousingPage, string> = { overview: 'Overview', stock: 'Stock by location', transfers: 'Transfers', counts: 'Stock counts', movements: 'Movements', ...WH_EXT_LABEL };
 const T_PILL: Record<Transfer['status'], [string, string]> = { REQUESTED: ['SUBMITTED', 'Requested'], IN_TRANSIT: ['OPEN', 'In transit'], RECEIVED: ['POSTED', 'Received'], CANCELLED: ['VOID', 'Cancelled'] };
 const C_PILL: Record<StockCount['status'], [string, string]> = { OPEN: ['OPEN', 'Counting'], SUBMITTED: ['SUBMITTED', 'Awaiting approval'], APPROVED: ['POSTED', 'Approved'] };
 
@@ -255,10 +269,13 @@ const TransferDrawer: React.FC<{ t: Transfer; onClose: () => void }> = ({ t, onC
 
 const TransferEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const { state, products, requestTransfer } = useOperations();
+  const { state: x } = useWarehouseExt();
   const [from, setFrom] = useState('WH-NBO');
   const [to, setTo] = useState('WH-MSA');
   const [reason, setReason] = useState('');
-  const [lines, setLines] = useState([{ sku: '', qty: 0 }]);
+  const [lines, setLines] = useState([{ sku: '', qty: 0, uom: '' }]);
+  const uoms = (sku: string) => x.setup.uoms[sku] ?? [];
+  const base = (l: { sku: string; qty: number; uom: string }) => (l.uom ? toBase(l.qty, l.uom, uoms(l.sku)) : l.qty);
   return (
     <Modal
       size="lg"
@@ -267,7 +284,7 @@ const TransferEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       footer={
         <>
           <span className="sx-grow" />
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => requestTransfer(from, to, lines, reason).ok && onClose()}>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => requestTransfer(from, to, lines.map((l) => ({ sku: l.sku, qty: base(l) })), reason).ok && onClose()}>
             Request transfer
           </button>
         </>
@@ -302,6 +319,7 @@ const TransferEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             <th>Item</th>
             <th style={{ textAlign: 'right' }}>Available at source</th>
             <th style={{ width: 120 }}>Qty</th>
+            <th style={{ width: 130 }}>Unit</th>
             <th style={{ width: 40 }} />
           </tr>
         </thead>
@@ -309,7 +327,7 @@ const TransferEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           {lines.map((l, i) => (
             <tr key={i}>
               <td>
-                <select className="form-control" value={l.sku} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, sku: e.target.value } : x)))}>
+                <select className="form-control" value={l.sku} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, sku: e.target.value, uom: '' } : x)))}>
                   <option value="">Choose…</option>
                   {products
                     .filter((p) => p.kind !== 'SERVICE')
@@ -325,6 +343,17 @@ const TransferEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 <input className="form-control" type="number" min="0" value={l.qty || ''} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) } : x)))} />
               </td>
               <td>
+                <select className="form-control" value={l.uom} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, uom: e.target.value } : x)))} aria-label="Unit of measure">
+                  <option value="">{products.find((p) => p.sku === l.sku)?.unit ?? 'Base unit'}</option>
+                  {uoms(l.sku).map((u) => (
+                    <option key={u.code} value={u.code}>
+                      {u.code} (= {u.factor})
+                    </option>
+                  ))}
+                </select>
+                {l.uom && <small className="sx-muted">= {base(l)} base</small>}
+              </td>
+              <td>
                 <button type="button" className="sx-icon-btn" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, j) => j !== i))} aria-label="Remove">
                   <Trash2 size={14} />
                 </button>
@@ -333,7 +362,7 @@ const TransferEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           ))}
         </tbody>
       </table>
-      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setLines([...lines, { sku: '', qty: 0 }])}>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setLines([...lines, { sku: '', qty: 0, uom: '' }])}>
         <Plus size={14} /> Add item
       </button>
     </Modal>
@@ -343,14 +372,16 @@ const TransferEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 /* ------------------------------------------------------------------ */
 
 const CountsPage: React.FC = () => {
-  const { state, warehousing, startCount } = useOperations();
+  const { state, warehousing, startCount, products, commercial } = useOperations();
   const [openId, setOpenId] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
+  const [countType, setCountType] = useState<'ANNUAL' | 'CYCLE'>('ANNUAL');
+  const [skus, setSkus] = useState<string[]>(() => products.filter((p) => needsReorder(commercial.state, p)).map((p) => p.sku));
   useFocus(warehousing.focus, (id) => state.counts.some((c) => c.id === id), setOpenId, () => setChoosing(true));
   const wh = (id: string) => state.warehouses.find((w) => w.id === id)?.name ?? id;
   const columns: Column<StockCount>[] = [
     { key: 'n', header: 'Count', render: (c) => <b className="sx-mono">{c.number}</b>, sort: (c) => c.number, width: 140 },
-    { key: 'w', header: 'Warehouse', render: (c) => wh(c.warehouse) },
+    { key: 'w', header: 'Warehouse', render: (c) => <div className="sx-cell-main"><span>{wh(c.warehouse)}</span><small>{c.type === 'CYCLE' ? 'Cycle count' : 'Full count'}</small></div> },
     { key: 'd', header: 'Date', render: (c) => fmtDate(c.date), sort: (c) => c.date },
     { key: 'l', header: 'Lines', render: (c) => `${c.lines.filter((l) => l.counted !== null).length}/${c.lines.length}`, align: 'right', hideOnMobile: true },
     { key: 'v', header: 'Variance', render: (c) => <span className={countVariance(c.lines) ? 'sx-danger-text' : ''}>{countVariance(c.lines) > 0 ? '+' : ''}{countVariance(c.lines)}</span>, align: 'right' },
@@ -371,13 +402,32 @@ const CountsPage: React.FC = () => {
       <DataTable rows={state.counts} columns={columns} rowKey={(c) => c.id} onRowClick={(c) => setOpenId(c.id)} selected={openId} initialSort={{ key: 'n', dir: 'desc' }} />
       {choosing && (
         <Modal size="md" title="Which warehouse?" onClose={() => setChoosing(false)}>
+          <Chips
+            value={countType}
+            onChange={setCountType}
+            options={[
+              { value: 'ANNUAL', label: 'Full (annual) count' },
+              { value: 'CYCLE', label: 'Cycle count — chosen items' }
+            ]}
+          />
+          {countType === 'CYCLE' && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '8px 0' }}>
+              {products
+                .filter((p) => p.kind !== 'SERVICE')
+                .map((p) => (
+                  <label key={p.sku} className="sx-check">
+                    <input type="checkbox" checked={skus.includes(p.sku)} onChange={(e) => setSkus(e.target.checked ? [...skus, p.sku] : skus.filter((x) => x !== p.sku))} /> {p.name}
+                  </label>
+                ))}
+            </div>
+          )}
           <div className="sx-pick">
             {state.warehouses.map((w) => (
               <button
                 key={w.id}
                 type="button"
                 onClick={() => {
-                  const r = startCount(w.id);
+                  const r = startCount(w.id, { type: countType, skus: countType === 'CYCLE' ? skus : undefined });
                   setChoosing(false);
                   if (r.ok && r.id) setOpenId(r.id);
                 }}
@@ -399,6 +449,7 @@ const CountsPage: React.FC = () => {
 
 const CountDrawer: React.FC<{ c: StockCount; onClose: () => void }> = ({ c, onClose }) => {
   const { state, products, pname, enterCount, submitCount, approveCount, actor } = useOperations();
+  const { readOnly } = useAccess();
   const [note, setNote] = useState('');
   const diff = c.lines.filter((l) => l.counted !== null && l.counted !== l.expected);
   const value = round2(diff.reduce((s, l) => s + ((l.counted as number) - l.expected) * (products.find((p) => p.sku === l.sku)?.cost ?? 0), 0));
@@ -445,7 +496,7 @@ const CountDrawer: React.FC<{ c: StockCount; onClose: () => void }> = ({ c, onCl
               <td style={{ textAlign: 'right' }}>
                 {c.status === 'OPEN' ? (
                   <div className="sx-alloc-cell">
-                    <input className="form-control" type="number" min="0" value={l.counted ?? ''} onChange={(e) => enterCount(c.id, l.sku, e.target.value === '' ? null : Number(e.target.value))} />
+                    <input className="form-control" type="number" min="0" disabled={readOnly} value={l.counted ?? ''} onChange={(e) => enterCount(c.id, l.sku, e.target.value === '' ? null : Number(e.target.value))} />
                   </div>
                 ) : (
                   l.counted
@@ -484,7 +535,8 @@ const KIND_LABEL: Record<string, string> = {
   MAINTENANCE_ISSUE: 'Issued to maintenance',
   ADJUSTMENT: 'Export loading',
   DELIVERY: 'Customer delivery',
-  RECEIPT: 'Goods received'
+  RECEIPT: 'Goods received',
+  SHIPMENT_LOADING: 'Loaded for export'
 };
 
 const useAllMoves = () => {
@@ -540,19 +592,49 @@ const MovementsPage: React.FC = () => {
 
 export const WarehousingSidebar: React.FC = () => {
   const { state, warehousing, setWarehousing } = useOperations();
+  const { state: x } = useWarehouseExt();
   const groups: SuiteNavGroup<WarehousingPage>[] = [
     { label: 'Warehousing', items: [{ id: 'overview', label: 'Overview', icon: LayoutDashboard }] },
+    {
+      label: 'Tea warehouse',
+      items: [
+        { id: 'lots', label: 'Tea lots', icon: Layers, badge: x.lots.filter((l) => l.status === 'IN_STOCK' && (l.qc === 'PENDING' || l.qc === 'HOLD')).length },
+        { id: 'inbound', label: 'Inbound & yard', icon: PackageCheck, badge: x.asns.filter((a) => a.status === 'EXPECTED' || a.status === 'ARRIVED').length },
+        { id: 'auction', label: 'Auction & warrants', icon: Gavel },
+        { id: 'outbound', label: 'Pick, pack & load', icon: Container },
+        { id: 'transport', label: 'Transport', icon: Truck },
+        { id: 'returns', label: 'Returns (RMA)', icon: Undo2, badge: x.returns.filter((r) => r.status === 'AUTHORISED' || r.status === 'RECEIVED').length }
+      ]
+    },
     {
       label: 'Stock',
       items: [
         { id: 'stock', label: 'Stock by location', icon: Boxes },
         { id: 'transfers', label: 'Transfers', icon: ArrowLeftRight, badge: state.transfers.filter((t) => t.status === 'REQUESTED' || t.status === 'IN_TRANSIT').length },
         { id: 'counts', label: 'Stock counts', icon: ClipboardCheck, badge: state.counts.filter((c) => c.status !== 'APPROVED').length },
+        { id: 'cycle', label: 'Count plans', icon: CalendarCheck },
         { id: 'movements', label: 'Movements', icon: History }
+      ]
+    },
+    {
+      label: 'Operations',
+      items: [
+        { id: 'tasks', label: 'Tasks', icon: ListChecks, badge: x.tasks.filter((t) => t.status === 'OPEN' && !t.assignee).length },
+        { id: 'printing', label: 'Printing jobs', icon: Printer },
+        { id: 'sensors', label: 'Sensors (IoT)', icon: Thermometer },
+        { id: 'billing', label: 'Warehouse billing', icon: Receipt },
+        { id: 'reports', label: 'Reports', icon: BarChart3 }
+      ]
+    },
+    {
+      label: 'Setup',
+      items: [
+        { id: 'locations', label: 'Locations & layout', icon: MapPin },
+        { id: 'items', label: 'Item setup', icon: Tags }
       ]
     }
   ];
-  return <SuiteSidebar name="Warehousing" tagline="Locations · transfers · counts" icon={WarehouseIcon} groups={groups} active={warehousing.page} onSelect={(p) => setWarehousing(p)} footer={<OpsFooter />} />;
+  return <SuiteSidebar name="Warehousing" tagline="Tea lots · locations · transport" icon={WarehouseIcon} groups={groups} active={warehousing.page} onSelect={(p) => setWarehousing(p)} footer={<LogisticsFooter />} />;
 };
 export const WarehousingCrumb: React.FC = () => {
   const { warehousing, setWarehousing } = useOperations();
@@ -568,6 +650,40 @@ export const WarehousingSuite: React.FC = () => {
       {warehousing.page === 'transfers' && <TransfersPage />}
       {warehousing.page === 'counts' && <CountsPage />}
       {warehousing.page === 'movements' && <MovementsPage />}
+      {isWarehousingExt(warehousing.page) && <WarehousingExt page={warehousing.page} />}
     </div>
   );
+};
+
+const WarehousingExt: React.FC<{ page: import('./warehousing/pages').WarehousingExtPage }> = ({ page }) => {
+  switch (page) {
+    case 'lots':
+      return <LotsPage />;
+    case 'inbound':
+      return <InboundPage />;
+    case 'auction':
+      return <AuctionPage />;
+    case 'outbound':
+      return <OutboundPage />;
+    case 'transport':
+      return <TransportPage />;
+    case 'returns':
+      return <ReturnsPage />;
+    case 'locations':
+      return <LocationsPage />;
+    case 'tasks':
+      return <TasksPage />;
+    case 'cycle':
+      return <CyclePage />;
+    case 'items':
+      return <ItemsPage />;
+    case 'billing':
+      return <BillingPage />;
+    case 'printing':
+      return <PrintingPage />;
+    case 'sensors':
+      return <SensorsPage />;
+    default:
+      return <WhReportsPage />;
+  }
 };
