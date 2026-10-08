@@ -35,11 +35,15 @@ interface Input {
   /** Periods posted to the ledger this session (yyyy-mm) */
   closedPayrollPeriods: string[];
   today?: Date;
+  /** Optional workflow sources: each waiting step goes to HR, each decision to the employee or requester */
+  employeeChanges?: { id: string; orgId: string; staffId: string; kind: string; status: string; requestedOn: string; decidedOn?: string; decidedBy?: string }[];
+  requisitions?: { id: string; orgId: string; title: string; status: string; requestedDate: string; submittedDate?: string; decidedDate?: string; requesterStaffId?: string }[];
+  trainingNeeds?: { id: string; orgId: string; staffId: string; skill: string; status: string; raisedOn: string; decidedBy?: string }[];
 }
 
 const fmtPeriod = (key: string) => `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
 
-export const buildOutbox = ({ hrEmployees, leaveRequests, essRequests, exitCases, closedPayrollPeriods, today = new Date() }: Input): OutboxMessage[] => {
+export const buildOutbox = ({ hrEmployees, leaveRequests, essRequests, exitCases, closedPayrollPeriods, today = new Date(), employeeChanges = [], requisitions = [], trainingNeeds = [] }: Input): OutboxMessage[] => {
   const byId = new Map(hrEmployees.map((e) => [e.staffId, e]));
   const byName = new Map(hrEmployees.map((e) => [e.fullName, e]));
   const out: OutboxMessage[] = [];
@@ -109,6 +113,24 @@ export const buildOutbox = ({ hrEmployees, leaveRequests, essRequests, exitCases
     const subject = a.kind === 'CONTRACT' ? `Contract ends ${a.date} (${a.bucket} notice)` : `Retirement on ${a.date} (${a.bucket} notice)`;
     send(e, 'Contract & retirement', todayIso, subject, a.key);
     send(e ? hrApproverFor(e.orgId, hrEmployees) : undefined, 'Contract & retirement', todayIso, `${a.name}: ${subject.toLowerCase()}`, a.key);
+  }
+
+  /* HR workflows: approval request to the company's HR approver, decision back to the person concerned */
+  const label = (k: string) => k.toLowerCase().replace(/_/g, ' ');
+  for (const c of employeeChanges) {
+    const e = byId.get(c.staffId);
+    if (c.status === 'PENDING') send(hrApproverFor(c.orgId, hrEmployees), 'Approval request', c.requestedOn, `Approve ${label(c.kind)} for ${e?.fullName ?? c.staffId}`, c.id);
+    else send(e, 'HR workflow', c.decidedOn, `Your ${label(c.kind)} was ${c.status === 'APPROVED' ? 'approved' : 'declined'}${c.decidedBy ? ` by ${c.decidedBy}` : ''}`, c.id);
+  }
+  for (const r of requisitions) {
+    const requester = byId.get(r.requesterStaffId ?? '');
+    if (r.status === 'PENDING_APPROVAL') send(hrApproverFor(r.orgId, hrEmployees), 'Approval request', r.submittedDate ?? r.requestedDate, `Approve staff requisition ${r.id} — ${r.title}`, r.id);
+    if (r.status === 'APPROVED' || r.status === 'REJECTED') send(requester, 'HR workflow', r.decidedDate ?? r.requestedDate, `Requisition ${r.id} (${r.title}) ${r.status === 'APPROVED' ? 'approved' : 'declined'}`, r.id);
+  }
+  for (const n of trainingNeeds) {
+    const e = byId.get(n.staffId);
+    if (n.status === 'Proposed') send(hrApproverFor(n.orgId, hrEmployees), 'Approval request', n.raisedOn, `Review training need: ${n.skill} for ${e?.fullName ?? n.staffId}`, n.id);
+    if (n.status === 'Approved' || n.status === 'Rejected') send(e, 'HR workflow', n.raisedOn, `Training need "${n.skill}" ${n.status.toLowerCase()}${n.decidedBy ? ` by ${n.decidedBy}` : ''}`, n.id);
   }
 
   return out.sort((a, b) => b.on.localeCompare(a.on) || a.recipient.localeCompare(b.recipient));

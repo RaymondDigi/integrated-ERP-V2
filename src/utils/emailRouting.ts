@@ -47,7 +47,7 @@ export const demoPersonalEmail = (fullName: string, i: number) => {
 
 export type MailChannel = 'work' | 'personal';
 
-export type MailCategory = 'Approval request' | 'Leave' | 'Self-service request' | 'Payslip' | 'Exit & final dues' | 'Contract & retirement';
+export type MailCategory = 'Approval request' | 'Leave' | 'Self-service request' | 'Payslip' | 'Exit & final dues' | 'Contract & retirement' | 'HR workflow';
 
 /** Which address each kind of message goes to. */
 export const CHANNEL_FOR: Record<MailCategory, MailChannel> = {
@@ -56,7 +56,8 @@ export const CHANNEL_FOR: Record<MailCategory, MailChannel> = {
   'Self-service request': 'personal',
   Payslip: 'personal',
   'Exit & final dues': 'personal',
-  'Contract & retirement': 'work'
+  'Contract & retirement': 'work',
+  'HR workflow': 'work'
 };
 
 export const ROUTING_RULES: { category: MailCategory; channel: MailChannel; what: string }[] = [
@@ -65,7 +66,8 @@ export const ROUTING_RULES: { category: MailCategory; channel: MailChannel; what
   { category: 'Self-service request', channel: 'personal', what: 'Requests decided: advances, expenses, letters, bank changes' },
   { category: 'Payslip', channel: 'personal', what: 'Payslip ready when a payroll period is posted' },
   { category: 'Exit & final dues', channel: 'personal', what: 'Exit confirmed, final dues approved and paid, certificate of service' },
-  { category: 'Contract & retirement', channel: 'work', what: 'Contract end (90/60/30 days) and retirement (6/3/1 months) notices to the employee and HR' }
+  { category: 'Contract & retirement', channel: 'work', what: 'Contract end (90/60/30 days) and retirement (6/3/1 months) notices to the employee and HR' },
+  { category: 'HR workflow', channel: 'work', what: 'Requisitions, employee changes (promotion, transfer, acting, demotion) and training needs: request to HR, decision to the employee or requester' }
 ];
 
 /** The address a message actually goes to; personal notices fall back to work mail when no personal email is on file. */
