@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { OshAuditAndReturns } from '../hcm/OshExtras';
 import { ExternalLink, FileCheck, Users } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
 import { useControl } from '../../../suites/control/store';
@@ -180,6 +181,7 @@ export const StatutoryTab: React.FC = () => {
         ))}
       </div>
 
+      <OshAuditAndReturns />
       {exam && <ExamModal s={exam} onClose={() => setExam(null)} />}
       {meeting && <MeetingModal onClose={() => setMeeting(false)} />}
     </>

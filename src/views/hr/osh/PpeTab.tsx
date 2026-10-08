@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { PpeRequisitions } from '../hcm/OshExtras';
 import { PackageCheck, Search, UserPlus } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
 import { Pager, usePaged } from '../../../components/common/Pager';
@@ -216,6 +217,7 @@ export const PpeTab: React.FC = () => {
         </div>
       </div>
 
+      <PpeRequisitions />
       {issueFor && <IssueModal e={issueFor} onClose={() => setIssueFor(null)} />}
     </>
   );

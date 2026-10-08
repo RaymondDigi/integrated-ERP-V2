@@ -5,11 +5,13 @@ import { Pager, usePaged } from '../../../components/common/Pager';
 import { TIME_RULES } from '../../../data/timeConfig';
 import { addDays, fmtDate, fmtMin } from '../../../data/timeEngine';
 import { Chips, EmpCell, Empty, NotTracked, Pill, useTimeOrg } from './shared';
+import { ImportCsvButton } from '../../../platform/Widgets';
+import { SimulatedBadge } from '../hcm/ui';
 
 type Src = 'ALL' | 'BIOMETRIC' | 'MOBILE' | 'MANUAL';
 
 export const PunchLogTab: React.FC = () => {
-  const { timePunches, selectedOrgId } = useApp();
+  const { timePunches, selectedOrgId, importDevicePunches } = useApp();
   const { byId, tracked, today } = useTimeOrg();
   const [date, setDate] = useState(today);
   const [src, setSrc] = useState<Src>('ALL');
@@ -33,6 +35,10 @@ export const PunchLogTab: React.FC = () => {
         <div>
           <h3>Punch log</h3>
           <p>Raw punches from the biometric terminals, the mobile app (GPS geofence) and supervisor corrections for {fmtDate(date, true)}.</p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+            <SimulatedBadge what="ZKTeco / ADMS terminal sync" />
+            <ImportCsvButton label="Import terminal export" template={['staffId', 'date', 'time', 'direction', 'device']} onImport={importDevicePunches} />
+          </div>
         </div>
         <input className="form-control" style={{ width: 'auto' }} type="date" aria-label="Punch date" value={date} min={addDays(today, -TIME_RULES.historyDays)} max={today} onChange={(ev) => ev.target.value && setDate(ev.target.value)} />
       </div>

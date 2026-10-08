@@ -58,9 +58,10 @@ import { EssAiAssistant, AiHomeCard, ProfileCompletenessCard } from './EssAi';
 import { detectIssues, setAiHolidays, type AiContext, type AiAction } from './aiEngine';
 import { EssApprovals, EssPerformance, EssAssets, EssDisciplinary } from './EssRecords';
 import { EssP9 } from './EssP9';
+import { EssServices, TeamLeaveReport } from './EssServices';
 import { codeOf, leaveBalances, validateLeaveRequest } from '../../data/leaveEngine';
 
-type EssTab = 'home' | 'ai' | 'leave' | 'approvals' | 'pay' | 'performance' | 'attendance' | 'requests' | 'records' | 'profile';
+type EssTab = 'home' | 'ai' | 'leave' | 'approvals' | 'pay' | 'performance' | 'attendance' | 'requests' | 'records' | 'services' | 'profile';
 type PaySub = 'payslips' | 'p9';
 type RecordsSub = 'assets' | 'disciplinary' | 'documents';
 
@@ -74,6 +75,7 @@ const TABS: { id: EssTab; label: string; icon: React.ElementType; approverOnly?:
   { id: 'attendance', label: 'Attendance', icon: Clock },
   { id: 'requests', label: 'Requests', icon: Inbox },
   { id: 'records', label: 'My Records', icon: Archive },
+  { id: 'services', label: 'Services', icon: Package },
   { id: 'profile', label: 'My Profile', icon: UserCircle }
 ];
 
@@ -384,6 +386,8 @@ export const EssPortalView: React.FC = () => {
           />
         )}
         {tab === 'approvals' && <EssApprovals pending={approvalsPending} decided={approvalsDecided} />}
+        {tab === 'approvals' && <TeamLeaveReport />}
+        {tab === 'services' && <EssServices />}
         {tab === 'pay' && (
           <div className="ess-stack">
             <SubTabs
