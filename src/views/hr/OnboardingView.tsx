@@ -3,12 +3,15 @@ import { ShieldAlert, UserPlus, ListChecks, Presentation, BadgeCheck } from 'luc
 import { useApp } from '../../context/AppContext';
 import { HireHeader, useModuleTab, type TabDef } from './hire/shared';
 import { HiresTab, TasksTab, SessionsTab, ProbationTab } from './hire/OnboardingTabs';
+import { PlacementsTab } from './hcm/TalentTabs';
+import { GraduationCap } from 'lucide-react';
 
 const TABS: TabDef[] = [
   { id: 'hires', label: 'New hires', icon: UserPlus },
   { id: 'tasks', label: 'Task board', icon: ListChecks },
   { id: 'sessions', label: 'Induction sessions', icon: Presentation },
-  { id: 'probation', label: 'Probation', icon: BadgeCheck }
+  { id: 'probation', label: 'Probation', icon: BadgeCheck },
+  { id: 'placements', label: 'Interns & attachees', icon: GraduationCap }
 ];
 
 export const OnboardingView: React.FC = () => {
@@ -27,7 +30,7 @@ export const OnboardingView: React.FC = () => {
         tabs={TABS}
         next={{ label: 'Go to Employee Master (#04)', view: 'employees' }}
       />
-      {tab === 'tasks' ? <TasksTab /> : tab === 'sessions' ? <SessionsTab /> : tab === 'probation' ? <ProbationTab /> : <HiresTab />}
+      {tab === 'placements' ? <PlacementsTab /> : tab === 'tasks' ? <TasksTab /> : tab === 'sessions' ? <SessionsTab /> : tab === 'probation' ? <ProbationTab /> : <HiresTab />}
     </div>
   );
 };

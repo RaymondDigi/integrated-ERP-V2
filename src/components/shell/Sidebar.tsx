@@ -166,6 +166,11 @@ export const Sidebar: React.FC = () => {
           id: 'separation',
           label: '#12 Separation',
           icon: FileCheck
+        },
+        {
+          id: 'hr-services',
+          label: '#13 Welfare & Services',
+          icon: Award
         }
       ]
     },

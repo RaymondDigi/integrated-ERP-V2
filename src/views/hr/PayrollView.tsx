@@ -32,6 +32,10 @@ import { PayrollWorksheet } from './payroll/PayrollWorksheet';
 import { downloadCsv, kes, payRail, periodOf, rowsFor } from './payroll/reports';
 import { Pager, usePaged } from '../../components/common/Pager';
 import { PeriodTag } from './payroll/shared';
+import { useSession } from '../../auth/session';
+import { payrollJournalLines, type GlRow } from '../../data/hcmEngine';
+import { DEFAULT_GL_MAP } from '../../data/hcmConfig';
+import { SalaryStructureTab, BankFilesTab } from './hcm/PayrollSetupTabs';
 
 // Re-exported for screens that import it from here
 export { calculateKenyanStatutory };
@@ -45,7 +49,9 @@ const TABS = [
   { id: 'payslips', label: 'Payslips & register', icon: FileText },
   { id: 'summaries', label: 'Reports & summaries', icon: Layers },
   { id: 'custom', label: 'Custom summaries', icon: Layers },
-  { id: 'statutory', label: 'Statutory rates', icon: Zap }
+  { id: 'statutory', label: 'Statutory rates', icon: Zap },
+  { id: 'structure', label: 'Salary structure', icon: Layers },
+  { id: 'bankfiles', label: 'GL & bank files', icon: BookOpen }
 ];
 
 const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => {
@@ -61,9 +67,11 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
     payItems,
     setPayrollBatchStatus,
     payrollGlRefs,
-    activeTenant
+    activeTenant,
+    glMaps
   } = useApp();
   const finance = useFinance();
+  const session = useSession();
 
   // Highlights come from the same batches as the table below
   const highlights = useMemo(() => {
@@ -96,36 +104,48 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
 
   const approve = () => {
     if (!batch) return;
+    // The store checks the signed-in approver (manager, not the preparer, not suspended)
     setPayrollBatchStatus(batch.id, 'AUDIT_APPROVED');
-    addToast({ type: 'success', title: 'Payroll approved', message: `${open.label} approved by David Otieno, Finance Manager. Ready to post to the ledger.` });
   };
   const postToLedger = () => {
     if (!batch) return;
-    const s = salaried;
-    const gross = sum((r) => r.p.gross, s);
-    const er = sum((r) => r.p.employerNssf + r.p.employerAhl + r.p.nita, s);
-    const statEe = sum((r) => r.p.nssf + r.p.shif + r.p.ahl, s);
-    const other = sum((r) => r.p.pretaxCash + r.p.deductions.reduce((x, d) => x + d.deducted, 0), s);
+    if (batch.status !== 'AUDIT_APPROVED') {
+      addToast({ type: 'error', title: 'Not approved', message: `${open.label} must be approved by Finance before it is posted.` });
+      return;
+    }
+    // Salaried and casual pay, by cost centre (HR department → Finance department)
+    const gl: GlRow[] = rows.map((r) => ({
+      department: r.p.department,
+      casual: r.p.casual,
+      gross: r.p.gross,
+      employer: r.p.employerNssf + r.p.employerAhl + r.p.nita,
+      paye: r.p.paye,
+      statutory: r.p.nssf + r.p.shif + r.p.ahl,
+      other: r.p.pretaxCash + r.p.deductions.reduce((x, d) => x + d.deducted, 0),
+      net: r.p.net
+    }));
+    const lines = payrollJournalLines(gl, glMaps[selectedOrgId] ?? DEFAULT_GL_MAP);
+    const casualCount = rows.filter((r) => r.p.casual).length;
     const res = finance.saveJournal({
       date: `${open.key}-25`,
-      memo: `Payroll — ${open.label} (from Employee Payroll, ${s.length} salaried staff, batch ${batch.batchNo})`,
-      lines: [
-        { id: 'l1', account: '6000', description: 'Gross salaries, allowances and overtime', debit: gross, credit: 0, department: 'Administration' },
-        { id: 'l2', account: '6000', description: 'Employer NSSF, housing levy and NITA', debit: er, credit: 0, department: 'Administration' },
-        { id: 'l3', account: '2150', description: 'PAYE withheld', debit: 0, credit: sum((r) => r.p.paye, s) },
-        { id: 'l4', account: '2160', description: 'NSSF, SHIF, housing levy and NITA (employee and employer)', debit: 0, credit: statEe + er },
-        { id: 'l5', account: '2200', description: 'Pension, loans, SACCO and other deductions', debit: 0, credit: other },
-        { id: 'l6', account: '1000', description: 'Net pay — bank transfer and M-Pesa', debit: 0, credit: sum((r) => r.p.net, s) }
-      ]
+      memo: `Payroll — ${open.label} (Employee Payroll batch ${batch.batchNo}: ${rows.length - casualCount} salaried, ${casualCount} casual)`,
+      lines
     });
-    if ('error' in res) {
+    if (!res.ok) {
       addToast({ type: 'error', title: 'Could not post to the ledger', message: res.error });
       return;
     }
+    // Submitted for Finance approval straight away (no draft left behind)
+    const sub = finance.transition('journals', res.id ?? '', 'submit');
     const jv = finance.snapshot().journals.find((j) => j.id === res.id)?.number ?? res.id ?? '';
     setPayrollBatchStatus(batch.id, 'POSTED_GL', jv);
-    addToast({ type: 'success', title: 'Payroll posted', message: `Journal ${jv} sent to Finance for approval. ${open.label} is closed — new items go to the next period.` });
+    addToast({
+      type: 'success',
+      title: 'Payroll posted',
+      message: `Journal ${jv} (${lines.length} lines by cost centre) ${sub.ok ? 'submitted to Finance for approval' : 'saved as a draft'}. ${open.label} is closed — new items go to the next period.`
+    });
   };
+  const approverName = session?.name ?? 'the signed-in manager';
 
   const exportItax = () =>
     downloadCsv(
@@ -300,7 +320,7 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
               Active payroll period — {open.label} <PeriodTag periodKey={open.key} />
             </h3>
             <p>
-              Pay date 25 {open.label}. Prepared by Rose Chepkoech; approved by Finance; posted to the ledger as a journal for Finance to approve.
+              Pay date 25 {open.label}. Prepared by Rose Chepkoech; approved by a Finance manager (you are signed in as {approverName}); posted to the ledger by cost centre as a journal submitted for Finance approval.
             </p>
           </div>
           <div className="pr-toolbar">
@@ -488,6 +508,8 @@ export const PayrollView: React.FC = () => {
       {tab === 'summaries' && <CompanySummaries />}
       {tab === 'custom' && <CustomSummaries />}
       {tab === 'statutory' && <StatutoryRates />}
+      {tab === 'structure' && <SalaryStructureTab />}
+      {tab === 'bankfiles' && <BankFilesTab />}
     </div>
   );
 };

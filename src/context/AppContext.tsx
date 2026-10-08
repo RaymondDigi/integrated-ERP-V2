@@ -71,7 +71,7 @@ import { useSecurityState, type SecurityStateSlice } from './securityState';
 import { guardActions, READ_ONLY_MESSAGE } from './hrAccess';
 import { useSession } from '../auth/session';
 import { canApprove } from '../platform/access';
-import { audit as platformAudit } from '../platform/audit';
+import { audit as platformAudit, auditChanges } from '../platform/audit';
 import { DAYS_PER_MONTH, GRADE_BANDS } from '../data/hireConfig';
 import { leaveAllowanceFor, suspensionBlock } from '../data/hcmEngine';
 import { basicFor, payslip, buildPayrollBatches, latestPaidMonth, makeContext, type ExitType, type PayReduction, type PayrollHold, monthRun, MONTHS, openPeriod, SEED_CONTEXT, terminalDues, type PayrollContext } from '../data/payrollEngine';
@@ -110,6 +110,7 @@ export type NavigationTarget =
   | 'disciplinary'
   | 'osh-security'
   | 'separation'
+  | 'hr-services'
   | 'overview'
   | 'work-queue'
   | 'activity'
@@ -465,8 +466,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     return created;
   };
-  const updateHrEmployee = (staffId: string, patch: Partial<HREmployee>) =>
+  const updateHrEmployee = (staffId: string, patch: Partial<HREmployee>) => {
+    // Every master-data change is kept with its old and new value for the change report
+    const before = hrEmployees.find((e) => e.staffId === staffId);
+    if (before) auditChanges('HR', sessionName, staffId, before, { ...before, ...patch }, Object.keys(patch) as (keyof HREmployee)[]);
     setHrEmployees((prev) => prev.map((e) => (e.staffId === staffId ? { ...e, ...patch } : e)));
+  };
   const [payReductions, setPayReductions] = useState<PayReduction[]>([]);
   const addPayReduction = (r: Omit<PayReduction, 'id'>) => {
     const created: PayReduction = { ...r, id: `PRD-${Date.now().toString(36)}` };

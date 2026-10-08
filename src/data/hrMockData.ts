@@ -233,6 +233,19 @@ export const HR_PROCESS_APPS: HRProcessApp[] = [
     badgeVariant: 'info',
     route: 'separation',
     metrics: { label: 'Terminal Slips', value: '100% Cleared' }
+  },
+  {
+    id: 'hr-services',
+    stepNumber: 13,
+    name: 'Staff Welfare & Services',
+    category: 'Governance & Safety',
+    shortDesc: 'Welfare, medical cover, travel, CSR & library',
+    fullDesc: 'Welfare entitlements paid through payroll, medical scheme membership and claims, travel imprest and petty cash with Finance issue and surrender, CSR and staff events, outsourced labour and the staff library.',
+    iconName: 'Award',
+    badgeText: 'New',
+    badgeVariant: 'info',
+    route: 'hr-services',
+    metrics: { label: 'Services', value: 6 }
   }
 ];
 

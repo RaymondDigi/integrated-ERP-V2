@@ -3,13 +3,17 @@ import { UserCheck, Briefcase, Users, CalendarClock, FileSignature, BarChart3 } 
 import { useApp } from '../../context/AppContext';
 import { HireHeader, useModuleTab, type TabDef } from './hire/shared';
 import { VacanciesTab, PipelineTab, InterviewsTab, OffersTab, InsightsTab } from './hire/RecruitmentTabs';
+import { AptitudeTestsTab, CareersPortalTab } from './hcm/TalentTabs';
+import { ClipboardCheck, Globe } from 'lucide-react';
 
 const TABS: TabDef[] = [
   { id: 'vacancies', label: 'Vacancies', icon: Briefcase },
   { id: 'pipeline', label: 'Applicant pipeline', icon: Users },
   { id: 'interviews', label: 'Interviews & scorecards', icon: CalendarClock },
   { id: 'offers', label: 'Offers', icon: FileSignature },
-  { id: 'insights', label: 'Hiring statistics', icon: BarChart3 }
+  { id: 'insights', label: 'Hiring statistics', icon: BarChart3 },
+  { id: 'tests', label: 'Aptitude tests', icon: ClipboardCheck },
+  { id: 'careers', label: 'Careers portal', icon: Globe }
 ];
 
 export const RecruitmentView: React.FC = () => {
@@ -29,7 +33,11 @@ export const RecruitmentView: React.FC = () => {
         tabs={TABS}
         next={{ label: 'Go to Onboarding (#03)', view: 'onboarding' }}
       />
-      {tab === 'pipeline' ? (
+      {tab === 'tests' ? (
+        <AptitudeTestsTab />
+      ) : tab === 'careers' ? (
+        <CareersPortalTab />
+      ) : tab === 'pipeline' ? (
         <PipelineTab vacancyId={vacancyId} setVacancyId={setVacancyId} />
       ) : tab === 'interviews' ? (
         <InterviewsTab />
