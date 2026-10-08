@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { ArrowLeft, BadgeCheck, CalendarDays, ChevronRight, ClipboardList, Coins, FileSignature, GraduationCap, Wallet } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, BookOpen, CalendarDays, ChevronRight, ClipboardList, Coins, FileSignature, GraduationCap, Wallet } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { hoursYtd, isActiveOn, kes, matrixStats } from '../../data/trainingEngine';
 import { useTrainingOrg } from './training/shared';
@@ -9,6 +9,7 @@ import { PlanTab } from './training/PlanTab';
 import { SessionsTab } from './training/SessionsTab';
 import { NitaTab } from './training/NitaTab';
 import { BondsTab } from './training/BondsTab';
+import { LibraryTab } from './registers/LibraryTab';
 
 export const TRAINING_TABS = [
   { id: 'matrix', label: 'Skills matrix', icon: BadgeCheck },
@@ -16,7 +17,8 @@ export const TRAINING_TABS = [
   { id: 'plan', label: 'Catalogue & budget', icon: Wallet },
   { id: 'sessions', label: 'Sessions', icon: CalendarDays },
   { id: 'nita', label: 'Costs & NITA', icon: Coins },
-  { id: 'bonds', label: 'Training bonds', icon: FileSignature }
+  { id: 'bonds', label: 'Training bonds', icon: FileSignature },
+  { id: 'library', label: 'Library', icon: BookOpen }
 ];
 
 export const TrainingSkillsView: React.FC = () => {
@@ -135,6 +137,7 @@ export const TrainingSkillsView: React.FC = () => {
       {tab === 'sessions' && <SessionsTab />}
       {tab === 'nita' && <NitaTab />}
       {tab === 'bonds' && <BondsTab />}
+      {tab === 'library' && <LibraryTab />}
     </div>
   );
 };

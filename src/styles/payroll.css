@@ -586,3 +586,165 @@
 .pr-wide .pr-signatures {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
+
+/* Payroll periods: active / previous / period control tabs */
+.pc-tabs-card {
+  margin-top: 16px;
+}
+.pc-tabbar {
+  display: flex;
+  gap: 4px;
+  padding: 8px 8px 0;
+  border-bottom: 1px solid var(--border-subtle, var(--border-default));
+  overflow-x: auto;
+}
+.pc-tabbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.pc-tabbar button:hover {
+  color: var(--text-primary);
+}
+.pc-tabbar button.active {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle, var(--border-default));
+  color: var(--text-primary);
+}
+.pc-tabbar button:first-child.active {
+  color: var(--brand-primary);
+  box-shadow: inset 0 3px 0 var(--brand-primary);
+}
+.pc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #22c55e 25%, transparent);
+}
+.pc-count {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--bg-surface-subtle, rgba(0, 0, 0, 0.05));
+  color: var(--text-secondary);
+}
+.pc-flag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #b45309;
+  background: color-mix(in srgb, #d97706 15%, transparent);
+}
+.pc-intro {
+  padding: 10px 16px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle, var(--border-default));
+}
+.pc-intro.live {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--brand-primary) 7%, transparent);
+  border-left: 3px solid var(--brand-primary);
+}
+/* The active period stands out; closed periods stay plain */
+.pc-row-live td {
+  background: color-mix(in srgb, var(--brand-primary) 6%, transparent);
+}
+.pc-row-live td:first-child {
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+}
+
+.pc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.pc-panel {
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pc-panel.pc-reopened {
+  border-color: color-mix(in srgb, #d97706 55%, var(--border-default));
+  background: color-mix(in srgb, #d97706 5%, var(--bg-surface));
+}
+.pc-wide {
+  grid-column: 1 / -1;
+}
+.pc-panel-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: var(--brand-primary);
+}
+.pc-panel-head h4 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.pc-panel-head p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.pc-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pc-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.pc-check svg {
+  flex: none;
+  margin-top: 1px;
+}
+.pc-check.ok svg {
+  color: #16a34a;
+}
+.pc-check.warn svg {
+  color: #d97706;
+}
+.pc-check.todo {
+  color: var(--text-secondary);
+}
+.pc-check.todo svg {
+  color: var(--text-tertiary);
+}
+.pc-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (max-width: 900px) {
+  .pc-grid {
+    grid-template-columns: 1fr;
+  }
+}

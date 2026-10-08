@@ -231,6 +231,15 @@ const HIRE_FIELDS: Record<string, Partial<HREmployee>> = {
   'CAS-1405': { history: [{ date: '2026-08-01', kind: 'Joined', summary: 'Joined as Production Operative at KES 696/day', ref: 'ONB-2026-011', by: 'Rose Chepkoech' }] }
 };
 
+/** Dates of birth on file (retirement at 60 unless the record says otherwise). A few retire within six months. */
+const BIRTH_DATES: Record<string, string> = {
+  'KHE-0263': '1966-11-20', 'KHE-0301': '1967-02-14', 'KHE-0141': '1967-03-30', 'KPF-1124': '1966-12-05',
+  'KHE-0104': '1967-06-30', 'KHE-0171': '1968-09-02', 'KHE-0160': '1969-05-22', 'KHE-0419': '1971-04-12',
+  'KHE-0120': '1974-08-03', 'KHE-0152': '1978-02-19', 'KHE-0178': '1979-10-27', 'KHE-0134': '1980-01-17',
+  'KHE-0290': '1990-03-11', 'KHE-0187': '1992-06-08', 'KHE-0244': '1994-12-01', 'KHE-1108': '1985-04-16',
+  'KHE-0302': '1983-09-09', 'KPF-1121': '1976-05-30', 'KHE-1021': '1988-11-12'
+};
+
 /** Personal details the portal user keeps on file (shown in HR, payroll and the employee portal alike). */
 const PORTAL_USER: Partial<HREmployee> = {
   email: 'j.kiprono@intergrated-erp.ke',
@@ -279,5 +288,6 @@ const uniqueEmails = (list: HREmployee[]) => {
 export const WORKFORCE: HREmployee[] = uniqueEmails(
   buildWorkforce()
     .map((e) => (HIRE_FIELDS[e.staffId] ? { ...e, ...HIRE_FIELDS[e.staffId] } : e))
+    .map((e) => (BIRTH_DATES[e.staffId] && !e.dateOfBirth ? { ...e, dateOfBirth: BIRTH_DATES[e.staffId] } : e))
     .map((e) => (e.staffId === 'KHE-0102' ? { ...e, ...PORTAL_USER } : e))
 );

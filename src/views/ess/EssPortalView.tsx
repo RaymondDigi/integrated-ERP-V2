@@ -28,7 +28,11 @@ import {
   Archive,
   Package,
   XCircle,
-  Sparkles
+  Sparkles,
+  ShieldAlert,
+  Banknote,
+  HeartHandshake,
+  Stethoscope
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import type { LeaveRequest } from '../../types';
@@ -58,11 +62,24 @@ import { EssAiAssistant, AiHomeCard, ProfileCompletenessCard } from './EssAi';
 import { detectIssues, setAiHolidays, type AiContext, type AiAction } from './aiEngine';
 import { EssApprovals, EssPerformance, EssAssets, EssDisciplinary } from './EssRecords';
 import { EssP9 } from './EssP9';
+import { EssConcerns, EssMedical, EssWelfare } from './EssServices';
+import { EssAdvances, EssTravel } from './EssTravel';
+import { overdueDays } from '../../data/travelEngine';
 import { codeOf, leaveBalances, validateLeaveRequest } from '../../data/leaveEngine';
 
 type EssTab = 'home' | 'ai' | 'leave' | 'approvals' | 'pay' | 'performance' | 'attendance' | 'requests' | 'records' | 'profile';
 type PaySub = 'payslips' | 'p9';
-type RecordsSub = 'assets' | 'disciplinary' | 'documents';
+type RecordsSub = 'assets' | 'disciplinary' | 'documents' | 'medical';
+type RequestsSub = 'general' | 'concern' | 'travel' | 'advances' | 'welfare' | 'medical';
+
+const REQUEST_SUBS: { id: RequestsSub; label: string; icon: React.ElementType }[] = [
+  { id: 'general', label: 'HR requests', icon: Inbox },
+  { id: 'concern', label: 'Report a concern', icon: ShieldAlert },
+  { id: 'travel', label: 'Travel', icon: Plane },
+  { id: 'advances', label: 'Petty cash & imprest', icon: Banknote },
+  { id: 'welfare', label: 'Welfare', icon: HeartHandshake },
+  { id: 'medical', label: 'Medical', icon: Stethoscope }
+];
 
 const TABS: { id: EssTab; label: string; icon: React.ElementType; approverOnly?: boolean }[] = [
   { id: 'home', label: 'Home', icon: Home },
@@ -104,13 +121,14 @@ const greeting = () => {
 const timeNow = () => new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
 export const EssPortalView: React.FC = () => {
-  const { leaveRequests, createLeaveRequest, cancelLeaveRequest, addToast, setCurrentView, hrEmployees, updateHrEmployee, logEmployeeEdit, leaveCfg, leaveHolidays, essRequests, submitEssRequest, payrollCtx, addAttendancePunch } = useApp();
+  const { leaveRequests, createLeaveRequest, cancelLeaveRequest, addToast, setCurrentView, hrEmployees, updateHrEmployee, logEmployeeEdit, leaveCfg, leaveHolidays, essRequests, submitEssRequest, payrollCtx, addAttendancePunch, imprests } = useApp();
   // Keep the assistant's working-day maths on the same calendar as HR (holidays for this employee's site)
   const essOrg = hrEmployees.find((e) => e.staffId === ESS_EMPLOYEE.staffId)?.orgId;
   setAiHolidays(leaveHolidays.filter((h) => h.location === 'ALL' || h.location === essOrg).map((h) => ({ date: h.observed || h.date, name: h.name })));
   const [tab, setTab] = useState<EssTab>('home');
   const [paySub, setPaySub] = useState<PaySub>('payslips');
   const [recordsSub, setRecordsSub] = useState<RecordsSub>('assets');
+  const [requestsSub, setRequestsSub] = useState<RequestsSub>('general');
   const [requestDetails, setRequestDetails] = useState('');
   const [punches, setPunches] = useState<Punch[]>([]);
   const [leaveFormOpen, setLeaveFormOpen] = useState(false);
@@ -216,6 +234,7 @@ export const EssPortalView: React.FC = () => {
   };
 
   const openNewRequest = (preset: EssRequestType, details = '') => {
+    setRequestsSub('general');
     setRequestPreset(preset);
     setRequestDetails(details);
     setTab('requests');
@@ -230,6 +249,15 @@ export const EssPortalView: React.FC = () => {
     myLeave.filter((l) => l.status === 'PENDING_APPROVAL').length +
     requests.filter((r) => r.status === 'Submitted' || r.status === 'In Review').length;
 
+  // Advances not yet surrendered, so the assistant can flag overdue receipts
+  const myAdvances = useMemo(
+    () =>
+      imprests
+        .filter((i) => i.staffId === ESS_EMPLOYEE.staffId && i.status === 'PAID')
+        .map((i) => ({ id: i.id, amount: i.amount, dueOn: i.dueOn, overdueDays: overdueDays(i, today), travel: i.kind === 'TRAVEL' })),
+    [imprests, today]
+  );
+
   const aiCtx: AiContext = useMemo(
     () => ({
       profile,
@@ -239,10 +267,11 @@ export const EssPortalView: React.FC = () => {
       payslips,
       assets,
       requests,
+      advances: myAdvances,
       isApprover: ESS_IS_LEAVE_APPROVER
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [profile, leaveRequests, balances, payslips, assets, requests]
+    [profile, leaveRequests, balances, payslips, assets, requests, myAdvances]
   );
   const aiHighCount = useMemo(() => detectIssues(aiCtx).filter((f) => f.severity === 'high').length, [aiCtx]);
 
@@ -250,6 +279,7 @@ export const EssPortalView: React.FC = () => {
     switch (a.kind) {
       case 'goto':
         if (a.tab === 'records') setRecordsSub('assets');
+        if (a.tab === 'requests') setRequestsSub((a.sub as RequestsSub | undefined) ?? 'general');
         setTab(a.tab as EssTab);
         break;
       case 'request':
@@ -406,27 +436,40 @@ export const EssPortalView: React.FC = () => {
               items={[
                 { id: 'assets', label: 'My Assets', icon: Package },
                 { id: 'disciplinary', label: 'Disciplinary History', icon: AlertCircle },
-                { id: 'documents', label: 'Documents', icon: FolderOpen }
+                { id: 'documents', label: 'Documents', icon: FolderOpen },
+                { id: 'medical', label: 'Medical Cover', icon: Stethoscope }
               ]}
             />
             {recordsSub === 'assets' && <EssAssets assets={assets} onAcknowledge={acknowledgeAsset} onReport={openNewRequest} />}
             {recordsSub === 'disciplinary' && <EssDisciplinary />}
             {recordsSub === 'documents' && <EssDocuments />}
+            {recordsSub === 'medical' && <EssMedical onRequestChange={openNewRequest} />}
           </div>
         )}
         {tab === 'attendance' && <EssAttendance punches={punches} clockedIn={clockedIn} onClock={handleClock} />}
         {tab === 'requests' && (
-          <EssRequests
-            requests={requests}
-            preset={requestPreset}
-            presetDetails={requestDetails}
-            onClearPreset={() => {
-              setRequestPreset(null);
-              setRequestDetails('');
-            }}
-            onSubmit={submitRequest}
-            noticeDays={/manager|director|head|chief/i.test(ESS_EMPLOYEE.jobTitle) ? 90 : 30}
-          />
+          <div className="ess-stack">
+            <SubTabs value={requestsSub} onChange={setRequestsSub} items={REQUEST_SUBS} />
+            {requestsSub === 'general' && (
+              <EssRequests
+                requests={requests}
+                preset={requestPreset}
+                presetDetails={requestDetails}
+                onClearPreset={() => {
+                  setRequestPreset(null);
+                  setRequestDetails('');
+                }}
+                onSubmit={submitRequest}
+                noticeDays={/manager|director|head|chief/i.test(ESS_EMPLOYEE.jobTitle) ? 90 : 30}
+                moreKinds={REQUEST_SUBS.filter((x) => x.id !== 'general').map((x) => ({ label: x.label, onPick: () => setRequestsSub(x.id) }))}
+              />
+            )}
+            {requestsSub === 'concern' && <EssConcerns />}
+            {requestsSub === 'travel' && <EssTravel />}
+            {requestsSub === 'advances' && <EssAdvances />}
+            {requestsSub === 'welfare' && <EssWelfare />}
+            {requestsSub === 'medical' && <EssMedical onRequestChange={openNewRequest} />}
+          </div>
         )}
         {tab === 'profile' && (
           <div className="ess-stack">

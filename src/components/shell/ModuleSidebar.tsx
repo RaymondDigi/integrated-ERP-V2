@@ -37,6 +37,8 @@ import {
 import { useApp } from '../../context/AppContext';
 import { Gauge as OshGauge, Siren as OshSiren, ShieldPlus as OshShieldPlus, KeyRound as OshKeyRound, Shirt as OshShirt, Stethoscope as OshStethoscope } from 'lucide-react';
 import { Target, MessageSquare, ClipboardCheck, Grid3x3, LifeBuoy, SlidersHorizontal, LayoutDashboard, Mail } from 'lucide-react';
+import { DoorOpen } from 'lucide-react';
+import { History, BookOpen, Megaphone, HeartPulse, HeartHandshake, PartyPopper, Plane, ReceiptText } from 'lucide-react';
 import { HR_PROCESS_APPS } from '../../data/hrMockData';
 import { FinanceSidebar } from '../../suites/finance/FinanceSuite';
 import { TradingSidebar } from '../../suites/commercial/trading/TradingSuite';
@@ -111,6 +113,10 @@ export const ModuleSidebar: React.FC = () => {
           { label: 'Employee Requests', icon: ClipboardList, tab: 'requests' },
           { label: 'Changes & Audit Trail', icon: Lock, tab: 'changes' },
           { label: 'Contracts & Probation', icon: FileCheck, tab: 'contracts' },
+          { label: 'Employee Events', icon: History, tab: 'events' },
+          { label: 'Qualifications & Skills', icon: BadgeCheck, tab: 'qualifications' },
+          { label: 'Outsourced Labour', icon: Building2, tab: 'outsourced' },
+          { label: 'HR Reports', icon: FileSpreadsheet, tab: 'reports' },
           { label: 'Organisation Chart', icon: Layers, tab: 'orgchart' },
           { label: 'Email & Notifications', icon: Mail, tab: 'notifications' }
         ];
@@ -169,7 +175,8 @@ export const ModuleSidebar: React.FC = () => {
           { label: 'Catalogue & Budget', icon: Wallet, tab: 'plan' },
           { label: 'Sessions', icon: CalendarDays, tab: 'sessions' },
           { label: 'Costs & NITA', icon: Coins, tab: 'nita' },
-          { label: 'Training Bonds', icon: FileSignature, tab: 'bonds' }
+          { label: 'Training Bonds', icon: FileSignature, tab: 'bonds' },
+          { label: 'Library', icon: BookOpen, tab: 'library' }
         ];
 
       case 'disciplinary':
@@ -189,7 +196,10 @@ export const ModuleSidebar: React.FC = () => {
           { label: 'PPE Register', icon: OshShirt, tab: 'ppe' },
           { label: 'Inspections & Risk', icon: ClipboardCheck, tab: 'inspections' },
           { label: 'Medical Surveillance', icon: OshStethoscope, tab: 'medical' },
-          { label: 'Statutory & Committee', icon: FileText, tab: 'statutory' }
+          { label: 'Statutory & Committee', icon: FileText, tab: 'statutory' },
+          { label: 'Licences & Audits', icon: FileSignature, tab: 'licences' },
+          { label: 'Gate Passes & Visitors', icon: DoorOpen, tab: 'gate' },
+          { label: 'Security & Investigations', icon: ShieldAlert, tab: 'security' }
         ];
 
       case 'separation':
@@ -198,6 +208,22 @@ export const ModuleSidebar: React.FC = () => {
           { label: 'Clearance Board', icon: ClipboardList, tab: 'clearance' },
           { label: 'Final Dues', icon: Coins, tab: 'dues' },
           { label: 'Turnover & Exit Interviews', icon: CalendarDays, tab: 'analytics' }
+        ];
+
+      case 'welfare':
+        return [
+          { label: 'Grievances & Whistleblowing', icon: Megaphone, tab: 'cases' },
+          { label: 'Medical Cover & Claims', icon: HeartPulse, tab: 'medical' },
+          { label: 'Welfare Entitlements', icon: HeartHandshake, tab: 'welfare' },
+          { label: 'Events & CSR', icon: PartyPopper, tab: 'events' }
+        ];
+
+      case 'travel':
+        return [
+          { label: 'Travel Requests', icon: Plane, tab: 'requests' },
+          { label: 'Petty Cash & Imprest', icon: Wallet, tab: 'imprest' },
+          { label: 'Surrenders', icon: ReceiptText, tab: 'surrenders' },
+          { label: 'Per Diem Rates', icon: SlidersHorizontal, tab: 'rates' }
         ];
 
       default:

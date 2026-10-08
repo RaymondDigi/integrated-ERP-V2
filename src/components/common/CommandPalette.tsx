@@ -489,6 +489,28 @@ export const CommandPalette: React.FC = () => {
       }
     },
     {
+      id: 'nav_welfare',
+      category: 'Navigation',
+      title: 'Go to Employee Relations & Welfare (#13)',
+      subtitle: 'Grievances, whistleblowing, medical cover, welfare, events & CSR',
+      icon: ArrowRight,
+      onSelect: () => {
+        setCurrentView('welfare');
+        setIsCommandPaletteOpen(false);
+      }
+    },
+    {
+      id: 'nav_travel',
+      category: 'Navigation',
+      title: 'Go to Travel & Petty Cash (#14)',
+      subtitle: 'Travel requests, per diem, imprest & surrenders',
+      icon: ArrowRight,
+      onSelect: () => {
+        setCurrentView('travel');
+        setIsCommandPaletteOpen(false);
+      }
+    },
+    {
       id: 'nav_overview',
       category: 'Navigation',
       title: 'Go to Mission Control Overview',

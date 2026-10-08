@@ -13,6 +13,8 @@ import {
   Scale,
   HardHat,
   FileCheck,
+  HeartHandshake,
+  Plane,
   LayoutDashboard,
   Inbox,
   Activity,
@@ -166,6 +168,16 @@ export const Sidebar: React.FC = () => {
           id: 'separation',
           label: '#12 Separation',
           icon: FileCheck
+        },
+        {
+          id: 'welfare',
+          label: '#13 Relations & Welfare',
+          icon: HeartHandshake
+        },
+        {
+          id: 'travel',
+          label: '#14 Travel & Petty Cash',
+          icon: Plane
         }
       ]
     },

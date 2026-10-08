@@ -20,6 +20,7 @@ import {
   UserCircle,
   Wallet,
   Plane,
+  HeartHandshake,
   Inbox
 } from 'lucide-react';
 import { useApp, NavigationTarget } from '../../context/AppContext';
@@ -69,6 +70,10 @@ export const DigiCraftAppGrid: React.FC = () => {
         return <HardHat size={size} />;
       case 'FileCheck':
         return <FileCheck size={size} />;
+      case 'HeartHandshake':
+        return <HeartHandshake size={size} />;
+      case 'Plane':
+        return <Plane size={size} />;
       default:
         return <ClipboardList size={size} />;
     }
@@ -101,6 +106,10 @@ export const DigiCraftAppGrid: React.FC = () => {
         return 'linear-gradient(135deg, #f97316, #c2410c)'; // OSH: Orange
       case 12:
         return 'linear-gradient(135deg, #64748b, #334155)'; // Separation: Slate
+      case 13:
+        return 'linear-gradient(135deg, #e11d48, #9f1239)'; // Relations & welfare: Rose
+      case 14:
+        return 'linear-gradient(135deg, #0ea5e9, #0369a1)'; // Travel: Sky
       default:
         return 'linear-gradient(135deg, #237857, #1a5f45)';
     }

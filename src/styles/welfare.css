@@ -1,0 +1,310 @@
+/* Employee Relations & Welfare (Process #13) */
+
+.wf-gap {
+  margin-bottom: var(--space-4);
+}
+.wf-mt {
+  margin-top: 10px;
+}
+.wf-toolbar {
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.wf-viewer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+.wf-person {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.wf-person strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.wf-person span {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.wf-masked td {
+  background: var(--bg-surface-subtle);
+}
+.wf-masked td .hi-sub {
+  font-style: italic;
+}
+.wf-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.wf-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.wf-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wf-inline .form-control {
+  width: auto;
+  min-width: 0;
+}
+.wf-inline .grow {
+  flex: 1 1 200px;
+}
+.wf-wrap {
+  flex-wrap: wrap;
+}
+.wf-section {
+  margin-top: 16px;
+}
+.wf-section h4,
+.wf-sub-head {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.wf-text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.wf-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+.wf-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.wf-list li:last-child {
+  border-bottom: none;
+}
+.wf-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.wf-check-inline {
+  display: inline-flex;
+}
+.wf-alerts {
+  display: grid;
+  gap: 8px;
+  margin-bottom: var(--space-4);
+}
+.wf-alerts .pr-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.wf-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.wf-grid-2 > .pr-card {
+  margin-bottom: var(--space-5);
+}
+.wf-stack {
+  display: flex;
+  flex-direction: column;
+}
+.wf-util-col {
+  min-width: 140px;
+}
+.wf-view .hi-scroll td.wf-docs {
+  white-space: normal;
+  min-width: 180px;
+  font-size: 12px;
+}
+.wf-amount {
+  width: 110px;
+  text-align: right;
+  padding: 4px 8px;
+}
+.wf-group-start td {
+  border-top: 2px solid var(--border-default);
+}
+.wf-view .hi-scroll td[rowspan] {
+  white-space: normal;
+  vertical-align: top;
+  min-width: 180px;
+}
+
+/* Case stages */
+.wf-stepper {
+  display: flex;
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+  gap: 4px;
+}
+.wf-stepper li {
+  flex: 1;
+  padding: 6px 4px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-surface-subtle);
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-subtle);
+}
+.wf-stepper li.done {
+  color: var(--brand-primary);
+  border-color: var(--brand-primary);
+}
+.wf-stepper li.current {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: #fff;
+}
+.hi-timeline li.wf-ev-access::before {
+  background: var(--status-critical);
+}
+.hi-timeline li.wf-ev-escalation::before {
+  background: var(--status-warning);
+}
+.hi-timeline li.wf-ev-note::before {
+  background: var(--text-tertiary);
+}
+
+/* Payment route choice */
+.wf-choice {
+  display: grid;
+  gap: 8px;
+}
+.wf-choice label {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.wf-choice label.active {
+  border-color: var(--brand-primary);
+  background: var(--bg-surface-subtle);
+}
+.wf-choice strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.wf-choice span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Staff events */
+.wf-event {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.wf-event-title {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.wf-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.wf-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.wf-budget {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: grid;
+  gap: 4px;
+}
+.wf-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+.wf-mini .form-control {
+  width: 120px;
+  padding: 4px 8px;
+}
+.wf-tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.wf-tasks li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+.wf-tasks li label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.wf-tasks li.done span {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+}
+.wf-tasks small {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.wf-tasks small.wf-late {
+  color: var(--status-critical);
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .wf-grid-2 {
+    grid-template-columns: 1fr;
+  }
+  .wf-viewer {
+    margin-left: 0;
+  }
+  .wf-tasks li {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

@@ -1,0 +1,97 @@
+/* Travel & Petty Cash (Process #14) */
+.trv-view .pr-card + .pr-card,
+.trv-view .hi-two + .pr-card {
+  margin-top: var(--space-5);
+}
+.trv-h4 {
+  margin: 14px 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+.trv-num-input {
+  width: 110px;
+  text-align: right;
+  padding: 4px 8px;
+  height: auto;
+  margin-left: auto;
+}
+.trv-mileage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+  gap: var(--space-3);
+}
+.trv-estimate {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-subtle);
+  padding: 12px;
+}
+.trv-estimate .hr-table td {
+  padding: 6px 8px;
+}
+.trv-total td {
+  font-weight: 700;
+  border-top: 2px solid var(--border-default);
+  color: var(--text-primary);
+}
+.trv-decide {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.trv-decide .trv-h4 {
+  margin-top: 0;
+}
+.trv-lines .form-control {
+  padding: 5px 8px;
+  height: auto;
+  font-size: 12.5px;
+}
+.trv-settle {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.trv-settle label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.trv-approve {
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-subtle);
+  font-weight: 600;
+}
+.trv-overdue td:first-child {
+  box-shadow: inset 3px 0 0 var(--status-critical);
+}
+.trv-view .pr-note svg {
+  vertical-align: -2px;
+}
+
+/* Multi-line petty cash / imprest editor */
+.trv-imp-lines table {
+  min-width: 700px;
+}
+.trv-imp-lines td:nth-child(2) {
+  min-width: 170px;
+  width: 30%;
+}
+.trv-imp-lines td:nth-child(3),
+.trv-imp-lines td:nth-child(4) {
+  min-width: 120px;
+}
+.trv-imp-lines td:nth-child(5) input {
+  width: 64px;
+}
+.trv-imp-lines td:nth-child(6) input {
+  width: 88px;
+}

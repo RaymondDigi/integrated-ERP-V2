@@ -64,6 +64,23 @@ export interface NewCase {
   absenceDates?: string[];
 }
 
+/** A flexi-hours movement: banked from overtime (+) or taken as days off (−). */
+export interface FlexiEntry {
+  id: string;
+  staffId: string;
+  date: string;
+  hours: number;
+  kind: 'BANKED' | 'TAKEN';
+  note: string;
+  /** Banked hours should be used within this date */
+  useBy?: string;
+}
+
+/** Hours one flexi day uses, and how long banked hours stay usable. */
+export const FLEXI_DAY_HOURS = 8;
+export const FLEXI_USE_WITHIN_DAYS = 90;
+export const flexiBalance = (ledger: FlexiEntry[], staffId: string) => ledger.filter((f) => f.staffId === staffId).reduce((s, f) => s + f.hours, 0);
+
 /** Time & attendance and disciplinary state exposed through the app context. */
 export interface TimeStateSlice {
   /** Date the time module treats as today */
@@ -83,6 +100,12 @@ export interface TimeStateSlice {
   reopenTimeException: (key: string) => void;
   /** Posts approved, unsent overtime to the open payroll period. Returns items posted. */
   sendOvertimeToPayroll: (keys: string[]) => number;
+  /** Flexi days: approved overtime banked as time off instead of pay, and days taken against it */
+  flexiLedger: FlexiEntry[];
+  /** Banks approved, unsent overtime as flexi hours (1.5× and 2× hours credited at their multiplier). */
+  bankOvertimeAsFlexi: (keys: string[]) => number;
+  /** Books flexi days off against the balance; the days count as authorised absence. */
+  takeFlexiDays: (staffId: string, dates: string[], reason: string) => boolean;
   disciplinaryCases: DisciplinaryCase[];
   raiseCase: (draft: NewCase) => DisciplinaryCase;
   updateCase: (id: string, patch: Partial<DisciplinaryCase>, event: string, doc?: Omit<CaseDocument, 'id' | 'on'>) => void;
@@ -154,6 +177,7 @@ export const useTimeState = (deps: Deps): TimeStateSlice => {
   const [manualPunches, setManualPunches] = useState<TimePunch[]>([]);
   const [timeDecisions, setDecisions] = useState<Record<string, TimeDecision>>(seed.decisions);
   const [overtimeSent, setSent] = useState<Record<string, OtSent>>(seed.sent);
+  const [flexiLedger, setFlexiLedger] = useState<FlexiEntry[]>([]);
   const [timeAudit, setAudit] = useState<TimeAuditEntry[]>([]);
   const [disciplinaryCases, setCases] = useState<DisciplinaryCase[]>(seed.cases);
   const [casualConversions, setConversions] = useState<CasualConversion[]>([]);
@@ -308,6 +332,56 @@ export const useTimeState = (deps: Deps): TimeStateSlice => {
     return n;
   };
 
+  const bankOvertimeAsFlexi: TimeStateSlice['bankOvertimeAsFlexi'] = (keys) => {
+    const ready = keys.filter((k) => timeDecisions[k]?.status === 'APPROVED' && !overtimeSent[k]);
+    const credits = new Map<string, { hours: number; keys: string[] }>();
+    for (const k of ready) {
+      const [, staffId] = k.split('|');
+      const e = hrEmployees.find((x) => x.staffId === staffId);
+      if (!e || isCasual(e)) continue;
+      const d = timeDecisions[k];
+      const c = credits.get(staffId) ?? { hours: 0, keys: [] };
+      c.hours += (d.h15 ?? 0) * 1.5 + (d.h20 ?? 0) * 2;
+      c.keys.push(k);
+      credits.set(staffId, c);
+    }
+    if (!credits.size) {
+      addToast({ type: 'warning', title: 'Nothing to bank', message: 'Only approved, unsent overtime of monthly-paid staff can be banked as flexi hours.' });
+      return 0;
+    }
+    const at = timeToday;
+    const useBy = isoOf(new Date(new Date(`${at}T00:00:00`).getTime() + FLEXI_USE_WITHIN_DAYS * 86_400_000));
+    setFlexiLedger((l) => [
+      ...l,
+      ...[...credits].map(([staffId, c], i) => ({ id: `FLX-${Date.now().toString(36)}-${i}`, staffId, date: at, hours: Math.round(c.hours * 100) / 100, kind: 'BANKED' as const, note: `${c.keys.length} overtime day${c.keys.length > 1 ? 's' : ''} banked`, useBy }))
+    ]);
+    setSent((m) => {
+      const next = { ...m };
+      for (const c of credits.values())
+        for (const k of c.keys) next[k] = { period: 'FLEXI', at, h15: timeDecisions[k].h15 ?? 0, h20: timeDecisions[k].h20 ?? 0, reference: 'Banked as flexi hours — not paid' };
+      return next;
+    });
+    const total = [...credits.values()].reduce((s, c) => s + c.hours, 0);
+    audit(HR_OFFICER, `Banked overtime as ${Math.round(total * 10) / 10} flexi hours for ${credits.size} staff`);
+    addToast({ type: 'success', title: 'Banked as flexi hours', message: `${Math.round(total * 10) / 10} h for ${credits.size} staff, to use by ${fmtDate(useBy)}. Not paid through payroll.` });
+    return credits.size;
+  };
+
+  const takeFlexiDays: TimeStateSlice['takeFlexiDays'] = (staffId, dates, reason) => {
+    const need = dates.length * FLEXI_DAY_HOURS;
+    const have = flexiBalance(flexiLedger, staffId);
+    if (!dates.length || need > have) {
+      addToast({ type: 'error', title: 'Not enough flexi hours', message: `${nameOf(staffId)} has ${have} h; ${dates.length} day${dates.length === 1 ? '' : 's'} need ${need} h.` });
+      return false;
+    }
+    setFlexiLedger((l) => [...l, { id: `FLX-${Date.now().toString(36)}`, staffId, date: dates[0], hours: -need, kind: 'TAKEN', note: `${dates.map((d) => fmtDate(d)).join(', ')}${reason ? ` — ${reason}` : ''}` }]);
+    // The days off are authorised, so they never reduce pay
+    confirmAbsences(staffId, dates, 'AUTHORISED', `Flexi day${dates.length > 1 ? 's' : ''}${reason ? ` — ${reason}` : ''}`);
+    audit(HR_OFFICER, `${nameOf(staffId)}: ${dates.length} flexi day${dates.length > 1 ? 's' : ''} booked (${need} h)`);
+    addToast({ type: 'success', title: 'Flexi day booked', message: `${nameOf(staffId)}: ${dates.map((d) => fmtDate(d)).join(', ')}. ${have - need} h left.` });
+    return true;
+  };
+
   /* ---------------------------- Disciplinary ---------------------------- */
 
   const nextCaseId = () => {
@@ -450,6 +524,9 @@ export const useTimeState = (deps: Deps): TimeStateSlice => {
     confirmAbsences,
     reopenTimeException,
     sendOvertimeToPayroll,
+    flexiLedger,
+    bankOvertimeAsFlexi,
+    takeFlexiDays,
     disciplinaryCases,
     raiseCase,
     updateCase,

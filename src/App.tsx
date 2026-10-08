@@ -65,6 +65,8 @@ import { SettingsView } from './views/SettingsView';
 import { FormsInputsView } from './views/FormsInputsView';
 import { ProfileView } from './views/ProfileView';
 import { LoginView } from './views/auth/LoginView';
+import { WelfareView } from './views/hr/WelfareView';
+import { TravelView } from './views/hr/TravelView';
 import { setDirectory, useSession } from './auth/session';
 
 export const App: React.FC = () => {
@@ -156,6 +158,10 @@ export const App: React.FC = () => {
         return <OshSecurityView />;
       case 'separation':
         return <SeparationView />;
+      case 'welfare':
+        return <WelfareView />;
+      case 'travel':
+        return <TravelView />;
 
       // Core System Views
       case 'overview':

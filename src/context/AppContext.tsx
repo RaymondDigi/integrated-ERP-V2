@@ -66,6 +66,12 @@ import { useTrainingState, type TrainingStateSlice } from './trainingState';
 import { useSepState, type SepStateSlice } from './sepState';
 import { useEssState, type EssStateSlice } from './essState';
 import { useOshState, type OshStateSlice } from './oshState';
+import { usePeopleState, type PeopleStateSlice } from './peopleState';
+import { useWelfareState, type WelfareStateSlice } from './welfareState';
+import { useTravelState, type TravelStateSlice } from './travelState';
+import { useRegistersState, type RegistersStateSlice } from './registersState';
+import { useSecurityState, type SecurityStateSlice } from './securityState';
+import type { PeopleDeps } from './sliceDeps';
 import { buildPayrollBatches, latestPaidMonth, makeContext, type ExitType, type PayReduction, type PayrollHold, monthRun, MONTHS, openPeriod, SEED_CONTEXT, terminalDues, type PayrollContext } from '../data/payrollEngine';
 import { loanInstallment, SEED_LOANS, SEED_PAY_ITEMS, type PayItem, type StaffLoan } from '../data/payItems';
 import { componentAt, currentComponents, PAY_COMPONENTS, setComponentRegistry, type PayComponentType } from '../data/payComponents';
@@ -101,6 +107,8 @@ export type NavigationTarget =
   | 'training'
   | 'disciplinary'
   | 'osh-security'
+  | 'welfare'
+  | 'travel'
   | 'separation'
   | 'overview'
   | 'work-queue'
@@ -127,7 +135,30 @@ export interface ToastMessage {
   timestamp: string;
 }
 
-interface AppContextType extends LeaveStateSlice, TimeStateSlice, HireStateSlice, SepStateSlice, TrainingStateSlice, OshStateSlice, PerfStateSlice, EssStateSlice {
+export interface PayrollPeriodLogEntry {
+  period: string;
+  action: 'CLOSED' | 'REOPENED';
+  by: string;
+  on: string;
+  note?: string;
+  /** Ledger journal of the period when it was reopened (needs reversing or adjusting) */
+  glRef?: string;
+}
+
+interface AppContextType
+  extends LeaveStateSlice,
+    TimeStateSlice,
+    HireStateSlice,
+    SepStateSlice,
+    TrainingStateSlice,
+    OshStateSlice,
+    PerfStateSlice,
+    EssStateSlice,
+    PeopleStateSlice,
+    WelfareStateSlice,
+    TravelStateSlice,
+    RegistersStateSlice,
+    SecurityStateSlice {
   currentView: NavigationTarget;
   setCurrentView: (view: NavigationTarget) => void;
   selectedOrgId: string;
@@ -237,6 +268,14 @@ interface AppContextType extends LeaveStateSlice, TimeStateSlice, HireStateSlice
   /** Period open for posting and periods already closed by posting payroll to the ledger */
   payrollOpenPeriod: { year: number; month: number; key: string; label: string };
   closedPayrollPeriods: string[];
+  /** Earlier period reopened for correction (only one at a time) */
+  reopenedPayrollPeriod: string | null;
+  /** Who closed or reopened which payroll period, when and why */
+  payrollPeriodLog: PayrollPeriodLogEntry[];
+  /** Closes the open period once the company's monthly payroll is posted to the ledger; posting then moves to the next month */
+  closePayrollPeriod: (by: string, note?: string) => boolean;
+  /** Reopens the most recently closed period for correction; its batch goes back to Calculated */
+  reopenLastPayrollPeriod: (by: string, reason: string) => boolean;
   postPayItems: (items: Omit<PayItem, 'id' | 'orgId' | 'postedBy' | 'postedOn' | 'status'>[], by?: string) => number;
   cancelPayItem: (id: string, reason: string) => void;
   /** Worksheet edit: sets the one-off amount for an employee and pay item in the active period (0 removes it) */
@@ -423,6 +462,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [batchStatus, setBatchStatus] = useState<Record<string, PayrollBatch['status']>>({});
   const [payrollGlRefs, setPayrollGlRefs] = useState<Record<string, string>>({});
   const [closedPayrollPeriods, setClosedPayrollPeriods] = useState<string[]>([]);
+  const [reopenedPayrollPeriod, setReopenedPayrollPeriod] = useState<string | null>(null);
+  const [payrollPeriodLog, setPayrollPeriodLog] = useState<PayrollPeriodLogEntry[]>([]);
   const payrollBatches = useMemo(
     () =>
       [...extraBatches, ...buildPayrollBatches(hrEmployees, new Date(), payrollCtx)].map((b) =>
@@ -431,14 +472,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [extraBatches, hrEmployees, payrollCtx, batchStatus]
   );
   const payrollOpenPeriod = useMemo(() => {
+    const of = (d: Date) => ({ year: d.getFullYear(), month: d.getMonth(), key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}` });
+    // A reopened earlier period takes over as the open one until it is closed again
+    if (reopenedPayrollPeriod) return of(new Date(Number(reopenedPayrollPeriod.slice(0, 4)), Number(reopenedPayrollPeriod.slice(5, 7)) - 1, 1));
     let p = openPeriod();
-    // Posting a period to the ledger closes it; posting moves on to the next month
-    while (closedPayrollPeriods.includes(p.key)) {
-      const d = new Date(p.year, p.month + 1, 1);
-      p = { year: d.getFullYear(), month: d.getMonth(), key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}` };
-    }
+    // Closing a period moves posting on to the next month
+    while (closedPayrollPeriods.includes(p.key)) p = of(new Date(p.year, p.month + 1, 1));
     return p;
-  }, [closedPayrollPeriods]);
+  }, [closedPayrollPeriods, reopenedPayrollPeriod]);
   const [contractThresholdRecords, setContractThresholdRecords] = useState<ContractThresholdRecord[]>(INITIAL_CONTRACT_THRESHOLD_RECORDS);
   // Terminal dues come from the leaver's record in the employee master
   const [separationRecords, setSeparationRecords] = useState<SeparationRecord[]>(() =>
@@ -1148,14 +1189,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     reportIncident: osh.reportIncident as Parameters<typeof useEssState>[0]['reportIncident'],
     addToast
   });
+  // People & Payroll extensions: employee events, welfare and relations, travel, licences and library
+  const peopleDeps: PeopleDeps = { hrEmployees, selectedOrgId, payrollOpenPeriod, postPayItems, addPayReduction, removePayReduction, updateHrEmployee, logEmployeeEdit: hire.logEmployeeEdit, addToast };
+  const people = usePeopleState(peopleDeps);
+  const welfare = useWelfareState(peopleDeps);
+  const travel = useTravelState(peopleDeps);
+  const registers = useRegistersState(peopleDeps);
+  const security = useSecurityState(peopleDeps);
   const setPayrollBatchStatus = (id: string, status: PayrollBatch['status'], glRef?: string) => {
     setBatchStatus((m) => ({ ...m, [id]: status }));
     if (glRef) setPayrollGlRefs((m) => ({ ...m, [id]: glRef }));
-    const b = payrollBatches.find((x) => x.id === id);
-    if (status === 'POSTED_GL' && b?.pipeline === 'Monthly Payroll') {
-      const key = b.id.split('-').slice(1, 3).join('-');
-      setClosedPayrollPeriods((xs) => (xs.includes(key) ? xs : [...xs, key]));
+  };
+
+  // Period control: closing is a separate, checked step after posting; reopening is limited to the last closed month
+  const periodKeyOf = (b: PayrollBatch) => b.id.split('-').slice(1, 3).join('-');
+  const closePayrollPeriod: AppContextType['closePayrollPeriod'] = (by, note) => {
+    const key = payrollOpenPeriod.key;
+    const batch = payrollBatches.find((b) => b.orgId === selectedOrgId && b.pipeline === 'Monthly Payroll' && periodKeyOf(b) === key);
+    if (!batch || batch.status !== 'POSTED_GL') {
+      addToast({ type: 'error', title: 'Period not ready to close', message: `Approve ${payrollOpenPeriod.label} and post it to the ledger first.` });
+      return false;
     }
+    setClosedPayrollPeriods((xs) => (xs.includes(key) ? xs : [...xs, key]));
+    if (reopenedPayrollPeriod === key) setReopenedPayrollPeriod(null);
+    setPayrollPeriodLog((l) => [{ period: key, action: 'CLOSED', by, on: decisionDate(), note: note?.trim() || undefined, glRef: payrollGlRefs[batch.id] }, ...l]);
+    addToast({ type: 'success', title: `${payrollOpenPeriod.label} closed`, message: 'Payslips and journals are final. New items now go to the next period.' });
+    return true;
+  };
+  const reopenLastPayrollPeriod: AppContextType['reopenLastPayrollPeriod'] = (by, reason) => {
+    if (reopenedPayrollPeriod) {
+      addToast({ type: 'error', title: 'A period is already reopened', message: `Close ${payrollOpenPeriod.label} again before reopening another.` });
+      return false;
+    }
+    if (reason.trim().length < 10) {
+      addToast({ type: 'error', title: 'Reason needed', message: 'Say what has to be corrected — it is kept in the period log.' });
+      return false;
+    }
+    const current = payrollBatches.find((b) => b.orgId === selectedOrgId && b.pipeline === 'Monthly Payroll' && periodKeyOf(b) === payrollOpenPeriod.key);
+    if (current && (current.status === 'AUDIT_APPROVED' || current.status === 'POSTED_GL')) {
+      addToast({ type: 'error', title: 'Current period already approved', message: `${payrollOpenPeriod.label} is approved; close it first, then reopen it if it needs correcting.` });
+      return false;
+    }
+    const d = new Date(payrollOpenPeriod.year, payrollOpenPeriod.month - 1, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+    const last = payrollBatches.filter((b) => b.orgId === selectedOrgId && b.pipeline === 'Monthly Payroll' && periodKeyOf(b) === key);
+    setClosedPayrollPeriods((xs) => xs.filter((x) => x !== key));
+    setReopenedPayrollPeriod(key);
+    // The batch goes back to Calculated so it can be corrected, re-approved and re-posted
+    setBatchStatus((m) => ({ ...m, ...Object.fromEntries(last.map((b) => [b.id, 'CALCULATED' as const])) }));
+    const glRef = last.map((b) => payrollGlRefs[b.id]).find(Boolean);
+    setPayrollPeriodLog((l) => [{ period: key, action: 'REOPENED', by, on: decisionDate(), note: reason.trim(), glRef }, ...l]);
+    addToast({ type: 'warning', title: `${label} reopened`, message: `Correct, re-approve and re-post it, then close it again.${glRef ? ` Journal ${glRef} must be reversed or adjusted in Finance.` : ''}` });
+    return true;
   };
 
   const convertContractType = (workerId: string) => {
@@ -1324,6 +1410,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...sep,
         ...ess,
         ...osh,
+        ...people,
+        ...welfare,
+        ...travel,
+        ...registers,
+        ...security,
         ...hire,
         payrollBatches,
         payItems,
@@ -1335,6 +1426,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         payrollCtx,
         payrollOpenPeriod,
         closedPayrollPeriods,
+        reopenedPayrollPeriod,
+        payrollPeriodLog,
+        closePayrollPeriod,
+        reopenLastPayrollPeriod,
         postPayItems,
         cancelPayItem,
         setWorksheetItem,

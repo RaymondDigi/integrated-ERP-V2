@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   Coins,
+  Lock,
   ArrowLeft,
   Play,
   Download,
@@ -30,6 +31,8 @@ import { StatutoryRates } from './payroll/StatutoryRates';
 import { PayItemSetup } from './payroll/PayItemSetup';
 import { PayrollWorksheet } from './payroll/PayrollWorksheet';
 import { downloadCsv, kes, payRail, periodOf, rowsFor } from './payroll/reports';
+import { BankUploadCard } from './payroll/BankUpload';
+import { PeriodControl } from './payroll/PeriodControl';
 import { Pager, usePaged } from '../../components/common/Pager';
 import { PeriodTag } from './payroll/shared';
 
@@ -61,7 +64,9 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
     payItems,
     setPayrollBatchStatus,
     payrollGlRefs,
-    activeTenant
+    activeTenant,
+    reopenedPayrollPeriod,
+    payrollPeriodLog
   } = useApp();
   const finance = useFinance();
 
@@ -124,7 +129,7 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
     }
     const jv = finance.snapshot().journals.find((j) => j.id === res.id)?.number ?? res.id ?? '';
     setPayrollBatchStatus(batch.id, 'POSTED_GL', jv);
-    addToast({ type: 'success', title: 'Payroll posted', message: `Journal ${jv} sent to Finance for approval. ${open.label} is closed — new items go to the next period.` });
+    addToast({ type: 'success', title: 'Payroll posted', message: `Journal ${jv} sent to Finance for approval. Release the bank files and file the returns, then close ${open.label} under Period control.` });
   };
 
   const exportItax = () =>
@@ -171,19 +176,18 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
   };
 
   // Only the open period is live; everything else is a previous (paid) period
+  const monthKey = (b: (typeof tenantPayrollBatches)[number]) => b.id.split('-').slice(1, 3).join('-');
   const isActiveBatch = (b: (typeof tenantPayrollBatches)[number]) =>
-    b.pipeline === 'Monthly Payroll' ? b.id.includes(open.key) : b.status === 'CALCULATED';
+    b.pipeline === 'Monthly Payroll' ? monthKey(b) === open.key : b.status === 'CALCULATED';
+  // A reopened earlier month leaves the following month waiting until it is closed again
+  const isUpcoming = (b: (typeof tenantPayrollBatches)[number]) => b.pipeline === 'Monthly Payroll' && monthKey(b) > open.key;
   const activeBatches = tenantPayrollBatches.filter(isActiveBatch);
-  const pastBatches = tenantPayrollBatches.filter((b) => !isActiveBatch(b));
+  const upcomingBatches = tenantPayrollBatches.filter(isUpcoming);
+  const pastBatches = tenantPayrollBatches.filter((b) => !isActiveBatch(b) && !isUpcoming(b));
   const batchPage = usePaged(pastBatches, 10, selectedOrgId);
-  const batchCard = (title: string, sub: string, list: typeof tenantPayrollBatches, rows: typeof tenantPayrollBatches, empty: string, pager?: React.ReactNode) => (
-      <div className="hr-table-card">
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: 14 }}>{title}</strong>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              {sub}
-            </span>
-          </div>
+  const [periodTab, setPeriodTab] = useState<'active' | 'previous' | 'control'>('active');
+  const batchCard = (list: typeof tenantPayrollBatches, rows: typeof tenantPayrollBatches, empty: string, pager?: React.ReactNode, live = false) => (
+      <>
           <div className="pr-table-scroll">
             <table className="hr-table pr-table">
               <thead>
@@ -209,7 +213,7 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
                   </tr>
                 ) : (
                   rows.map((b) => (
-                    <tr key={b.id}>
+                    <tr key={b.id} className={live ? 'pc-row-live' : undefined}>
                       <td>
                         <strong style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{b.batchNo}</strong>
                         {payrollGlRefs[b.id] && <div className="muted">Ledger {payrollGlRefs[b.id]}</div>}
@@ -254,7 +258,7 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
             </table>
           </div>
           {pager}
-        </div>
+        </>
   );
 
   const step = !batch ? 0 : batch.status === 'CALCULATED' ? 1 : batch.status === 'AUDIT_APPROVED' ? 2 : 3;
@@ -300,8 +304,13 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
               Active payroll period — {open.label} <PeriodTag periodKey={open.key} />
             </h3>
             <p>
-              Pay date 25 {open.label}. Prepared by Rose Chepkoech; approved by Finance; posted to the ledger as a journal for Finance to approve.
+              Pay date 25 {open.label}. Prepared by Rose Chepkoech; approved by Finance; posted to the ledger as a journal for Finance to approve; then closed.
             </p>
+            {reopenedPayrollPeriod && (
+              <div className="pr-note warn" style={{ marginTop: 8 }}>
+                <AlertTriangle size={13} style={{ verticalAlign: '-2px' }} /> Reopened for correction: {payrollPeriodLog.find((l) => l.action === 'REOPENED')?.note} — authorised by {payrollPeriodLog.find((l) => l.action === 'REOPENED')?.by}. Re-approve, re-post and close it again.
+              </div>
+            )}
           </div>
           <div className="pr-toolbar">
             <button className="btn btn-secondary" onClick={() => goTab('items')}>
@@ -318,6 +327,11 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
             {batch?.status === 'AUDIT_APPROVED' && (
               <button className="btn btn-primary" onClick={postToLedger}>
                 <BookOpen size={15} /> Post to ledger
+              </button>
+            )}
+            {batch?.status === 'POSTED_GL' && (
+              <button className="btn btn-primary" onClick={() => (setPeriodTab('control'), document.querySelector('.pc-tabs-card')?.scrollIntoView({ behavior: 'smooth' }))}>
+                <Lock size={15} /> Close period
               </button>
             )}
           </div>
@@ -389,6 +403,8 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
         </div>
       </div>
 
+      <BankUploadCard rows={rows} company={activeTenant.name} orgId={selectedOrgId} period={open} approved={!!batch && (batch.status === 'AUDIT_APPROVED' || batch.status === 'DISBURSED_MPESA' || batch.status === 'POSTED_GL')} />
+
       <div className="pr-card">
         <div className="pr-card-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -416,15 +432,47 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
         </div>
       </div>
 
-      {batchCard(`Active payroll period — ${open.label}`, 'Being prepared now: post items, approve and post to the ledger', activeBatches, activeBatches, 'Nothing calculated for the active period yet.')}
-      {batchCard(
-        'Previous payroll periods',
-        `${pastBatches.length} paid or closed batches across ${highlights.sites} site${highlights.sites === 1 ? '' : 's'}`,
-        pastBatches,
-        batchPage.rows,
-        'No earlier batches.',
-        <Pager p={batchPage} noun="batches" />
-      )}
+      <div className="hr-table-card pc-tabs-card">
+        <div className="pc-tabbar" role="tablist" aria-label="Payroll periods">
+          <button role="tab" aria-selected={periodTab === 'active'} className={periodTab === 'active' ? 'active' : ''} onClick={() => setPeriodTab('active')}>
+            <span className="pc-dot" /> Active period · {open.label}
+            {reopenedPayrollPeriod && <span className="pc-flag">Reopened</span>}
+            <span className="pc-count">{activeBatches.length}</span>
+          </button>
+          <button role="tab" aria-selected={periodTab === 'previous'} className={periodTab === 'previous' ? 'active' : ''} onClick={() => setPeriodTab('previous')}>
+            Previous periods <span className="pc-count">{pastBatches.length}</span>
+          </button>
+          <button role="tab" aria-selected={periodTab === 'control'} className={periodTab === 'control' ? 'active' : ''} onClick={() => setPeriodTab('control')}>
+            <Lock size={13} /> Period control
+          </button>
+        </div>
+        {periodTab === 'active' && (
+          <>
+            <div className="pc-intro live">
+              <strong>{open.label} is open.</strong> Post items, calculate, approve and post to the ledger, then close the period. Pay date 25 {open.label}.
+            </div>
+            {batchCard(activeBatches, activeBatches, 'Nothing calculated for the active period yet.', undefined, true)}
+            {upcomingBatches.length > 0 && (
+              <div className="pc-intro">
+                Waiting: {upcomingBatches.map((b) => b.period).join(', ')} — opens again when {open.label} is closed.
+              </div>
+            )}
+          </>
+        )}
+        {periodTab === 'previous' && (
+          <>
+            <div className="pc-intro">
+              Closed periods are read-only: {pastBatches.length} paid or closed batches across {highlights.sites} site{highlights.sites === 1 ? '' : 's'}. Use Period control to reopen the last one for a correction.
+            </div>
+            {batchCard(pastBatches, batchPage.rows, 'No earlier batches.', <Pager p={batchPage} noun="batches" />)}
+          </>
+        )}
+        {periodTab === 'control' && (
+          <div style={{ padding: 16 }}>
+            <PeriodControl status={batch?.status} glRef={batch ? payrollGlRefs[batch.id] : undefined} flagged={flagged.length} deferred={deferred} />
+          </div>
+        )}
+      </div>
     </>
   );
 };

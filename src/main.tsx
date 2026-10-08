@@ -21,6 +21,8 @@ import './styles/time.css'
 import './styles/osh.css'
 import './styles/perf.css'
 import './styles/training.css'
+import './styles/welfare.css'
+import './styles/travel.css'
 import { AppProvider } from './context/AppContext.tsx'
 import App from './App.tsx'
 

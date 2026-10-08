@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Send } from 'lucide-react';
+import { PiggyBank, Send } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
 import { Pager, usePaged } from '../../../components/common/Pager';
 import { componentAt } from '../../../data/payComponents';
@@ -8,6 +8,9 @@ import { formulaVars } from '../../../data/payrollEngine';
 import { exKey, fmtDate, OT_COMPONENT, otAmount } from '../../../data/timeEngine';
 import { EmpCell, Empty, NotTracked, Pill, useTimeOrg } from './shared';
 import { usePeriods } from './TimesheetsTab';
+import { Modal } from '../payroll/shared';
+import { FLEXI_DAY_HOURS, FLEXI_USE_WITHIN_DAYS, flexiBalance, type FlexiEntry } from '../../../context/timeState';
+import type { HREmployee } from '../../../types';
 
 interface Line {
   staffId: string;
@@ -19,13 +22,16 @@ interface Line {
   readyKeys: string[];
   sent15: number;
   sent20: number;
+  /** Hours banked as flexi time instead of paid */
+  banked: number;
   casual: boolean;
 }
 
 const kes = (n: number) => Math.round(n).toLocaleString();
 
 export const OvertimeTab: React.FC = () => {
-  const { timeDecisions, overtimeSent, payrollOpenPeriod, sendOvertimeToPayroll, setCurrentView, setModuleTab } = useApp();
+  const { timeDecisions, overtimeSent, payrollOpenPeriod, sendOvertimeToPayroll, bankOvertimeAsFlexi, flexiLedger, setCurrentView, setModuleTab } = useApp();
+  const [booking, setBooking] = useState<string | null>(null);
   const { byId, days, tracked } = useTimeOrg();
   const periods = usePeriods().filter((p) => p.id.startsWith('M:'));
   const [pid, setPid] = useState(`M:${payrollOpenPeriod.key}`);
@@ -38,13 +44,14 @@ export const OvertimeTab: React.FC = () => {
       if (d.date < period.from || d.date > period.to || d.ot15 + d.ot20 === 0) continue;
       const k = exKey('OVERTIME', d.staffId, d.date);
       const dec = timeDecisions[k];
-      const l = m.get(d.staffId) ?? { staffId: d.staffId, days: 0, pending: 0, rejected: 0, ready15: 0, ready20: 0, readyKeys: [], sent15: 0, sent20: 0, casual: d.casual };
+      const l = m.get(d.staffId) ?? { staffId: d.staffId, days: 0, pending: 0, rejected: 0, ready15: 0, ready20: 0, readyKeys: [], sent15: 0, sent20: 0, banked: 0, casual: d.casual };
       l.days++;
       if (!dec) l.pending += d.ot15 + d.ot20;
       else if (dec.status === 'REJECTED') l.rejected += d.ot15 + d.ot20;
       else if (dec.status === 'APPROVED') {
         const sent = overtimeSent[k];
-        if (sent) {
+        if (sent?.period === 'FLEXI') l.banked += sent.h15 + sent.h20;
+        else if (sent) {
           l.sent15 += sent.h15;
           l.sent20 += sent.h20;
         } else {
@@ -102,6 +109,14 @@ export const OvertimeTab: React.FC = () => {
             title={sendable.length ? `Post to ${open.label}` : 'Nothing approved and unsent'}
           >
             <Send size={14} /> Send to payroll
+          </button>
+          <button
+            className="btn btn-secondary"
+            disabled={!sendable.length}
+            onClick={() => bankOvertimeAsFlexi(sendable.flatMap((l) => l.readyKeys))}
+            title="Give time off later instead of paying: 1.5× hours bank at 1.5, 2× hours at 2"
+          >
+            <PiggyBank size={14} /> Bank as flexi hours
           </button>
         </div>
       </div>
@@ -169,8 +184,10 @@ export const OvertimeTab: React.FC = () => {
                       <Pill cls="primary">Paid by days worked</Pill>
                     ) : l.readyKeys.length ? (
                       <Pill cls="warning">Ready to send</Pill>
-                    ) : l.sent15 + l.sent20 ? (
-                      <Pill cls="success">Sent {l.sent15 + l.sent20} h</Pill>
+                    ) : l.sent15 + l.sent20 || l.banked ? (
+                      <>
+                        {l.sent15 + l.sent20 > 0 && <Pill cls="success">Sent {l.sent15 + l.sent20} h</Pill>} {l.banked > 0 && <Pill cls="primary">Banked {l.banked} h as flexi</Pill>}
+                      </>
                     ) : l.pending ? (
                       <Pill cls="primary">Awaiting approval</Pill>
                     ) : (
@@ -184,9 +201,117 @@ export const OvertimeTab: React.FC = () => {
         </table>
       </div>
       <Pager p={pg} noun="staff" />
+      <FlexiBalances byId={byId} onBook={setBooking} ledger={flexiLedger} />
+      {booking && <BookFlexi staffId={booking} name={byId.get(booking)?.fullName ?? booking} onClose={() => setBooking(null)} />}
       <p className="pr-muted" style={{ marginTop: 8 }}>
         Weekday overtime counts from {TIME_RULES.otThresholdMin} minutes past the shift end, in half hours. Saturday work is 1.5×; Sundays and public holidays are 2× ({c20.calc?.method === 'rate' ? `${c20.calc.multiplier}× hourly` : 'per pay item'}). Hours already sent are never sent twice; cancel the payroll item if hours change. Rejected hours: {lines.reduce((n, l) => n + l.rejected, 0)}. Period {fmtDate(period.from)} to {fmtDate(period.to)}.
       </p>
     </div>
+  );
+};
+
+/** Banked flexi hours per employee, with days taken against them. */
+const FlexiBalances: React.FC<{ byId: Map<string, HREmployee>; ledger: FlexiEntry[]; onBook: (staffId: string) => void }> = ({ byId, ledger, onBook }) => {
+  const staff = [...new Set(ledger.map((f) => f.staffId))].filter((id) => byId.has(id));
+  return (
+    <div style={{ marginTop: 18 }}>
+      <h4 style={{ margin: '0 0 6px' }}>Flexi days</h4>
+      <p className="pr-muted" style={{ margin: '0 0 10px' }}>
+        Overtime banked instead of paid is taken later as days off ({FLEXI_DAY_HOURS} h a day), within {FLEXI_USE_WITHIN_DAYS} days. A flexi day is an authorised absence, so it never reduces pay.
+      </p>
+      <div className="pr-table-scroll">
+        <table className="hr-table pr-table">
+          <thead>
+            <tr>
+              <th>Employee</th>
+              <th className="num">Banked</th>
+              <th className="num">Taken</th>
+              <th className="num">Balance</th>
+              <th>Use by</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {staff.length === 0 && <Empty cols={6}>No flexi hours banked yet. Choose “Bank as flexi hours” above instead of sending overtime to payroll.</Empty>}
+            {staff.map((id) => {
+              const mine = ledger.filter((f) => f.staffId === id);
+              const banked = mine.filter((f) => f.kind === 'BANKED');
+              const bal = flexiBalance(ledger, id);
+              const useBy = banked.map((f) => f.useBy ?? '').sort()[0];
+              return (
+                <tr key={id}>
+                  <td>
+                    <EmpCell e={byId.get(id)} id={id} sub={byId.get(id)?.department} />
+                  </td>
+                  <td className="num">{banked.reduce((s, f) => s + f.hours, 0)} h</td>
+                  <td className="num">{-mine.filter((f) => f.kind === 'TAKEN').reduce((s, f) => s + f.hours, 0)} h</td>
+                  <td className="num">
+                    <strong>{bal} h</strong>
+                    <div className="muted">{Math.floor(bal / FLEXI_DAY_HOURS)} day{Math.floor(bal / FLEXI_DAY_HOURS) === 1 ? '' : 's'}</div>
+                  </td>
+                  <td>{useBy ? fmtDate(useBy) : '—'}</td>
+                  <td>
+                    <button className="btn btn-secondary btn-sm" disabled={bal < FLEXI_DAY_HOURS} onClick={() => onBook(id)}>
+                      Book flexi day
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+/** Books one or more consecutive working days off against the flexi balance. */
+const BookFlexi: React.FC<{ staffId: string; name: string; onClose: () => void }> = ({ staffId, name, onClose }) => {
+  const { takeFlexiDays, flexiLedger, timeToday } = useApp();
+  const [from, setFrom] = useState(timeToday);
+  const [count, setCount] = useState(1);
+  const [reason, setReason] = useState('');
+  const bal = flexiBalance(flexiLedger, staffId);
+  const max = Math.floor(bal / FLEXI_DAY_HOURS);
+  // Working days (Mon–Fri) from the start date
+  const dates: string[] = [];
+  for (let d = new Date(`${from}T00:00:00`); dates.length < count && from; d.setDate(d.getDate() + 1)) {
+    if (d.getDay() !== 0 && d.getDay() !== 6) dates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  }
+  return (
+    <Modal
+      title={`Book flexi day · ${name}`}
+      subtitle={`${bal} h banked — up to ${max} day${max === 1 ? '' : 's'}`}
+      onClose={onClose}
+      width={520}
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" disabled={!from || count < 1 || count > max} onClick={() => takeFlexiDays(staffId, dates, reason.trim()) && onClose()}>
+            Book {count} day{count === 1 ? '' : 's'}
+          </button>
+        </>
+      }
+    >
+      <div className="pr-form-grid">
+        <label className="req-field">
+          <span>First day off</span>
+          <input className="form-control" type="date" value={from} onChange={(ev) => setFrom(ev.target.value)} />
+        </label>
+        <label className="req-field">
+          <span>Working days</span>
+          <input className="form-control" type="number" min={1} max={max} value={count} onChange={(ev) => setCount(Math.max(1, Number(ev.target.value) || 1))} />
+        </label>
+        <label className="req-field wide">
+          <span>Reason (optional)</span>
+          <input className="form-control" value={reason} onChange={(ev) => setReason(ev.target.value)} placeholder="e.g. Time off after the September audit weekends" />
+        </label>
+      </div>
+      <p className="pr-muted" style={{ marginTop: 10 }}>
+        Days: {dates.map((d) => fmtDate(d)).join(', ') || '—'} · uses {count * FLEXI_DAY_HOURS} h
+      </p>
+    </Modal>
   );
 };

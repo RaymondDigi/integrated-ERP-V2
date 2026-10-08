@@ -3,6 +3,7 @@ import { UserCheck, Briefcase, Users, CalendarClock, FileSignature, BarChart3 } 
 import { useApp } from '../../context/AppContext';
 import { HireHeader, useModuleTab, type TabDef } from './hire/shared';
 import { VacanciesTab, PipelineTab, InterviewsTab, OffersTab, InsightsTab } from './hire/RecruitmentTabs';
+import { InternshipsSection } from './registers/InternshipsSection';
 
 const TABS: TabDef[] = [
   { id: 'vacancies', label: 'Vacancies', icon: Briefcase },
@@ -38,12 +39,15 @@ export const RecruitmentView: React.FC = () => {
       ) : tab === 'insights' ? (
         <InsightsTab />
       ) : (
-        <VacanciesTab
-          onPipeline={(id) => {
-            setVacancyId(id);
-            setTab('pipeline');
-          }}
-        />
+        <>
+          <VacanciesTab
+            onPipeline={(id) => {
+              setVacancyId(id);
+              setTab('pipeline');
+            }}
+          />
+          <InternshipsSection />
+        </>
       )}
     </div>
   );

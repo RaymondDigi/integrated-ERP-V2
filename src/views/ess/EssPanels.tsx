@@ -218,9 +218,11 @@ interface EssRequestsProps {
   onSubmit: (r: Omit<EssRequest, 'id' | 'submittedOn' | 'status' | 'assignedTo' | 'staffId'>) => void;
   /** Contract notice in days, to suggest a last working day */
   noticeDays?: number;
+  /** Requests handled in their own section (travel, welfare, medical…); picking one opens it */
+  moreKinds?: { label: string; onPick: () => void }[];
 }
 
-export const EssRequests: React.FC<EssRequestsProps> = ({ requests, preset, presetDetails = '', onClearPreset, onSubmit, noticeDays = 30 }) => {
+export const EssRequests: React.FC<EssRequestsProps> = ({ requests, preset, presetDetails = '', onClearPreset, onSubmit, noticeDays = 30, moreKinds = [] }) => {
   const [formOpen, setFormOpen] = useState(!!preset);
   const [type, setType] = useState<EssRequestType>(preset ?? 'Employment Confirmation Letter');
   const [details, setDetails] = useState('');
@@ -300,6 +302,11 @@ export const EssRequests: React.FC<EssRequestsProps> = ({ requests, preset, pres
                   onClick={() => setType(t)}
                 >
                   {t}
+                </button>
+              ))}
+              {moreKinds.map((k) => (
+                <button type="button" key={k.label} className="ess-type-chip more" onClick={k.onPick}>
+                  {k.label} →
                 </button>
               ))}
             </div>

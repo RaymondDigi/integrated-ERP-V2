@@ -691,3 +691,280 @@
     display: none;
   }
 }
+
+/* ==========================================================================
+   ESS Portal — concerns, travel, advances, welfare and medical
+   ========================================================================== */
+
+.ess-steps.ess-steps-n {
+  grid-template-columns: repeat(var(--ess-steps, 4), minmax(0, 1fr));
+}
+.ess-type-chip.more {
+  border-style: dashed;
+}
+.ess-show-all {
+  margin-top: var(--space-3);
+}
+.ess-org-note {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-subtle);
+}
+.ess-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--status-success-border);
+  border-radius: var(--radius-md);
+  background: var(--status-success-bg);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.ess-notice.warn {
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
+}
+.ess-notice.warn svg {
+  color: var(--status-warning);
+  flex-shrink: 0;
+}
+.ess-case-code {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.ess-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+.ess-badges .digicraft-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ess-late,
+.ess-request p.ess-late {
+  color: var(--status-critical);
+}
+.ess-privacy {
+  gap: 6px;
+}
+.ess-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.ess-check input {
+  accent-color: var(--brand-primary);
+}
+.ess-check svg {
+  color: var(--text-tertiary);
+}
+
+/* Medical */
+.ess-med-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.ess-med-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ess-med-head strong {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.ess-limits {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3) var(--space-5);
+  margin-bottom: var(--space-3);
+}
+.ess-limits li > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.ess-limit-bar {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--bg-surface-elevated);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  overflow: hidden;
+}
+.ess-limit-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--brand-primary);
+}
+.ess-limit-bar i.mid {
+  background: var(--status-warning);
+}
+.ess-limit-bar i.high {
+  background: var(--status-critical);
+}
+.ess-form-top {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+.ess-dep {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+/* Travel and advances */
+.ess-estimate {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-subtle);
+}
+.ess-estimate-rows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px var(--space-5);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.ess-estimate-rows b {
+  margin-left: 4px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.ess-estimate-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+}
+.ess-estimate-total strong {
+  font-size: 20px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.ess-adv-hint {
+  justify-content: flex-end;
+  gap: 4px;
+}
+.ess-adv-hint .ess-link {
+  align-self: flex-start;
+  padding: 0;
+}
+.ess-row-actions {
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+.ess-row-actions:empty {
+  display: none;
+}
+.ess-sums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin-bottom: var(--space-3);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.ess-sums strong {
+  margin-left: 4px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.ess-sums .ess-late strong {
+  color: var(--status-critical);
+}
+.ess-surrender {
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+.ess-surrender-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.ess-receipts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.ess-receipts > .ess-link {
+  align-self: flex-start;
+}
+.ess-receipt-row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: end;
+}
+
+@media (max-width: 768px) {
+  .ess-estimate {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .ess-estimate-total {
+    align-items: flex-start;
+    text-align: left;
+  }
+  .ess-receipt-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .ess-receipt-row .ess-receipt-desc {
+    grid-column: 1 / -1;
+  }
+  .ess-receipt-del {
+    justify-self: start;
+  }
+  .ess-steps.ess-steps-n span {
+    font-size: 10px;
+  }
+}
+@media (max-width: 480px) {
+  .ess-steps.ess-steps-n {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .ess-med-head {
+    flex-wrap: wrap;
+  }
+}

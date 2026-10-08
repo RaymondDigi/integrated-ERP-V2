@@ -93,6 +93,8 @@ const lookup = (email: string): Lookup => {
   const named = accountsNow().find((a) => a.email === email);
   const staff = directory.find((e) => (e.email ?? '').toLowerCase() === email);
   if (staff && closed(staff)) return { error: 'This work account was closed when the employment ended. Notices about final dues go to the personal email on file.' };
+  // Suspension (Employee Master → Employee events) removes system access until it is lifted
+  if (staff && staff.status === 'SUSPENDED') return { error: 'This account is suspended. Access returns when HR lifts the suspension.' };
   if (named) return { account: named };
   if (staff) {
     const r = roleFromJob(staff);

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, ChevronRight, ClipboardCheck, FileCheck, Gauge, HardHat, KeyRound, ShieldPlus, Siren, Stethoscope, Shirt } from 'lucide-react';
+import { ArrowLeft, ChevronRight, ClipboardCheck, DoorOpen, FileBadge, FileCheck, Gauge, HardHat, KeyRound, ShieldAlert, ShieldPlus, Siren, Stethoscope, Shirt } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { DashboardTab, useOshMetrics } from './osh/DashboardTab';
 import { IncidentsTab } from './osh/IncidentsTab';
@@ -9,6 +9,9 @@ import { PpeTab } from './osh/PpeTab';
 import { InspectionsTab } from './osh/InspectionsTab';
 import { MedicalTab } from './osh/MedicalTab';
 import { StatutoryTab } from './osh/StatutoryTab';
+import { LicencesTab } from './registers/LicencesTab';
+import { GateTab } from './security/GateTab';
+import { SecurityTab } from './security/SecurityTab';
 
 export const OSH_TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: Gauge },
@@ -18,7 +21,10 @@ export const OSH_TABS = [
   { id: 'ppe', label: 'PPE', icon: Shirt },
   { id: 'inspections', label: 'Inspections & risk', icon: ClipboardCheck },
   { id: 'medical', label: 'Medical surveillance', icon: Stethoscope },
-  { id: 'statutory', label: 'Statutory & committee', icon: FileCheck }
+  { id: 'statutory', label: 'Statutory & committee', icon: FileCheck },
+  { id: 'licences', label: 'Licences & Audits', icon: FileBadge },
+  { id: 'gate', label: 'Gate passes & visitors', icon: DoorOpen },
+  { id: 'security', label: 'Security & investigations', icon: ShieldAlert }
 ];
 
 export const OshSecurityView: React.FC = () => {
@@ -47,11 +53,11 @@ export const OshSecurityView: React.FC = () => {
             </div>
             <div>
               <h1>
-                <span>Occupational Safety & Health</span>
+                <span>OSH &amp; Gate Security</span>
                 <span className="digicraft-badge-light">Process #11</span>
               </h1>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
-                {activeTenant.name}: incidents and DOSH notices, WIBA claims, permits to work, PPE, inspections and statutory compliance (OSHA 2007, WIBA 2007).
+                {activeTenant.name}: incidents and DOSH notices, WIBA claims, permits to work, PPE, inspections, licences, gate passes, visitors, cargo security and investigations (OSHA 2007, WIBA 2007).
               </p>
             </div>
           </div>
@@ -115,6 +121,9 @@ export const OshSecurityView: React.FC = () => {
       {tab === 'inspections' && <InspectionsTab />}
       {tab === 'medical' && <MedicalTab />}
       {tab === 'statutory' && <StatutoryTab />}
+      {tab === 'licences' && <LicencesTab />}
+      {tab === 'gate' && <GateTab />}
+      {tab === 'security' && <SecurityTab />}
     </div>
   );
 };

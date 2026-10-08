@@ -228,6 +228,32 @@ export const HR_PROCESS_APPS: HRProcessApp[] = [
     badgeVariant: 'info',
     route: 'separation',
     metrics: { label: 'Terminal Slips', value: '100% Cleared' }
+  },
+  {
+    id: 'welfare',
+    stepNumber: 13,
+    name: 'Employee Relations & Welfare',
+    category: 'Governance & Safety',
+    shortDesc: 'Grievances, whistleblowing, medical cover & welfare',
+    fullDesc: 'Confidential grievance, harassment and whistleblowing cases with investigations; medical cover, dependants and insurance claims; welfare entitlements; staff events and CSR reporting.',
+    iconName: 'HeartHandshake',
+    badgeText: 'Confidential',
+    badgeVariant: 'info',
+    route: 'welfare',
+    metrics: { label: 'Open Cases', value: 'Tracked' }
+  },
+  {
+    id: 'travel',
+    stepNumber: 14,
+    name: 'Travel & Petty Cash',
+    category: 'Payroll & Statutory',
+    shortDesc: 'Travel requests, per diem, imprest & surrender',
+    fullDesc: 'Travel requests with per diem by grade and approvals, staff petty cash and imprest advances, surrender with receipts, and recovery or refund through payroll.',
+    iconName: 'Plane',
+    badgeText: 'Imprest',
+    badgeVariant: 'warning',
+    route: 'travel',
+    metrics: { label: 'Outstanding', value: 'Imprest' }
   }
 ];
 

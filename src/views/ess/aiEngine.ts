@@ -43,6 +43,8 @@ export interface AiContext {
   payslips: Payslip[];
   assets: EssAsset[];
   requests: EssRequest[];
+  /** Paid advances not yet surrendered (travel, imprest, petty cash) */
+  advances?: { id: string; amount: number; dueOn?: string; overdueDays: number; travel: boolean }[];
   isApprover: boolean;
   today?: Date;
 }
@@ -50,7 +52,7 @@ export interface AiContext {
 export type AiTab = 'home' | 'leave' | 'approvals' | 'pay' | 'performance' | 'requests' | 'records' | 'profile' | 'ai';
 
 export type AiAction =
-  | { kind: 'goto'; tab: AiTab; label: string }
+  | { kind: 'goto'; tab: AiTab; label: string; sub?: string }
   | { kind: 'request'; type: EssRequestType; details: string; label: string }
   | { kind: 'fix-profile'; patch: Partial<EssProfileData>; label: string }
   | { kind: 'agent'; prompt: string; label: string };
@@ -59,7 +61,7 @@ export type Severity = 'high' | 'medium' | 'low';
 
 export interface AiFinding {
   id: string;
-  area: 'Payroll' | 'Profile' | 'Leave' | 'Approvals' | 'Assets' | 'Performance';
+  area: 'Payroll' | 'Profile' | 'Leave' | 'Approvals' | 'Assets' | 'Performance' | 'Advances';
   severity: Severity;
   title: string;
   detail: string;
@@ -330,6 +332,20 @@ export const detectIssues = (ctx: AiContext): AiFinding[] => {
       });
     }
   }
+
+  // Advances: receipts overdue (blocks new advances; may be recovered from salary)
+  (ctx.advances ?? [])
+    .filter((a) => a.overdueDays > 0)
+    .forEach((a) =>
+      out.push({
+        id: `imprest-${a.id}`,
+        area: 'Advances',
+        severity: 'high',
+        title: `Receipts for ${a.id} are ${a.overdueDays} day(s) overdue`,
+        detail: `Surrender the ${formatKes(a.amount)} ${a.travel ? 'travel advance' : 'advance'}. Until you do, you can't take a new advance and Finance may recover it from your salary.`,
+        action: { kind: 'goto', tab: 'requests', sub: a.travel ? 'travel' : 'advances', label: 'Surrender receipts' }
+      })
+    );
 
   const order: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
   return out.sort((a, b) => order[a.severity] - order[b.severity]);
