@@ -214,15 +214,15 @@ const ShipmentDrawer: React.FC<{ s: Shipment; onClose: () => void }> = ({ s, onC
           </tr>
         </thead>
         <tbody>
-          {s.lines.map((l) => {
+          {s.lines.map((l, li) => {
             const have = stockAt(state, products, l.sku, 'WH-MSA');
             return (
-              <tr key={l.sku}>
+              <tr key={`${l.sku}-${li}`}>
                 <td>{l.description}</td>
                 <td style={{ textAlign: 'right' }}>{l.qty}</td>
                 {['BOOKED', 'DOCUMENTS'].includes(s.stage) && (
-                  <td style={{ textAlign: 'right' }} className={have < l.qty ? 'sx-danger-text' : 'sx-success-text'}>
-                    {have}
+                  <td style={{ textAlign: 'right' }} className={s.siId ? 'sx-muted' : have < l.qty ? 'sx-danger-text' : 'sx-success-text'}>
+                    {s.siId ? 'Reserved lots' : have}
                   </td>
                 )}
                 <td style={{ textAlign: 'right' }}>{(l.qty * l.price).toLocaleString()}</td>
