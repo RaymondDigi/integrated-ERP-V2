@@ -44,6 +44,7 @@ export const VIEW_MODULE: Record<string, ModuleKey> = {
   disciplinary: 'hr',
   'osh-security': 'hr',
   separation: 'hr',
+  'hr-services': 'hr',
   trading: 'commercial',
   procurement: 'commercial',
   bizdev: 'commercial',
