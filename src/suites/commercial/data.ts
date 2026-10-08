@@ -17,6 +17,7 @@ import type {
   SalesOrder,
   Stage
 } from './types';
+import { buildTradeSeed, extendProducts } from './tradeData';
 
 export const COM_ACTORS: Record<ComRole, ComActor> = {
   OFFICER: { role: 'OFFICER', name: 'Peter Mwangi', title: 'Commercial Officer' },
@@ -430,9 +431,11 @@ export const buildCommercialSeed = (fin: FinanceState): CommercialState => {
   act(o9, 'CALL', 'Chase decision on proposal', -9, false);
   act(o5, 'DEMO', 'Product tasting with buyers', 10, false);
 
+  const products = extendProducts(PRODUCTS);
+  const trade = buildTradeSeed(fin, { products, orders, quotations, deliveries, activities, opportunities });
   return {
     actor: peter,
-    products: PRODUCTS.map((p) => ({ ...p })),
+    products,
     quotations,
     orders,
     deliveries,
@@ -441,6 +444,7 @@ export const buildCommercialSeed = (fin: FinanceState): CommercialState => {
     receipts,
     opportunities,
     activities,
-    sequence: { SO: soN, DN: dnN, QT: qN, PR: rqN, PO: poN, GRN: grN }
+    ...trade,
+    sequence: { SO: soN, DN: dnN, QT: qN, PR: rqN, PO: poN, GRN: grN, ONB: 2, CFG: 1, RMA: 1, RCV: 1, SMP: 2, CTR: 3, FB: 5 }
   };
 };

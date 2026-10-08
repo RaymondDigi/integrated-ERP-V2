@@ -8,13 +8,21 @@ import { ApprovalPanel, Chips, DataTable, DefList, Drawer, Empty, Field, FlowSte
 import { LinesEditor, LinesTable, newLine, PartySelect } from '../parts';
 import { PrintHeader } from '../../finance/parts';
 import { printArea } from '../../../views/ess/EssRecords';
+import { useOperations } from '../../operations/store';
+import { stockAt } from '../../operations/engine';
+import { lookupPostal, profileOf } from '../tradeEngine';
+import { AmendModal, INCOTERMS, LEAD_SOURCES, ORDER_CLASSES, OrderExtras, QuoteExtras } from './OrderExtras';
+
+type QuoteDraft = Partial<Quotation> & Pick<Quotation, 'customerId' | 'date' | 'validUntil' | 'lines' | 'notes'>;
+type OrderDraft = Omit<Partial<SalesOrder>, 'lines'> & Pick<SalesOrder, 'customerId' | 'date' | 'requiredBy' | 'customerRef' | 'deliveryAddress' | 'notes'> & { lines: Line[] };
 
 const QSTATUS: Record<Quotation['status'], { pill: string; label: string }> = {
   DRAFT: { pill: 'DRAFT', label: 'Draft' },
   SENT: { pill: 'SUBMITTED', label: 'Sent' },
   ACCEPTED: { pill: 'POSTED', label: 'Accepted' },
   LOST: { pill: 'REJECTED', label: 'Lost' },
-  EXPIRED: { pill: 'VOID', label: 'Expired' }
+  EXPIRED: { pill: 'VOID', label: 'Expired' },
+  CANCELLED: { pill: 'VOID', label: 'Cancelled' }
 };
 const STAGE_PILL: Record<string, string> = {
   DRAFT: 'DRAFT',
@@ -103,7 +111,7 @@ export const QuotationsPage: React.FC = () => {
         <Chips
           value={filter}
           onChange={setFilter}
-          options={(['ALL', 'DRAFT', 'SENT', 'ACCEPTED', 'LOST', 'EXPIRED'] as const).map((v) => ({
+          options={(['ALL', 'DRAFT', 'SENT', 'ACCEPTED', 'LOST', 'EXPIRED', 'CANCELLED'] as const).map((v) => ({
             value: v,
             label: v === 'ALL' ? 'All' : QSTATUS[v].label,
             count: v === 'ALL' ? list.length : list.filter((x) => qStatus(x) === v).length
@@ -128,8 +136,9 @@ export const QuotationsPage: React.FC = () => {
 };
 
 const QuotationDrawer: React.FC<{ q: Quotation; onClose: () => void; onEdit: () => void; onOpenOrder: (id: string) => void }> = ({ q, onClose, onEdit, onOpenOrder }) => {
-  const { state, party, sendQuotation, acceptQuotation, loseQuotation } = useCommercial();
+  const { state, party, sendQuotation, acceptQuotation, loseQuotation, setTrading } = useCommercial();
   const [losing, setLosing] = useState(false);
+  const lostCodes = state.reasonCodes.filter((r) => r.kind === 'QUOTE_LOST' && r.active);
   const [reason, setReason] = useState('');
   const c = party(q.customerId);
   const st = qStatus(q);
@@ -201,15 +210,15 @@ const QuotationDrawer: React.FC<{ q: Quotation; onClose: () => void; onEdit: () 
           <div>
             <b>Why was it lost?</b>
             <div className="sx-inline-form">
-              <select className="form-control" value={reason} onChange={(e) => setReason(e.target.value)}>
-                <option value="">Choose a reason…</option>
-                <option>Price — competitor cheaper</option>
-                <option>Delivery time too long</option>
-                <option>Customer postponed the purchase</option>
-                <option>Product did not meet the specification</option>
-                <option>No response from the customer</option>
+              <select className="form-control" value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Lost reason code">
+                <option value="">Choose a reason code…</option>
+                {lostCodes.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.label}
+                  </option>
+                ))}
               </select>
-              <button type="button" className="btn btn-danger btn-sm" onClick={() => loseQuotation(q.id, reason).ok && setLosing(false)}>
+              <button type="button" className="btn btn-danger btn-sm" onClick={() => loseQuotation(q.id, lostCodes.find((r) => r.id === reason)?.label ?? '', reason || undefined).ok && setLosing(false)}>
                 Mark as lost
               </button>
             </div>
@@ -238,6 +247,7 @@ const QuotationDrawer: React.FC<{ q: Quotation; onClose: () => void; onEdit: () 
       <DefList items={[['Customer', c?.name ?? ''], ['Date', fmtDate(q.date)], ['Prepared by', q.preparedBy]]} />
       <LinesTable lines={q.lines} products={state.products} party={c} />
       {q.notes && <p className="sx-note">{q.notes}</p>}
+      <QuoteExtras q={q} onOpen={(id) => setTrading('quotations', id)} />
       <h4 className="sx-subhead">History</h4>
       <ul className="sx-list">
         {[...q.history].reverse().map((h, i) => (
@@ -272,8 +282,8 @@ const QuotationDrawer: React.FC<{ q: Quotation; onClose: () => void; onEdit: () 
 };
 
 const QuotationEditor: React.FC<{ quote: Quotation | null; onClose: () => void; onSaved: (id: string) => void }> = ({ quote, onClose, onSaved }) => {
-  const { saveQuotation, sendQuotation, party } = useCommercial();
-  const [d, setD] = useState(() => (quote ? { ...quote, lines: quote.lines.map((l) => ({ ...l })) } : { customerId: '', date: TODAY, validUntil: addDays(TODAY, 30), lines: [newLine()], notes: '' }));
+  const { saveQuotation, sendQuotation, party, state } = useCommercial();
+  const [d, setD] = useState<QuoteDraft>(() => (quote ? { ...quote, lines: quote.lines.map((l) => ({ ...l })) } : { customerId: '', date: TODAY, validUntil: addDays(TODAY, 30), lines: [newLine()], notes: '', leadSource: '', orderClass: '', sourceCode: '' }));
   const save = (send: boolean) => {
     const r = saveQuotation(d);
     if (!r.ok || !r.id) return;
@@ -311,7 +321,35 @@ const QuotationEditor: React.FC<{ quote: Quotation | null; onClose: () => void; 
           <input className="form-control" type="date" value={d.validUntil} onChange={(e) => setD({ ...d, validUntil: e.target.value })} />
         </Field>
       </div>
-      <LinesEditor lines={d.lines} onChange={(lines: Line[]) => setD({ ...d, lines })} mode="SELL" party={party(d.customerId)} />
+      <div className="sx-grid">
+        <Field label="Lead source">
+          <select className="form-control" value={d.leadSource ?? ''} onChange={(e) => setD({ ...d, leadSource: e.target.value })}>
+            <option value="">—</option>
+            {LEAD_SOURCES.map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Order class">
+          <select className="form-control" value={d.orderClass ?? ''} onChange={(e) => setD({ ...d, orderClass: e.target.value })}>
+            <option value="">—</option>
+            {ORDER_CLASSES.map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Campaign source code">
+          <select className="form-control" value={d.sourceCode ?? ''} onChange={(e) => setD({ ...d, sourceCode: e.target.value })}>
+            <option value="">—</option>
+            {state.campaigns.map((x) => (
+              <option key={x.code} value={x.code}>
+                {x.code} · {x.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <LinesEditor lines={d.lines} onChange={(lines: Line[]) => setD({ ...d, lines })} mode="SELL" party={party(d.customerId)} ctx={d.customerId ? { customerId: d.customerId, date: d.date, quote: true } : undefined} />
       <Field label="Notes for the customer" span={4}>
         <textarea className="form-control" rows={2} value={d.notes} onChange={(e) => setD({ ...d, notes: e.target.value })} />
       </Field>
@@ -326,9 +364,12 @@ const QuotationEditor: React.FC<{ quote: Quotation | null; onClose: () => void; 
 type OFilter = 'ALL' | 'APPROVAL' | 'TO_DISPATCH' | 'PART_DELIVERED' | 'TO_INVOICE' | 'COMPLETED';
 
 export const OrdersPage: React.FC = () => {
-  const { state, party, trading, clearFocus, orderValue } = useCommercial();
+  const { state, party, trading, clearFocus, orderValue, mergeOrders } = useCommercial();
   const [filter, setFilter] = useState<OFilter>('ALL');
   const [q, setQ] = useState('');
+  const [adv, setAdv] = useState({ from: '', to: '', by: '', shipTo: '', contact: '', lpo: '', held: false, channel: '' });
+  const [showAdv, setShowAdv] = useState(false);
+  const [pick, setPick] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [editing, setEditing] = useState<SalesOrder | 'new' | null>(null);
 
@@ -340,13 +381,43 @@ export const OrdersPage: React.FC = () => {
 
   const list = state.orders;
   const match = (o: SalesOrder, f: OFilter) => f === 'ALL' || orderStage(o) === f || (f === 'APPROVAL' && (orderStage(o) === 'DRAFT' || orderStage(o) === 'REJECTED'));
-  const rows = list.filter((o) => match(o, filter)).filter((o) => !q || `${o.number} ${o.customerRef} ${party(o.customerId)?.name}`.toLowerCase().includes(q.toLowerCase()));
+  const has = (v: string | undefined, f: string) => !f || (v ?? '').toLowerCase().includes(f.toLowerCase());
+  const shipLabel = (o: SalesOrder) => profileOf(state, o.customerId).shipTos.find((x) => x.id === o.shipToId)?.label ?? o.oneTimeShipTo ?? o.deliveryAddress;
+  const rows = list
+    .filter((o) => match(o, filter))
+    .filter((o) => !q || `${o.number} ${o.customerRef} ${party(o.customerId)?.name} ${o.oneTimeName ?? ''}`.toLowerCase().includes(q.toLowerCase()))
+    .filter((o) => (!adv.from || o.date >= adv.from) && (!adv.to || o.date <= adv.to) && has(o.preparedBy, adv.by) && has(shipLabel(o), adv.shipTo) && has(o.contactName, adv.contact) && has(o.customerRef, adv.lpo))
+    .filter((o) => (!adv.held || !!o.hold) && (!adv.channel || (o.channel ?? 'DIRECT') === adv.channel));
+  const drafts = pick.filter((id) => list.find((o) => o.id === id)?.status === 'DRAFT');
   const count = (f: OFilter) => list.filter((o) => match(o, f)).length;
   const sum = (f: OFilter) => kes(round2(list.filter((o) => orderStage(o) === f).reduce((s, o) => s + orderValue(o), 0)), { compact: true });
   const due = list.filter((o) => orderStage(o) === 'TO_DISPATCH' && o.requiredBy <= TODAY);
 
   const columns: Column<SalesOrder>[] = [
-    { key: 'n', header: 'Order', render: (o) => <b className="sx-mono">{o.number}</b>, sort: (o) => o.number, width: 130 },
+    {
+      key: 'x',
+      header: '',
+      width: 34,
+      render: (o) =>
+        o.status === 'DRAFT' ? (
+          <input type="checkbox" aria-label={`Select ${o.number}`} checked={pick.includes(o.id)} onClick={(e) => e.stopPropagation()} onChange={(e) => setPick(e.target.checked ? [...pick, o.id] : pick.filter((x) => x !== o.id))} />
+        ) : null
+    },
+    {
+      key: 'n',
+      header: 'Order',
+      render: (o) => (
+        <div className="sx-cell-main">
+          <b className="sx-mono">{o.number}</b>
+          <small>
+            {o.hold ? <span className="tr-badge bad">On hold</span> : null} {o.priority === 1 ? <span className="tr-badge warn">High priority</span> : null} {o.channel && o.channel !== 'DIRECT' ? <span className="tr-badge">{o.channel}</span> : null}
+          </small>
+        </div>
+      ),
+      sort: (o) => o.number,
+      width: 150
+    },
+    { key: 'p', header: 'Priority', render: (o) => ['', 'High', 'Normal', 'Low'][o.priority ?? 2], sort: (o) => o.priority ?? 2, hideOnMobile: true },
     {
       key: 'c',
       header: 'Customer',
@@ -402,9 +473,46 @@ export const OrdersPage: React.FC = () => {
           ]}
         />
         <SearchBox value={q} onChange={setQ} placeholder="Search orders…" />
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowAdv(!showAdv)}>
+          More filters
+        </button>
+        {drafts.length >= 2 && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => {
+              const r = mergeOrders(drafts);
+              if (r.ok) {
+                setPick([]);
+                if (r.id) setOpenId(r.id);
+              }
+            }}
+          >
+            Merge {drafts.length} drafts
+          </button>
+        )}
       </div>
+      {showAdv && (
+        <div className="tr-row" style={{ marginBottom: 10 }}>
+          <input className="form-control" type="date" aria-label="Ordered from" value={adv.from} onChange={(e) => setAdv({ ...adv, from: e.target.value })} />
+          <input className="form-control" type="date" aria-label="Ordered to" value={adv.to} onChange={(e) => setAdv({ ...adv, to: e.target.value })} />
+          <input className="form-control" placeholder="Prepared by" value={adv.by} onChange={(e) => setAdv({ ...adv, by: e.target.value })} />
+          <input className="form-control" placeholder="Ship-to" value={adv.shipTo} onChange={(e) => setAdv({ ...adv, shipTo: e.target.value })} />
+          <input className="form-control" placeholder="Contact" value={adv.contact} onChange={(e) => setAdv({ ...adv, contact: e.target.value })} />
+          <input className="form-control" placeholder="Customer PO / LPO" value={adv.lpo} onChange={(e) => setAdv({ ...adv, lpo: e.target.value })} />
+          <select className="form-control" aria-label="Channel" value={adv.channel} onChange={(e) => setAdv({ ...adv, channel: e.target.value })}>
+            <option value="">All channels</option>
+            {['DIRECT', 'WEB', 'POS', 'AUCTION'].map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+          <label className="sx-check">
+            <input type="checkbox" checked={adv.held} onChange={(e) => setAdv({ ...adv, held: e.target.checked })} /> On hold only
+          </label>
+        </div>
+      )}
       <DataTable rows={rows} columns={columns} rowKey={(o) => o.id} onRowClick={(o) => setOpenId(o.id)} selected={openId} initialSort={{ key: 'd', dir: 'desc' }} empty={<Empty icon={<ShoppingBag size={20} />} title="No orders here" />} />
-      {current && <OrderDrawer o={current} onClose={() => setOpenId(null)} onEdit={() => setEditing(current)} />}
+      {current && <OrderDrawer o={current} onClose={() => setOpenId(null)} onEdit={() => setEditing(current)} onOpenOrder={(id) => setOpenId(id)} />}
       {editing && (
         <OrderEditor
           order={editing === 'new' ? null : editing}
@@ -419,9 +527,14 @@ export const OrdersPage: React.FC = () => {
   );
 };
 
-const OrderDrawer: React.FC<{ o: SalesOrder; onClose: () => void; onEdit: () => void }> = ({ o, onClose, onEdit }) => {
-  const { state, actor, party, owedBy, submitOrder, approveOrder, rejectOrder, cancelOrder, closeBalance, invoiceOrder, orderValue, finance } = useCommercial();
+const OrderDrawer: React.FC<{ o: SalesOrder; onClose: () => void; onEdit: () => void; onOpenOrder: (id: string) => void }> = ({ o, onClose, onEdit, onOpenOrder }) => {
+  const { state, actor, party, owedBy, submitOrder, approveOrder, rejectOrder, cancelOrder, closeBalance, invoiceOrder, orderValue, finance, exposure } = useCommercial();
   const [dispatching, setDispatching] = useState(false);
+  const [amending, setAmending] = useState(false);
+  const [cancelCode, setCancelCode] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+  const cancelCodes = state.reasonCodes.filter((r) => r.kind === 'ORDER_CANCEL' && r.active);
+  const exp = exposure(o.customerId);
   const c = party(o.customerId);
   const stage = orderStage(o);
   const value = orderValue(o);
@@ -439,7 +552,7 @@ const OrderDrawer: React.FC<{ o: SalesOrder; onClose: () => void; onEdit: () => 
     actions.push({ label: 'Dispatch goods', icon: <Truck size={14} />, onClick: () => setDispatching(true), title: actor.role === 'OFFICER' ? 'Stores dispatches — switch to John Kiprop' : undefined });
   if (o.lines.some((l) => l.delivered > l.invoiced)) actions.push({ label: 'Raise invoice in Finance', icon: <Receipt size={14} />, onClick: () => invoiceOrder(o.id) });
   if (stage === 'PART_DELIVERED' && actor.role !== 'OFFICER') actions.push({ label: 'Close balance', onClick: () => closeBalance(o.id), tone: 'ghost' });
-  if (['DRAFT', 'REJECTED', 'APPROVAL', 'TO_DISPATCH'].includes(stage)) actions.push({ label: 'Cancel order', icon: <Ban size={14} />, onClick: () => cancelOrder(o.id), tone: 'ghost' });
+  if (['DRAFT', 'REJECTED', 'APPROVAL', 'TO_DISPATCH'].includes(stage)) actions.push({ label: 'Cancel order', icon: <Ban size={14} />, onClick: () => setCancelling(true), tone: 'ghost' });
 
   return (
     <>
@@ -482,10 +595,35 @@ const OrderDrawer: React.FC<{ o: SalesOrder; onClose: () => void; onEdit: () => 
             ['Customer LPO', o.customerRef || '—'],
             ['Ordered', fmtDate(o.date)],
             ['Owes us now', kes(owedBy(o.customerId), { compact: true })],
+            ['Credit exposure', `${kes(exp.total, { compact: true })} (AR ${kes(exp.ar, { compact: true })} + open orders ${kes(exp.orders, { compact: true })} − credits ${kes(exp.credits, { compact: true })})`],
             ['Credit limit', c?.creditLimit ? kes(c.creditLimit, { compact: true }) : '—'],
             ['Prepared by', o.preparedBy]
           ]}
         />
+        {cancelling && (
+          <div className="sx-callout warn">
+            <Ban size={16} />
+            <div>
+              <b>Cancel {o.number}</b>
+              <div className="tr-row">
+                <select className="form-control" aria-label="Cancellation reason" value={cancelCode} onChange={(e) => setCancelCode(e.target.value)}>
+                  <option value="">Choose a reason code…</option>
+                  {cancelCodes.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="btn btn-danger btn-sm" onClick={() => cancelOrder(o.id, cancelCode || undefined).ok && setCancelling(false)}>
+                  Cancel order
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setCancelling(false)}>
+                  Keep it
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <h4 className="sx-subhead">Lines</h4>
         <LinesTable lines={o.lines} products={state.products} party={c} progress={{ a: 'delivered', aLabel: 'Delivered', b: 'invoiced', bLabel: 'Invoiced' }} />
         {(dns.length > 0 || o.invoices.length > 0) && (
@@ -530,6 +668,7 @@ const OrderDrawer: React.FC<{ o: SalesOrder; onClose: () => void; onEdit: () => 
           }
           history={o.history}
         />
+        <OrderExtras o={o} onOpenOrder={onOpenOrder} onAmend={() => setAmending(true)} />
         <article className="sx-print-only ess-print-area sx-paper">
           <PrintHeader title="Order confirmation" number={o.number} meta={[['Date', fmtDate(o.date)], ['Your order', o.customerRef || '—'], ['Delivery by', fmtDate(o.requiredBy)]]} />
           <div className="sx-paper-party">
@@ -541,13 +680,20 @@ const OrderDrawer: React.FC<{ o: SalesOrder; onClose: () => void; onEdit: () => 
         </article>
       </Drawer>
       {dispatching && <DispatchModal o={o} onClose={() => setDispatching(false)} />}
+      {amending && <AmendModal o={o} onClose={() => setAmending(false)} />}
     </>
   );
 };
 
 const DispatchModal: React.FC<{ o: SalesOrder; onClose: () => void }> = ({ o, onClose }) => {
   const { state, dispatch, actor } = useCommercial();
+  const ops = useOperations();
   const open = o.lines.filter((l) => l.delivered < l.qty);
+  const defWh = profileOf(state, o.customerId).shipTos.find((x) => x.id === o.shipToId)?.defaultWarehouse ?? 'WH-NBO';
+  const [wh, setWh] = useState<Record<string, string>>(() => Object.fromEntries(open.map((l) => [l.id, defWh])));
+  const [bolOn, setBolOn] = useState(false);
+  const [bol, setBol] = useState({ carrier: 'Own fleet', seal: '', packages: 1, grossKg: 0 });
+  const whStock = (sku: string, w: string) => stockAt(ops.state, state.products, sku, w);
   const [qty, setQty] = useState<Record<string, number>>(() =>
     Object.fromEntries(
       open.map((l) => {
@@ -578,9 +724,15 @@ const DispatchModal: React.FC<{ o: SalesOrder; onClose: () => void }> = ({ o, on
             onClick={() =>
               dispatch(
                 o.id,
-                Object.entries(qty).map(([lineId, q]) => ({ lineId, qty: q })),
+                Object.entries(qty).map(([lineId, q]) => ({ lineId, qty: q, warehouseId: wh[lineId] })),
                 vehicle,
-                driver
+                driver,
+                {
+                  available: Object.fromEntries(
+                    open.filter((l) => state.products.find((p) => p.sku === l.sku)?.kind === 'GOODS').map((l) => [l.id, whStock(l.sku, wh[l.id])])
+                  ),
+                  bol: bolOn ? bol : undefined
+                }
               ).ok && onClose()
             }
           >
@@ -595,6 +747,7 @@ const DispatchModal: React.FC<{ o: SalesOrder; onClose: () => void }> = ({ o, on
             <th>Item</th>
             <th style={{ textAlign: 'right' }}>Outstanding</th>
             <th style={{ textAlign: 'right' }}>In stock</th>
+            <th>Ship from</th>
             <th style={{ textAlign: 'right', width: 130 }}>Dispatch now</th>
           </tr>
         </thead>
@@ -608,6 +761,19 @@ const DispatchModal: React.FC<{ o: SalesOrder; onClose: () => void }> = ({ o, on
                 <td style={{ textAlign: 'right' }}>{l.qty - l.delivered}</td>
                 <td style={{ textAlign: 'right' }} className={goods && p!.stock < l.qty - l.delivered ? 'sx-danger-text' : ''}>
                   {goods ? p!.stock : 'Service'}
+                </td>
+                <td>
+                  {goods ? (
+                    <select className="form-control" aria-label={`Warehouse for ${l.description}`} value={wh[l.id]} onChange={(e) => setWh({ ...wh, [l.id]: e.target.value })}>
+                      {ops.state.warehouses.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.id} · {whStock(l.sku, w.id)} avail.
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    '—'
+                  )}
                 </td>
                 <td>
                   <div className="sx-alloc-cell">
@@ -631,18 +797,49 @@ const DispatchModal: React.FC<{ o: SalesOrder; onClose: () => void }> = ({ o, on
           <input className="form-control" value={driver} onChange={(e) => setDriver(e.target.value)} />
         </Field>
       </div>
+      <label className="sx-check">
+        <input type="checkbox" checked={bolOn} onChange={(e) => setBolOn(e.target.checked)} /> Issue a bill of lading for this load
+      </label>
+      {bolOn && (
+        <div className="sx-grid">
+          <Field label="Carrier">
+            <input className="form-control" value={bol.carrier} onChange={(e) => setBol({ ...bol, carrier: e.target.value })} />
+          </Field>
+          <Field label="Seal number">
+            <input className="form-control" value={bol.seal} onChange={(e) => setBol({ ...bol, seal: e.target.value })} />
+          </Field>
+          <Field label="Packages">
+            <input className="form-control" type="number" min="1" value={bol.packages} onChange={(e) => setBol({ ...bol, packages: Number(e.target.value) })} />
+          </Field>
+          <Field label="Gross kg">
+            <input className="form-control" type="number" min="0" value={bol.grossKg} onChange={(e) => setBol({ ...bol, grossKg: Number(e.target.value) })} />
+          </Field>
+        </div>
+      )}
     </Modal>
   );
 };
 
 const OrderEditor: React.FC<{ order: SalesOrder | null; onClose: () => void; onSaved: (id: string) => void }> = ({ order, onClose, onSaved }) => {
-  const { saveOrder, submitOrder, party, owedBy } = useCommercial();
-  const [d, setD] = useState(() =>
+  const { saveOrder, submitOrder, party, state, exposure, finance } = useCommercial();
+  const [d, setD] = useState<OrderDraft>(() =>
     order
       ? { ...order, lines: order.lines.map((l) => ({ ...l })) as Line[] }
-      : { customerId: '', date: TODAY, requiredBy: addDays(TODAY, 7), customerRef: '', deliveryAddress: '', notes: '', lines: [newLine()] as Line[] }
+      : { customerId: '', date: TODAY, requiredBy: addDays(TODAY, 7), customerRef: '', deliveryAddress: '', notes: '', lines: [newLine()] as Line[], priority: 2, channel: 'DIRECT', segment: 'B2B' }
   );
   const c = party(d.customerId);
+  const prof = d.customerId ? profileOf(state, d.customerId) : undefined;
+  const exp = d.customerId ? exposure(d.customerId, d.id) : undefined;
+  const [postal, setPostal] = useState('');
+  const pickShip = (id: string) => {
+    if (id === '__one') return setD({ ...d, shipToId: undefined, oneTimeShipTo: d.oneTimeShipTo ?? '' });
+    const a = prof?.shipTos.find((x) => x.id === id);
+    setD({ ...d, shipToId: id || undefined, oneTimeShipTo: undefined, deliveryAddress: a ? `${a.address}, ${a.town}` : d.deliveryAddress, termId: a?.termId ?? d.termId });
+  };
+  const useTemplate = (id: string) => {
+    const t = state.templates.find((x) => x.id === id);
+    if (t) setD({ ...d, customerId: t.customerId, lines: t.lines.map((l) => ({ ...l, id: `${l.id}-${Math.random().toString(36).slice(2, 7)}` })) });
+  };
   const save = (submit: boolean) => {
     const r = saveOrder(d);
     if (!r.ok || !r.id) return;
@@ -671,8 +868,8 @@ const OrderEditor: React.FC<{ order: SalesOrder | null; onClose: () => void; onS
       }
     >
       <div className="sx-grid">
-        <Field label="Customer" required span={2} hint={c ? `Owes ${kes(owedBy(c.id), { compact: true })} of a ${c.creditLimit ? kes(c.creditLimit, { compact: true }) : 'no'} limit` : undefined}>
-          <PartySelect kind="CUSTOMER" value={d.customerId} onChange={(v) => setD({ ...d, customerId: v })} />
+        <Field label="Customer" required span={2} hint={c && exp ? `Exposure ${kes(exp.total, { compact: true })} of a ${c.creditLimit ? kes(c.creditLimit, { compact: true }) : 'no'} limit${c.creditLimit ? ` · headroom ${kes(exp.headroom, { compact: true })}` : ''}` : undefined}>
+          <PartySelect kind="CUSTOMER" value={d.customerId} onChange={(v) => setD({ ...d, customerId: v, shipToId: undefined, billToId: undefined, contactName: undefined, termId: profileOf(state, v).termId })} />
         </Field>
         <Field label="Customer LPO" required>
           <input className="form-control" value={d.customerRef} onChange={(e) => setD({ ...d, customerRef: e.target.value })} />
@@ -681,7 +878,148 @@ const OrderEditor: React.FC<{ order: SalesOrder | null; onClose: () => void; onS
           <input className="form-control" type="date" value={d.requiredBy} onChange={(e) => setD({ ...d, requiredBy: e.target.value })} />
         </Field>
       </div>
-      <LinesEditor lines={d.lines} onChange={(lines) => setD({ ...d, lines })} mode="SELL" party={c} />
+      {!order && state.templates.length > 0 && (
+        <div className="tr-row" style={{ marginBottom: 8 }}>
+          <select className="form-control" aria-label="Start from a template" defaultValue="" onChange={(e) => useTemplate(e.target.value)}>
+            <option value="">Start from a saved order template…</option>
+            {state.templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} · {party(t.customerId)?.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div className="sx-grid">
+        <Field label="Ordered by (order-from)">
+          <select className="form-control" value={d.orderFromId ?? ''} onChange={(e) => setD({ ...d, orderFromId: e.target.value || undefined })}>
+            <option value="">Same as customer</option>
+            {finance.state.parties
+              .filter((p) => p.kind === 'CUSTOMER' && p.id !== d.customerId && (profileOf(state, p.id).parentCustomerId === d.customerId || prof?.parentCustomerId === p.id))
+              .map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+          </select>
+        </Field>
+        <Field label="Bill to">
+          <select className="form-control" value={d.billToId ?? ''} onChange={(e) => setD({ ...d, billToId: e.target.value || undefined })}>
+            <option value="">Main account address</option>
+            {prof?.billTos.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label} · {a.town}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Ship to">
+          <select className="form-control" value={d.oneTimeShipTo !== undefined ? '__one' : (d.shipToId ?? '')} onChange={(e) => pickShip(e.target.value)}>
+            <option value="">Main address</option>
+            {prof?.shipTos.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label} · {a.town}
+              </option>
+            ))}
+            <option value="__one">One-time address…</option>
+          </select>
+        </Field>
+        <Field label="Contact">
+          <select className="form-control" value={d.contactName ?? ''} onChange={(e) => setD({ ...d, contactName: e.target.value || undefined })}>
+            <option value="">—</option>
+            {prof?.contacts.map((x) => (
+              <option key={x.id} value={x.name}>
+                {x.name} · {x.role}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {d.oneTimeShipTo !== undefined && (
+          <>
+            <Field label="One-time ship-to address" span={2}>
+              <input className="form-control" value={d.oneTimeShipTo} onChange={(e) => setD({ ...d, oneTimeShipTo: e.target.value, deliveryAddress: e.target.value })} />
+            </Field>
+            <Field label="Postal code" hint={lookupPostal(postal) ? `${lookupPostal(postal)!.town}, ${lookupPostal(postal)!.county}` : 'Fills in the town and county'}>
+              <input
+                className="form-control"
+                value={postal}
+                onChange={(e) => {
+                  setPostal(e.target.value);
+                  const pc = lookupPostal(e.target.value);
+                  if (pc) {
+                    const addr = `${(d.oneTimeShipTo ?? '').split(' · ')[0]} · ${pc.code} ${pc.town}, ${pc.county}, ${pc.country}`;
+                    setD({ ...d, oneTimeShipTo: addr, deliveryAddress: addr });
+                  }
+                }}
+              />
+            </Field>
+            <Field label="One-time bill-to">
+              <input className="form-control" value={d.oneTimeBillTo ?? ''} onChange={(e) => setD({ ...d, oneTimeBillTo: e.target.value })} />
+            </Field>
+          </>
+        )}
+        <Field label="Payment terms">
+          <select className="form-control" value={d.termId ?? ''} onChange={(e) => setD({ ...d, termId: e.target.value || undefined })}>
+            <option value="">Customer default ({c?.terms ?? 30} days)</option>
+            {state.paymentTerms.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Incoterm">
+          <select className="form-control" value={d.incoterm ?? ''} onChange={(e) => setD({ ...d, incoterm: e.target.value || undefined })}>
+            <option value="">—</option>
+            {INCOTERMS.map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Named place">
+          <input className="form-control" value={d.namedPlace ?? ''} onChange={(e) => setD({ ...d, namedPlace: e.target.value })} placeholder="e.g. Mombasa port" />
+        </Field>
+        <Field label="Priority">
+          <select className="form-control" value={d.priority ?? 2} onChange={(e) => setD({ ...d, priority: Number(e.target.value) as 1 | 2 | 3 })}>
+            <option value={1}>High</option>
+            <option value={2}>Normal</option>
+            <option value={3}>Low</option>
+          </select>
+        </Field>
+        <Field label="Lead source">
+          <select className="form-control" value={d.leadSource ?? ''} onChange={(e) => setD({ ...d, leadSource: e.target.value || undefined })}>
+            <option value="">—</option>
+            {LEAD_SOURCES.map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Order class">
+          <select className="form-control" value={d.orderClass ?? ''} onChange={(e) => setD({ ...d, orderClass: e.target.value || undefined })}>
+            <option value="">—</option>
+            {ORDER_CLASSES.map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Campaign source code">
+          <select className="form-control" value={d.sourceCode ?? ''} onChange={(e) => setD({ ...d, sourceCode: e.target.value || undefined })}>
+            <option value="">—</option>
+            {state.campaigns.map((x) => (
+              <option key={x.code} value={x.code}>
+                {x.code}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Segment">
+          <select className="form-control" value={d.segment ?? 'B2B'} onChange={(e) => setD({ ...d, segment: e.target.value as 'B2B' | 'B2C' })}>
+            <option value="B2B">Business (B2B)</option>
+            <option value="B2C">Consumer (B2C)</option>
+          </select>
+        </Field>
+      </div>
+      <LinesEditor lines={d.lines} onChange={(lines) => setD({ ...d, lines })} mode="SELL" party={c} ctx={d.customerId ? { customerId: d.customerId, date: d.date, shipDate: d.requiredBy, shipTo: d.shipToId, orderId: d.id } : undefined} />
       <div className="sx-grid sx-grid-2">
         <Field label="Delivery address">
           <input className="form-control" value={d.deliveryAddress} onChange={(e) => setD({ ...d, deliveryAddress: e.target.value })} />

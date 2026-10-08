@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Truck, PackageCheck, Printer, Package, AlertTriangle, ShoppingCart, Users, TrendingUp } from 'lucide-react';
 import { useCommercial } from '../store';
 import { committed, needsReorder, onOrder, orderStage, totals } from '../engine';
@@ -7,6 +7,13 @@ import type { Delivery, Product } from '../types';
 import { Chips, DataTable, DefList, Drawer, Field, Meter, Pill, SearchBox, Stat, SuitePage, type Column } from '../../ui/kit';
 import { PrintHeader } from '../../finance/parts';
 import { printArea } from '../../../views/ess/EssRecords';
+import { printDocument } from '../../../platform/Widgets';
+import { bolHtml, packingHtml, shipToOf } from './docs';
+import { CustomerDrawer } from './CustomerDrawer';
+import { ProductEditor, ProductExtras, ProductImport } from './ProductEditor';
+import { LoadPlanner } from './LoadPlanner';
+import { addDays as addD } from '../../finance/engine';
+import { salesFacts } from '../tradeEngine';
 
 /* ================================================================== */
 /* Deliveries                                                          */
@@ -64,6 +71,7 @@ export const DeliveriesPage: React.FC = () => {
         />
       </div>
       <DataTable rows={rows} columns={columns} rowKey={(d) => d.id} onRowClick={(d) => setOpenId(d.id)} selected={openId} initialSort={{ key: 'd', dir: 'desc' }} />
+      <LoadPlanner />
       {current && <DeliveryDrawer d={current} onClose={() => setOpenId(null)} />}
     </SuitePage>
   );
@@ -75,6 +83,9 @@ const DeliveryDrawer: React.FC<{ d: Delivery; onClose: () => void }> = ({ d, onC
   const o = state.orders.find((x) => x.id === d.orderId)!;
   const c = party(o.customerId);
   const lines = d.lines.map((l) => ({ ...l, line: o.lines.find((x) => x.id === l.lineId)! }));
+  const [got, setGot] = useState<Record<string, { qty: number; damaged: number }>>(() => Object.fromEntries(d.lines.map((l) => [l.lineId, { qty: l.qty, damaged: 0 }])));
+  const [stars, setStars] = useState(0);
+  const ship = shipToOf(state, o);
   return (
     <Drawer
       title={d.number}
@@ -82,9 +93,19 @@ const DeliveryDrawer: React.FC<{ d: Delivery; onClose: () => void }> = ({ d, onC
       badge={<Pill status={d.status === 'DELIVERED' ? 'POSTED' : 'SUBMITTED'} label={d.status === 'DELIVERED' ? 'Delivered' : 'On the road'} />}
       onClose={onClose}
       footer={
-        <button type="button" className="btn btn-secondary btn-sm" onClick={printArea}>
-          <Printer size={14} /> Print delivery note
-        </button>
+        <>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={printArea}>
+            <Printer size={14} /> Print delivery note
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => printDocument(`Packing list ${d.number}`, packingHtml(state, d, c))}>
+            <Printer size={14} /> Packing list
+          </button>
+          {d.bol && (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => printDocument(`Bill of lading ${d.number}`, bolHtml(state, d, c))}>
+              <Printer size={14} /> Bill of lading
+            </button>
+          )}
+        </>
       }
     >
       <DefList
@@ -94,9 +115,14 @@ const DeliveryDrawer: React.FC<{ d: Delivery; onClose: () => void }> = ({ d, onC
           ['Driver', d.driver],
           ['Dispatched by', d.dispatchedBy],
           ['Received by', d.receivedBy ?? '—'],
-          ['Delivered', d.deliveredAt ? fmtDate(d.deliveredAt.slice(0, 10)) : '—']
+          ['Delivered', d.deliveredAt ? fmtDate(d.deliveredAt.slice(0, 10)) : '—'],
+          ['Ship to', ship.text || o.deliveryAddress || '—'],
+          ['Ships from', [...new Set(d.lines.map((l) => l.warehouseId).filter(Boolean))].join(', ') || 'WH-NBO'],
+          ['Bill of lading', d.bol ? `${d.bol.carrier} · seal ${d.bol.seal || '—'} · ${d.bol.packages} pkgs · ${d.bol.grossKg} kg` : '—'],
+          ['Customer rating', d.rating ? `${d.rating}/5` : '—']
         ]}
       />
+      {(d.received ?? []).some((r) => r.damaged > 0 || r.qty < (d.lines.find((l) => l.lineId === r.lineId)?.qty ?? 0)) && <p className="tr-badge warn">Signed for less than was sent — a variance claim was raised (Returns & credits)</p>}
       <table className="sx-mini-table">
         <thead>
           <tr>
@@ -118,10 +144,42 @@ const DeliveryDrawer: React.FC<{ d: Delivery; onClose: () => void }> = ({ d, onC
           <PackageCheck size={16} />
           <div>
             <b>Record proof of delivery</b>
-            <span>Enter the name of the person who signed for the goods.</span>
+            <span>Enter who signed, what they actually received (short or damaged raises a claim) and their rating.</span>
+            <table className="sx-mini-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Sent</th>
+                  <th>Received</th>
+                  <th>Damaged</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((l) => (
+                  <tr key={l.lineId}>
+                    <td>{l.line.description}</td>
+                    <td>{l.qty}</td>
+                    <td>
+                      <input className="form-control" type="number" min="0" aria-label={`Received ${l.line.description}`} value={got[l.lineId]?.qty ?? l.qty} onChange={(e) => setGot({ ...got, [l.lineId]: { ...got[l.lineId], qty: Number(e.target.value) } })} />
+                    </td>
+                    <td>
+                      <input className="form-control" type="number" min="0" aria-label={`Damaged ${l.line.description}`} value={got[l.lineId]?.damaged ?? 0} onChange={(e) => setGot({ ...got, [l.lineId]: { ...got[l.lineId], damaged: Number(e.target.value) } })} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
             <div className="sx-inline-form">
               <input className="form-control" value={by} onChange={(e) => setBy(e.target.value)} placeholder="Name on the signed delivery note" />
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => confirmDelivery(d.id, by)}>
+              <select className="form-control" aria-label="Customer rating" value={stars} onChange={(e) => setStars(Number(e.target.value))}>
+                <option value={0}>No rating</option>
+                {[5, 4, 3, 2, 1].map((n) => (
+                  <option key={n} value={n}>
+                    {n} / 5
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => confirmDelivery(d.id, by, Object.entries(got).map(([lineId, g]) => ({ lineId, ...g })), stars)}>
                 Confirm delivered
               </button>
             </div>
@@ -174,10 +232,11 @@ const DeliveryDrawer: React.FC<{ d: Delivery; onClose: () => void }> = ({ d, onC
 /* ================================================================== */
 
 export const ProductsPage: React.FC<{ mode: 'SELL' | 'BUY' }> = ({ mode }) => {
-  const { state, reorder, setProcurement, party } = useCommercial();
+  const { state, reorder, setProcurement, party, setTrading } = useCommercial();
   const [filter, setFilter] = useState<'ALL' | 'LOW'>('ALL');
   const [q, setQ] = useState('');
   const [openSku, setOpenSku] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const items = state.products.filter((p) => (mode === 'SELL' ? p.kind !== 'MATERIAL' : p.kind === 'MATERIAL'));
   const rows = items.filter((p) => (filter === 'ALL' || needsReorder(state, p)) && (!q || `${p.sku} ${p.name} ${p.category}`.toLowerCase().includes(q.toLowerCase())));
   const low = items.filter((p) => needsReorder(state, p));
@@ -239,6 +298,19 @@ export const ProductsPage: React.FC<{ mode: 'SELL' | 'BUY' }> = ({ mode }) => {
           ? 'What you sell, at what price and margin, and what is available to promise.'
           : 'Stock on hand against reorder levels. One click raises a requisition for anything running low.'
       }
+      actions={
+        mode === 'SELL' ? (
+          <>
+            <ProductImport />
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTrading('pricing')}>
+              Price lists & mass update
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setEditing('new')}>
+              New product
+            </button>
+          </>
+        ) : undefined
+      }
     >
       <div className="sx-stats">
         <Stat label="Items" value={items.length} detail={`${new Set(items.map((p) => p.category)).size} categories`} icon={<Package size={17} />} />
@@ -264,9 +336,17 @@ export const ProductsPage: React.FC<{ mode: 'SELL' | 'BUY' }> = ({ mode }) => {
           subtitle={`${open.sku} · ${open.category}`}
           onClose={() => setOpenSku(null)}
           footer={
-            open.kind === 'GOODS' ? (
-              <span className="sx-note">Finished goods are replenished by the production plan.</span>
-            ) : open.kind === 'MATERIAL' && (
+            open.kind !== 'MATERIAL' ? (
+              <>
+                <span className="sx-note">{open.kind === 'GOODS' ? 'Finished goods are replenished by the production plan.' : ''}</span>
+                <span className="sx-grow" />
+                {mode === 'SELL' && (
+                  <button type="button" className="btn btn-primary btn-sm" onClick={() => setEditing(open)}>
+                    Edit product
+                  </button>
+                )}
+              </>
+            ) : (
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
@@ -293,6 +373,7 @@ export const ProductsPage: React.FC<{ mode: 'SELL' | 'BUY' }> = ({ mode }) => {
               ['Preferred supplier', open.preferredSupplier ? party(open.preferredSupplier)?.name ?? '' : '—']
             ]}
           />
+          {mode === 'SELL' && <ProductExtras p={open} />}
           {needsReorder(state, open) && (
             <div className="sx-callout warn">
               <AlertTriangle size={16} />
@@ -334,6 +415,7 @@ export const ProductsPage: React.FC<{ mode: 'SELL' | 'BUY' }> = ({ mode }) => {
           </Field>
         </Drawer>
       )}
+      {editing && <ProductEditor product={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </SuitePage>
   );
 };
@@ -343,16 +425,37 @@ export const ProductsPage: React.FC<{ mode: 'SELL' | 'BUY' }> = ({ mode }) => {
 /* ================================================================== */
 
 export const SalesCustomersPage: React.FC = () => {
-  const { state, finance, owedBy, orderValue } = useCommercial();
+  const { state, finance, owedBy, orderValue, trading, clearFocus } = useCommercial();
   const [q, setQ] = useState('');
+  const [openId, setOpenId] = useState<string | null>(null);
+  useEffect(() => {
+    if (trading.focus) {
+      setOpenId(trading.focus);
+      clearFocus();
+    }
+  }, [trading.focus, clearFocus]);
   const customers = finance.state.parties.filter((p) => p.kind === 'CUSTOMER');
+  const facts = salesFacts(state, finance.state);
+  const period = (id: string, test: (date: string) => boolean) => round2(facts.filter((f) => f.customerId === id && test(f.date)).reduce((s, f) => s + f.revenue, 0));
+  const r12From = addD(TODAY, -365);
   const rows = customers
     .map((c) => {
       const orders = state.orders.filter((o) => o.customerId === c.id && o.status === 'APPROVED');
       const sales = round2(orders.reduce((s, o) => s + totals(o.lines, state.products, c).net, 0));
       const open = orders.filter((o) => !o.closed);
       const quotes = state.quotations.filter((x) => x.customerId === c.id);
-      return { c, orders: orders.length, sales, open: open.length, owed: owedBy(c.id), quotes: quotes.length, openValue: round2(open.reduce((s, o) => s + orderValue(o), 0)) };
+      return {
+        c,
+        orders: orders.length,
+        sales,
+        open: open.length,
+        owed: owedBy(c.id),
+        quotes: quotes.length,
+        openValue: round2(open.reduce((s, o) => s + orderValue(o), 0)),
+        mtd: period(c.id, (d) => d.slice(0, 7) === TODAY.slice(0, 7)),
+        ytd: period(c.id, (d) => d.slice(0, 4) === TODAY.slice(0, 4)),
+        r12: period(c.id, (d) => d >= r12From)
+      };
     })
     .filter((r) => !q || r.c.name.toLowerCase().includes(q.toLowerCase()));
   type Row = (typeof rows)[number];
@@ -371,6 +474,9 @@ export const SalesCustomersPage: React.FC = () => {
     },
     { key: 'o', header: 'Orders', render: (r) => r.orders, sort: (r) => r.orders, align: 'right' },
     { key: 's', header: 'Sales (orders)', render: (r) => kes(r.sales, { compact: true }), sort: (r) => r.sales, align: 'right' },
+    { key: 'mtd', header: 'MTD', render: (r) => kes(r.mtd, { compact: true }), sort: (r) => r.mtd, align: 'right', hideOnMobile: true },
+    { key: 'ytd', header: 'YTD', render: (r) => kes(r.ytd, { compact: true }), sort: (r) => r.ytd, align: 'right', hideOnMobile: true },
+    { key: 'r12', header: 'Rolling 12m', render: (r) => kes(r.r12, { compact: true }), sort: (r) => r.r12, align: 'right', hideOnMobile: true },
     { key: 'op', header: 'Open orders', render: (r) => (r.open ? `${r.open} · ${kes(r.openValue, { compact: true })}` : '—'), sort: (r) => r.openValue, align: 'right', hideOnMobile: true },
     {
       key: 'ow',
@@ -397,7 +503,8 @@ export const SalesCustomersPage: React.FC = () => {
         <span />
         <SearchBox value={q} onChange={setQ} placeholder="Search customers…" />
       </div>
-      <DataTable rows={rows} columns={columns} rowKey={(r) => r.c.id} initialSort={{ key: 's', dir: 'desc' }} />
+      <DataTable rows={rows} columns={columns} rowKey={(r) => r.c.id} onRowClick={(r) => setOpenId(r.c.id)} selected={openId} initialSort={{ key: 's', dir: 'desc' }} />
+      {openId && <CustomerDrawer key={openId} customerId={openId} onClose={() => setOpenId(null)} />}
     </SuitePage>
   );
 };
