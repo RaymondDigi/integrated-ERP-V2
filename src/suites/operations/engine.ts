@@ -7,7 +7,9 @@ export const ROLE_LABEL: Record<OpsRole, string> = {
   STOREKEEPER: 'Stores & Dispatch',
   TECHNICIAN: 'Maintenance Technician',
   QC: 'Quality Controller',
-  MANAGER: 'Operations Manager'
+  MANAGER: 'Operations Manager',
+  CUSTOMER: 'Customer portal',
+  CREDIT: 'Credit Controller (Finance)'
 };
 
 /* ------------------------------------------------------------------ */
@@ -74,6 +76,7 @@ export const docsReady = (s: Shipment) => s.docs.filter((d) => d.done).length / 
 
 /** What still blocks a shipment from moving to the next stage. */
 export const shipBlockers = (s: Shipment) => {
+  if (s.blocked) return [`Blocked: ${s.blocked.reason}`];
   const next = SHIP_STAGES[SHIP_STAGES.indexOf(s.stage) + 1];
   const missing = (keys: string[]) => s.docs.filter((d) => keys.includes(d.key) && !d.done).map((d) => d.name);
   if (next === 'LOADED') {
@@ -84,6 +87,7 @@ export const shipBlockers = (s: Shipment) => {
   if (next === 'DEPARTED') {
     const out = s.docs.filter((d) => !d.done).map((d) => d.name);
     if (!s.invoiceId) out.push('Export invoice raised in Finance');
+    if (!s.vgm) out.push('Verified gross mass (VGM) certificate');
     return out;
   }
   return [];
