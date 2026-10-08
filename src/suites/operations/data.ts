@@ -26,7 +26,9 @@ export const OPS_ACTORS: Record<OpsRole, OpsActor> = {
   STOREKEEPER: { role: 'STOREKEEPER', name: 'John Kiprop', title: 'Stores & Dispatch' },
   TECHNICIAN: { role: 'TECHNICIAN', name: 'Kevin Ouma', title: 'Maintenance Technician' },
   QC: { role: 'QC', name: 'Faith Akinyi', title: 'Quality Controller' },
-  MANAGER: { role: 'MANAGER', name: 'Esther Muthoni', title: 'Operations Manager' }
+  MANAGER: { role: 'MANAGER', name: 'Esther Muthoni', title: 'Operations Manager' },
+  DRIVER: { role: 'DRIVER', name: 'Samuel Ouma', title: 'Driver' },
+  TRANSPORT_MANAGER: { role: 'TRANSPORT_MANAGER', name: 'Peter Njoroge', title: 'Transport Manager' }
 };
 const { OFFICER: mary, STOREKEEPER: john, TECHNICIAN: kevin, QC: faith, MANAGER: esther } = OPS_ACTORS;
 
@@ -293,7 +295,10 @@ export const buildOperationsSeed = (com: CommercialState, financeInvoicesFor: (c
     { id: 'v2', reg: 'KDB 220T', model: 'Mitsubishi Canter 3-tonne', type: 'Truck', capacityKg: 3_000, odometer: 96_720, driver: 'Joseph Mutua', status: 'ON_TRIP', serviceEveryKm: 8_000, lastServiceKm: 89_050, insuranceExpiry: d(210), inspectionExpiry: d(60) },
     { id: 'v3', reg: 'KCY 908M', model: 'Isuzu NPR 4-tonne', type: 'Truck', capacityKg: 4_000, odometer: 141_380, driver: 'Ali Bakari', status: 'IN_WORKSHOP', serviceEveryKm: 10_000, lastServiceKm: 131_900, insuranceExpiry: d(12), inspectionExpiry: d(40) },
     { id: 'v4', reg: 'KDA 123A', model: 'Toyota Hilux double cab', type: 'Pickup', capacityKg: 1_000, odometer: 118_905, driver: 'Pool vehicle', status: 'AVAILABLE', serviceEveryKm: 5_000, lastServiceKm: 115_200, insuranceExpiry: d(190), inspectionExpiry: d(22) },
-    { id: 'v5', reg: 'KDG 456B', model: 'Toyota Probox', type: 'Saloon', capacityKg: 400, odometer: 64_310, driver: 'Sales team', status: 'AVAILABLE', serviceEveryKm: 5_000, lastServiceKm: 60_100, insuranceExpiry: d(260), inspectionExpiry: d(150) }
+    { id: 'v5', reg: 'KDG 456B', model: 'Toyota Probox', type: 'Saloon', capacityKg: 400, odometer: 64_310, driver: 'Sales team', status: 'AVAILABLE', serviceEveryKm: 5_000, lastServiceKm: 60_100, insuranceExpiry: d(260), inspectionExpiry: d(150) },
+    // Hired trucks from contracted hauliers, allocated after the own fleet on tea consolidation runs
+    { id: 'v6', reg: 'KBZ 771H', model: 'Hino 500 — 10-tonne (hired)', type: 'Truck', capacityKg: 10_000, odometer: 412_300, driver: 'Haulier driver', status: 'AVAILABLE', serviceEveryKm: 15_000, lastServiceKm: 405_000, insuranceExpiry: d(90), inspectionExpiry: d(120), ownership: 'HIRED', carrierId: 'cr1' },
+    { id: 'v7', reg: 'KCP 340L', model: 'Mercedes Actros — 28-tonne (hired)', type: 'Truck', capacityKg: 28_000, odometer: 688_150, driver: 'Haulier driver', status: 'AVAILABLE', serviceEveryKm: 20_000, lastServiceKm: 680_000, insuranceExpiry: d(70), inspectionExpiry: d(80), ownership: 'HIRED', carrierId: 'cr2' }
   ];
   const trips: Trip[] = [];
   let tn = 0;
@@ -328,25 +333,60 @@ export const buildOperationsSeed = (com: CommercialState, financeInvoicesFor: (c
 
   /* ---------------- Maintenance ---------------- */
   const equipment: Equipment[] = [
-    { id: 'eq1', name: 'Standby generator 250 kVA', area: 'Factory', criticality: 'HIGH', status: 'SERVICE_DUE' },
-    { id: 'eq2', name: 'Automatic packaging line', area: 'Line 1', criticality: 'HIGH', status: 'RUNNING' },
-    { id: 'eq3', name: 'Cold room 40 m³', area: 'Warehouse', criticality: 'HIGH', status: 'RUNNING' },
-    { id: 'eq4', name: 'Steam boiler', area: 'Factory', criticality: 'HIGH', status: 'RUNNING' },
-    { id: 'eq5', name: 'Bulk bagging machine', area: 'Bulk bagging', criticality: 'MEDIUM', status: 'RUNNING' },
-    { id: 'eq6', name: 'Forklift — Toyota 2.5 t', area: 'Main warehouse', criticality: 'MEDIUM', status: 'RUNNING' },
-    { id: 'eq7', name: 'Isuzu NPR — KCY 908M', area: 'Fleet', criticality: 'MEDIUM', status: 'DOWN', vehicleId: 'v3' },
-    { id: 'eq8', name: 'Isuzu FRR — KCA 512Q', area: 'Fleet', criticality: 'MEDIUM', status: 'RUNNING', vehicleId: 'v1' },
-    { id: 'eq9', name: 'Mitsubishi Canter — KDB 220T', area: 'Fleet', criticality: 'MEDIUM', status: 'SERVICE_DUE', vehicleId: 'v2' },
-    { id: 'eq10', name: 'Toyota Hilux — KDA 123A', area: 'Fleet', criticality: 'LOW', status: 'RUNNING', vehicleId: 'v4' },
-    { id: 'eq11', name: 'Toyota Probox — KDG 456B', area: 'Fleet', criticality: 'LOW', status: 'RUNNING', vehicleId: 'v5' }
+    {
+      id: 'eq1', name: 'Standby generator 250 kVA', area: 'Factory', criticality: 'HIGH', status: 'SERVICE_DUE', type: 'Generator', make: 'Cummins C250D5', serialNo: 'CUM-250-77812', installed: d(-1100), costCentre: 'Factory', assetId: 'fa3',
+      meter: { unit: 'HOURS', reading: 4_820, readOn: d(-1) },
+      bom: [
+        { sku: 'SPR-GEN', description: 'Generator service kit (oil, filters)', qty: 1, stocked: true },
+        { description: 'Coolant 20 L (bought in)', qty: 1, stocked: false, unitCost: 7_800 },
+        { description: 'Load bank test (contractor)', qty: 1, stocked: false, unitCost: 25_000 }
+      ]
+    },
+    {
+      id: 'eq2', name: 'Automatic packaging line', area: 'Line 1', criticality: 'HIGH', status: 'RUNNING', type: 'Packing machine', make: 'IMA C24 tea bagger', serialNo: 'IMA-C24-0912', installed: d(-640), productionLine: 'Line 1 — Standard', costCentre: 'Production', assetId: 'fa4',
+      warranty: { supplierId: 's8', until: d(90), terms: 'Parts and labour, 24 months from commissioning (Baraka Maintenance as agent)' },
+      meter: { unit: 'CYCLES', reading: 1_284_400, readOn: d(0) },
+      bom: [
+        { sku: 'SPR-PEY', description: 'Photo-eye sensor', qty: 2, stocked: true },
+        { sku: 'PKG-FLM', description: 'Printed film roll (test run)', qty: 1, stocked: true },
+        { description: 'Heat-seal jaw set', qty: 1, stocked: false, unitCost: 64_000 }
+      ]
+    },
+    { id: 'eq3', name: 'Cold room 40 m³', area: 'Warehouse', criticality: 'HIGH', status: 'RUNNING', type: 'Refrigeration', make: 'Danfoss', serialNo: 'DF-CR40-221', installed: d(-520), costCentre: 'Warehouse', assetId: 'fa5' },
+    { id: 'eq4', name: 'Steam boiler', area: 'Factory', criticality: 'HIGH', status: 'RUNNING', type: 'Boiler', make: 'Thermax 2 t/h', serialNo: 'TX-2T-5531', installed: d(-2400), costCentre: 'Factory', meter: { unit: 'HOURS', reading: 31_250, readOn: d(-1) } },
+    {
+      id: 'eq5', name: 'Bulk bagging machine', area: 'Bulk bagging', criticality: 'MEDIUM', status: 'RUNNING', type: 'Bagging and weighing', make: 'Premier Tech', serialNo: 'PT-BG-3302', installed: d(-900), productionLine: 'Bulk bagging', costCentre: 'Production',
+      calibration: { required: true, intervalDays: 90, tolerance: '±0.5% at 25 kg', standard: 'F1 test weights 25 kg (KEBS certificate)', lastCalibrated: d(-86) },
+      bom: [{ sku: 'SPR-BLT', description: 'Drive belt set', qty: 1, stocked: true }]
+    },
+    { id: 'eq6', name: 'Forklift — Toyota 2.5 t', area: 'Main warehouse', criticality: 'MEDIUM', status: 'RUNNING', type: 'Forklift', make: 'Toyota 8FD25', serialNo: 'TY-8FD-6619', installed: d(-1500), costCentre: 'Warehouse', meter: { unit: 'HOURS', reading: 6_910, readOn: d(-2) } },
+    { id: 'eq7', name: 'Isuzu NPR — KCY 908M', area: 'Fleet', criticality: 'MEDIUM', status: 'DOWN', vehicleId: 'v3', type: 'Vehicle', costCentre: 'Transport', bom: [{ sku: 'SPR-BRK', description: 'Brake and clutch kit', qty: 1, stocked: true }] },
+    { id: 'eq8', name: 'Isuzu FRR — KCA 512Q', area: 'Fleet', criticality: 'MEDIUM', status: 'RUNNING', vehicleId: 'v1', type: 'Vehicle', costCentre: 'Transport' },
+    { id: 'eq9', name: 'Mitsubishi Canter — KDB 220T', area: 'Fleet', criticality: 'MEDIUM', status: 'SERVICE_DUE', vehicleId: 'v2', type: 'Vehicle', costCentre: 'Transport' },
+    { id: 'eq10', name: 'Toyota Hilux — KDA 123A', area: 'Fleet', criticality: 'LOW', status: 'RUNNING', vehicleId: 'v4', type: 'Vehicle', costCentre: 'Transport', assetId: 'fa1' },
+    { id: 'eq11', name: 'Toyota Probox — KDG 456B', area: 'Fleet', criticality: 'LOW', status: 'RUNNING', vehicleId: 'v5', type: 'Vehicle', costCentre: 'Sales', assetId: 'fa2' },
+    {
+      id: 'eq12', name: 'Weighbridge 60 t — Mombasa', area: 'Port store', criticality: 'HIGH', status: 'RUNNING', type: 'Weighbridge', make: 'Avery Weigh-Tronix', serialNo: 'AWT-60-1180', installed: d(-1800), costCentre: 'Logistics',
+      calibration: { required: true, intervalDays: 180, tolerance: '±20 kg at 30 t', standard: 'Weights and Measures test weights 10 × 1 t', lastCalibrated: d(-178) }
+    },
+    {
+      id: 'eq13', name: 'Tea blending drum 2 t', area: 'Line 2', criticality: 'HIGH', status: 'RUNNING', type: 'Blender', make: 'Kaybee rotary drum', serialNo: 'KB-RD2-0457', installed: d(-760), productionLine: 'Line 2 — Premium', costCentre: 'Production',
+      meter: { unit: 'HOURS', reading: 9_410, readOn: d(0) },
+      bom: [
+        { sku: 'SPR-BLT', description: 'Drive belt set', qty: 1, stocked: true },
+        { description: 'Gearbox bearing 6312 (rotable spare)', qty: 2, stocked: false, unitCost: 18_500 }
+      ]
+    },
+    { id: 'eq14', name: 'Main energy meter — Factory', area: 'Factory', criticality: 'LOW', status: 'RUNNING', type: 'Energy meter', make: 'Kenya Power smart meter', serialNo: 'KP-SM-38811', costCentre: 'Factory', meter: { unit: 'KWH', reading: 1_284_760, readOn: d(-1) } }
   ];
   const schedules: PmSchedule[] = [
-    { id: 'pm1', equipmentId: 'eq1', task: '250-hour service — oil, filters, load test', everyDays: 30, lastDone: d(-34), assignedTo: kevin.name },
-    { id: 'pm2', equipmentId: 'eq2', task: 'Lubrication and belt tension check', everyDays: 14, lastDone: d(-10), assignedTo: kevin.name },
+    { id: 'pm1', equipmentId: 'eq1', task: '250-hour service — oil, filters, load test', everyDays: 30, lastDone: d(-34), assignedTo: kevin.name, templateId: 'jt1', everyMeter: 250, lastMeter: 4_560 },
+    { id: 'pm2', equipmentId: 'eq2', task: 'Lubrication and belt tension check', everyDays: 14, lastDone: d(-10), assignedTo: kevin.name, templateId: 'jt2', requiresDowntime: true, downtimeHours: 3 },
     { id: 'pm3', equipmentId: 'eq3', task: 'Refrigerant level and door seals', everyDays: 90, lastDone: d(-84), assignedTo: 'Baraka Maintenance (contractor)' },
     { id: 'pm4', equipmentId: 'eq4', task: 'Statutory boiler inspection', everyDays: 180, lastDone: d(-176), assignedTo: 'DOSHS-approved inspector' },
     { id: 'pm5', equipmentId: 'eq6', task: 'Hydraulics, brakes and mast chains', everyDays: 60, lastDone: d(-20), assignedTo: kevin.name },
-    { id: 'pm6', equipmentId: 'eq5', task: 'Scale calibration', everyDays: 90, lastDone: d(-40), assignedTo: kevin.name }
+    { id: 'pm6', equipmentId: 'eq5', task: 'Scale calibration', everyDays: 90, lastDone: d(-40), assignedTo: kevin.name },
+    { id: 'pm7', equipmentId: 'eq13', task: 'Drum gearbox oil change and bearing check', everyDays: 120, lastDone: d(-60), assignedTo: kevin.name, templateId: 'jt4', requiresDowntime: true, downtimeHours: 4, everyMeter: 1_000, lastMeter: 8_620 }
   ];
   const workOrders: WorkOrder[] = [];
   let wn = 0;
@@ -373,8 +413,8 @@ export const buildOperationsSeed = (com: CommercialState, financeInvoicesFor: (c
       ...extra
     };
     if (status !== 'REQUESTED') w.history.push(h(date, 10, esther.name, 'Approved and scheduled'));
-    if (status === 'IN_PROGRESS' || status === 'COMPLETED') w.history.push(h(date, 13, kevin.name, 'Work started'));
-    if (status === 'COMPLETED') w.history.push(h(addDays(date, 1), 16, kevin.name, 'Completed', extra.notes));
+    if (status === 'IN_PROGRESS' || status === 'COMPLETED' || status === 'REVIEW') w.history.push(h(date, 13, kevin.name, 'Work started'));
+    if (status === 'COMPLETED' || status === 'REVIEW') w.history.push(h(addDays(date, 1), 16, kevin.name, 'Completed', extra.completionNotes ?? extra.notes));
     workOrders.push(w);
     return w;
   };
@@ -382,10 +422,43 @@ export const buildOperationsSeed = (com: CommercialState, financeInvoicesFor: (c
   wo('eq2', 'Film sealer temperature drifting', 'BREAKDOWN', 'URGENT', -22, 'COMPLETED', { hours: 6, downtimeHours: 5, notes: 'Replaced thermocouple; line back in 5 hours' });
   wo('eq3', 'Cold room door seal replacement', 'PREVENTIVE', 'NORMAL', -84, 'COMPLETED', { contractorCost: 64_000, contractorId: 's8', hours: 1, notes: 'Done by Baraka Maintenance', scheduleId: 'pm3' });
   wo('eq6', 'Forklift hydraulic service', 'PREVENTIVE', 'NORMAL', -20, 'COMPLETED', { hours: 3, notes: 'Hydraulic oil topped up', scheduleId: 'pm5' });
-  wo('eq7', 'Brake overhaul and clutch replacement', 'BREAKDOWN', 'HIGH', -2, 'IN_PROGRESS', { contractorId: 's8', downtimeHours: 48, notes: 'Waiting for the clutch kit from Baraka Maintenance' });
-  wo('eq2', 'Photo-eye sensor fault — intermittent stops', 'BREAKDOWN', 'HIGH', 0, 'REQUESTED', { notes: 'Line 1 stopped 4 times this morning' });
-  wo('eq5', 'Bagging machine stitching head noise', 'INSPECTION', 'NORMAL', -1, 'APPROVED', { due: d(2) });
-  wo('eq4', 'Boiler pressure relief valve test', 'INSPECTION', 'HIGH', -3, 'APPROVED', { assignedTo: 'DOSHS-approved inspector', due: d(4) });
+  wo('eq7', 'Brake overhaul and clutch replacement', 'BREAKDOWN', 'HIGH', -2, 'IN_PROGRESS', {
+    contractorId: 's8',
+    downtimeHours: 48,
+    notes: 'Waiting for the clutch kit from Baraka Maintenance',
+    templateId: 'jt3',
+    costCentre: 'Transport',
+    technicianId: 't1',
+    plannedStart: d(-2),
+    estHours: 6,
+    plannedParts: [{ sku: 'SPR-BRK', qty: 1 }],
+    checklist: [
+      { text: 'Chock wheels, isolate battery and tag the cab', safety: true, done: true, by: kevin.name },
+      { text: 'Remove drums and measure lining thickness', done: true, by: kevin.name },
+      { text: 'Fit brake and clutch kit, bleed hydraulics' },
+      { text: 'Road test and brake efficiency check', safety: true }
+    ],
+    workLog: [
+      { at: at(d(-2), 14), by: kevin.name, text: 'Linings worn to 1 mm, clutch slipping in 3rd and 4th.' },
+      { at: at(d(-1), 9), by: kevin.name, text: 'Clutch kit ordered from Baraka — due tomorrow morning.' }
+    ]
+  });
+  wo('eq2', 'Photo-eye sensor fault — intermittent stops', 'BREAKDOWN', 'HIGH', 0, 'REQUESTED', { notes: 'Line 1 stopped 4 times this morning', costCentre: 'Production', plannedParts: [{ sku: 'SPR-PEY', qty: 1 }], underWarranty: true });
+  wo('eq5', 'Bagging machine stitching head noise', 'INSPECTION', 'NORMAL', -1, 'APPROVED', { due: d(2), costCentre: 'Production', technicianId: 't1', plannedStart: d(1), estHours: 2 });
+  wo('eq4', 'Boiler pressure relief valve test', 'INSPECTION', 'HIGH', -3, 'APPROVED', { assignedTo: 'DOSHS-approved inspector', due: d(4), costCentre: 'Factory', permitRequired: true, technicianId: 't3', plannedStart: d(2), estHours: 4 });
+  wo('eq13', 'Drum gearbox bearing replacement (exchange)', 'BREAKDOWN', 'NORMAL', -9, 'REVIEW', {
+    hours: 5,
+    downtimeHours: 6,
+    costCentre: 'Production',
+    technicianId: 't2',
+    plannedStart: d(-8),
+    estHours: 5,
+    notes: 'Gearbox running hot (vibration alarm)',
+    completionNotes: 'Bearing RT-6312-0007 fitted from rotable stock; worn bearing RT-6312-0003 sent to Baraka for rebuild.',
+    completedBy: kevin.name,
+    rotableId: 'rt2',
+    replacedParts: [{ description: 'Gearbox bearing 6312', serialOut: 'RT-6312-0003', serialIn: 'RT-6312-0007', action: 'REPLACED' }]
+  });
 
   const projects: Project[] = [
     {
@@ -446,6 +519,20 @@ export const buildOperationsSeed = (com: CommercialState, financeInvoicesFor: (c
         { name: 'Baseline study', due: d(-110), done: true },
         { name: 'Quick-change tooling', due: d(-40), done: true },
         { name: 'Changeover under 25 minutes', due: d(-10), done: true }
+      ]
+    },
+    {
+      id: 'pj5',
+      name: 'Highland Agro canteen tea station (customer job)',
+      owner: mary.name,
+      budget: 200_000,
+      spent: 22_200,
+      start: d(-10),
+      end: d(10),
+      status: 'ACTIVE',
+      milestones: [
+        { name: 'Site survey', due: d(-5), done: true },
+        { name: 'Installed and commissioned', due: d(10), done: false }
       ]
     }
   ];

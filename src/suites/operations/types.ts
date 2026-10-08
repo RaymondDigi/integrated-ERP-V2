@@ -1,6 +1,7 @@
 import type { HistoryEntry } from '../finance/types';
+import type { BomLine, CalibrationResult, CalibrationSpec, ChecklistStep, MeterSpec, ReplacedPart, Warranty, WorkNote } from './maintenance/types';
 
-export type OpsRole = 'OFFICER' | 'STOREKEEPER' | 'TECHNICIAN' | 'QC' | 'MANAGER';
+export type OpsRole = 'OFFICER' | 'STOREKEEPER' | 'TECHNICIAN' | 'QC' | 'MANAGER' | 'DRIVER' | 'TRANSPORT_MANAGER';
 
 export interface OpsActor {
   role: OpsRole;
@@ -149,6 +150,9 @@ export interface Vehicle {
   lastServiceKm: number;
   insuranceExpiry: string;
   inspectionExpiry: string;
+  /** Hired (third-party) trucks are allocated after the own fleet and billed by the carrier */
+  ownership?: 'OWNED' | 'HIRED';
+  carrierId?: string;
 }
 
 export interface Trip {
@@ -163,6 +167,10 @@ export interface Trip {
   endKm?: number;
   status: 'PLANNED' | 'ON_ROAD' | 'DONE';
   deliveryRef?: string;
+  /** Weight carried, checked against the vehicle's capacity */
+  loadKg?: number;
+  planId?: string;
+  requestId?: string;
 }
 
 export interface FuelEntry {
@@ -184,16 +192,30 @@ export interface Equipment {
   criticality: 'HIGH' | 'MEDIUM' | 'LOW';
   status: 'RUNNING' | 'DOWN' | 'SERVICE_DUE';
   vehicleId?: string;
+  /* Equipment register (Maintenance › Equipment) */
+  type?: string;
+  make?: string;
+  serialNo?: string;
+  installed?: string;
+  /** Production line whose output stops while the machine is down */
+  productionLine?: string;
+  costCentre?: string;
+  /** Finance fixed asset id */
+  assetId?: string;
+  bom?: BomLine[];
+  warranty?: Warranty;
+  meter?: MeterSpec;
+  calibration?: CalibrationSpec;
 }
 
-export type WorkStatus = 'REQUESTED' | 'APPROVED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type WorkStatus = 'REQUESTED' | 'APPROVED' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED' | 'CANCELLED';
 
 export interface WorkOrder {
   id: string;
   number: string;
   equipmentId: string;
   title: string;
-  kind: 'BREAKDOWN' | 'PREVENTIVE' | 'INSPECTION' | 'IMPROVEMENT';
+  kind: 'BREAKDOWN' | 'PREVENTIVE' | 'INSPECTION' | 'IMPROVEMENT' | 'CALIBRATION' | 'REFURBISH';
   priority: 'URGENT' | 'HIGH' | 'NORMAL';
   requestedBy: string;
   date: string;
@@ -210,6 +232,34 @@ export interface WorkOrder {
   notes: string;
   history: HistoryEntry[];
   scheduleId?: string;
+  /* Job card */
+  templateId?: string;
+  checklist?: ChecklistStep[];
+  workLog?: WorkNote[];
+  completionNotes?: string;
+  completedBy?: string;
+  reviewedBy?: string;
+  notificationId?: string;
+  /* Planning */
+  plannedStart?: string;
+  estHours?: number;
+  plannedDowntimeHours?: number;
+  technicianId?: string;
+  labourRate?: number;
+  plannedParts?: { sku: string; qty: number }[];
+  requisitions?: string[];
+  /* Safety, cost and settlement */
+  permitRequired?: boolean;
+  permitNo?: string;
+  costCentre?: string;
+  journalNumber?: string;
+  underWarranty?: boolean;
+  warrantyClaim?: string;
+  projectId?: string;
+  /* Calibration and refurbishment */
+  calibrationResult?: CalibrationResult;
+  rotableId?: string;
+  replacedParts?: ReplacedPart[];
 }
 
 export interface PmSchedule {
@@ -219,6 +269,12 @@ export interface PmSchedule {
   everyDays: number;
   lastDone: string;
   assignedTo: string;
+  templateId?: string;
+  requiresDowntime?: boolean;
+  downtimeHours?: number;
+  /** Meter-based interval (equipment meter units), alongside the calendar interval */
+  everyMeter?: number;
+  lastMeter?: number;
 }
 
 export interface Project {

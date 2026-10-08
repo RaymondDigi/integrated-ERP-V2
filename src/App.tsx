@@ -15,6 +15,7 @@ import { TradingSuite } from './suites/commercial/trading/TradingSuite';
 import { ProcurementSuite } from './suites/commercial/procurement/ProcurementSuite';
 import { BizDevSuite } from './suites/commercial/bizdev/BizDev';
 import { OperationsProvider } from './suites/operations/store';
+import { TechnicalProviders } from './suites/operations/technical';
 import { ControlProvider } from './suites/control/store';
 import { HubProvider } from './suites/hub/store';
 import { QualitySuite } from './suites/control/Quality';
@@ -205,6 +206,7 @@ export const App: React.FC = () => {
     <FinanceProvider>
     <CommercialProvider>
     <OperationsProvider>
+    <TechnicalProviders>
     <ControlProvider>
     <HubProvider>
     <div className="app-shell">
@@ -228,6 +230,7 @@ export const App: React.FC = () => {
     </div>
     </HubProvider>
     </ControlProvider>
+    </TechnicalProviders>
     </OperationsProvider>
     </CommercialProvider>
     </FinanceProvider>
