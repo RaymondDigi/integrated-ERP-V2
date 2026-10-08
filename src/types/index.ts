@@ -434,7 +434,7 @@ export interface ContractTypeDefinition {
   serviceThresholdDays?: number;
 }
 
-export type PayFrequencyRun = 'Monthly Payroll' | 'Weekly Payroll' | 'Daily Payroll' | 'Custom Payroll';
+export type PayFrequencyRun = 'Monthly Payroll' | 'Weekly Payroll' | 'Daily Payroll' | 'Custom Payroll' | 'Casual Payroll';
 
 /* ------------------------------------------------------------------ */
 /* Organisation structure (company-maintained lookup lists)            */
@@ -534,6 +534,8 @@ export interface HREmployee {
   jobTitle: string;
   basicSalaryKes: number;
   pieceRatePerUnitKes?: number;
+  /** How the worker is paid: a day rate (default) or kilograms delivered (farmers' / casual per-kg payroll) */
+  payUnit?: 'DAY' | 'KG';
   joinedDate: string;
   status: 'ACTIVE' | 'ON_LEAVE' | 'SUSPENDED' | 'TERMINATED';
 
@@ -682,6 +684,12 @@ export interface PayrollBatch {
   periodFrom?: string;
   periodTo?: string;
   payDate?: string;
+  /** Casual (per-kg) runs: the terms the run was calculated on */
+  casualTerms?: { ratePerKg: number; minimumDailyWage: number; targetKgPerDay: number; bonusPerKgAbove: number };
+  /** Casual (per-kg) runs: the kilos each plucker was paid on, keyed staffId|date */
+  casualWeights?: Record<string, number>;
+  /** Casual (per-kg) runs: the deductions due to each plucker, keyed by staff ID */
+  casualDeductions?: Record<string, number>;
 }
 
 export interface ContractThresholdRecord {

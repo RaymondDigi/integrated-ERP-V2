@@ -56,6 +56,8 @@ const CONTRACT_END: Record<string, string> = { 'KHE-0295': '2026-11-02', 'KHE-10
 const STD = 'Standard Employment Contract';
 const FIXED = 'Fixed-Term Contract';
 const DAILY = 'Daily-Rated Contract';
+/** Tea pluckers: paid for the green leaf they deliver, weighed at the collection centre (not a day rate) */
+const PIECE = 'Per-Kg Contract';
 
 /** People who also act in the other modules — all on the main company's payroll. */
 const MAIN_NAMED: Seed[] = [
@@ -114,6 +116,7 @@ const REFERENCED: (Seed & { orgId: string })[] = [
 const TEAMS: Record<string, [string, string, number, number, string?, number?][]> = {
   'org-kericho': [
     ['Production & Quality Control', 'Production Operative', 30_000, 8],
+    ['Tea Production (Field)', 'Tea Plucker (per kg)', 0, 12, PIECE],
     ['Production & Quality Control', 'Machine Operator', 40_000, 3],
     ['General Services', 'Packer', 26_000, 2],
     ['Sales & Marketing', 'Sales Representative', 52_000, 1],
@@ -175,6 +178,7 @@ const make = (orgId: string, s: Seed, i: number): HREmployee => {
     phone: `+254 7${String(10 + (i % 89)).padStart(2, '0')} ${String(100 + ((i * 37) % 900))} ${String(100 + ((i * 59) % 900))}`,
     ...mask(i),
     contractType: s.contract ?? STD,
+    payUnit: s.contract === PIECE ? 'KG' : undefined,
     department: s.department,
     branch: BRANCH[orgId],
     jobTitle: s.jobTitle,
@@ -213,7 +217,7 @@ const buildWorkforce = (): HREmployee[] => {
         ++i;
         const casual = contract === DAILY;
         out.push(
-          make(orgId, { staffId: `${casual ? 'CAS' : PREFIX[orgId]}-${seq++}`, fullName: name(i), department, jobTitle, basic, contract, dailyRate, joined: casual ? `2026-0${3 + (i % 6)}-${String(1 + (i % 26)).padStart(2, '0')}` : undefined }, i)
+          make(orgId, { staffId: `${contract === PIECE ? 'PLK' : casual ? 'CAS' : PREFIX[orgId]}-${seq++}`, fullName: name(i), department, jobTitle, basic, contract, dailyRate, joined: casual ? `2026-0${3 + (i % 6)}-${String(1 + (i % 26)).padStart(2, '0')}` : undefined }, i)
         );
       }
   return out;

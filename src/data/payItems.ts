@@ -163,7 +163,11 @@ export const SEED_PAY_ITEMS: PayItem[] = [
   item('PI-0212', 'KHE-0263', 'NIGHT_SHIFT', 5_400, rel(0), 'Stores night cover — roster NS-10', { auto: true, quantity: 12 }),
   item('PI-0213', 'KHE-0301', 'NIGHT_SHIFT', 3_600, rel(0), 'Night deliveries — roster NS-10', { auto: true, quantity: 8 }),
   item('PI-0214', 'KHE-0270', 'HARDSHIP', 5_000, rel(0), 'Posted to Nandi Hills estate', { auto: true, recurring: true }),
-  item('PI-0215', 'KHE-0178', 'LONG_SERVICE', 6_000, rel(0), 'Long-service recognition 2026', { auto: true })
+  item('PI-0215', 'KHE-0178', 'LONG_SERVICE', 6_000, rel(0), 'Long-service recognition 2026', { auto: true }),
+  // Tea pluckers (per-kg payroll): standing SACCO contributions and an advance recovered in September
+  item('PI-0301', 'PLK-1109', 'SACCO_SHARES', 500, '2026-06', 'Kericho Growers SACCO — monthly shares', { recurring: true, postedOn: '2026-06-05' }),
+  item('PI-0302', 'PLK-1112', 'SACCO_SHARES', 300, '2026-06', 'Kericho Growers SACCO — monthly shares', { recurring: true, postedOn: '2026-06-05' }),
+  item('PI-0303', 'PLK-1114', 'SALARY_ADVANCE', 3_000, '2026-09', 'Advance against September deliveries', { postedOn: '2026-09-02' })
 ];
 
 const loan = (l: Omit<StaffLoan, 'orgId' | 'installment' | 'status'> & { installment?: number }): StaffLoan => ({

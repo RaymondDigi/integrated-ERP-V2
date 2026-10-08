@@ -571,6 +571,15 @@
 .pr-wide .pr-doc td:nth-child(2) {
   min-width: 130px;
 }
+/* Narrow text columns (days, kg) need breathing room or their headings run together */
+.pr-wide .pr-doc th:not(.num),
+.pr-wide .pr-doc td:not(.num) {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.pr-wide .pr-doc th:not(.num) {
+  min-width: 44px;
+}
 .pr-doc tr.pr-group-row td {
   padding-top: 12px;
   font-weight: 700;

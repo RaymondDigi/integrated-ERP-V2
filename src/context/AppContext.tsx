@@ -74,6 +74,15 @@ import { useSecurityState, type SecurityStateSlice } from './securityState';
 import type { PeopleDeps } from './sliceDeps';
 import { buildPayrollBatches, latestPaidMonth, makeContext, type ExitType, type PayReduction, type PayrollHold, monthRun, MONTHS, openPeriod, SEED_CONTEXT, terminalDues, type PayrollContext } from '../data/payrollEngine';
 import { PAY_RUN_LABEL, payRunBatch, payRunClash, payRunRows, payRunWindowError, rangeLabel, type PayRunRequest } from '../data/payRuns';
+import { casualRows, DEFAULT_CASUAL_TERMS, deductionsDue, dueSnapshot, weighKey, weighSnapshot, leafKg, type WeighFn } from '../data/casualPayroll';
+
+/** The kilos for a plucker-day: the sheet's entry when there is one, else the stand-in */
+export const weighFor =
+  (log: Record<string, number>): WeighFn =>
+  (staffId, iso) => {
+    const k = weighKey(staffId, iso);
+    return k in log ? log[k] : leafKg(staffId, iso);
+  };
 import { loanInstallment, SEED_LOANS, SEED_PAY_ITEMS, type PayItem, type StaffLoan } from '../data/payItems';
 import { componentAt, currentComponents, PAY_COMPONENTS, setComponentRegistry, type PayComponentType } from '../data/payComponents';
 
@@ -328,6 +337,11 @@ interface AppContextType
   toggleOnboardingItem: (id: string, field: 'kraPinVerified' | 'nssfVerified' | 'shifVerified' | 'kitIssued' | 'contractSigned') => void;
   addAttendancePunch: (punch: Omit<BiometricPunch, 'id' | 'orgId' | 'timestamp'>) => void;
   createPayRun: (req: PayRunRequest) => boolean;
+  /** Removes a calculated pay run that has not been approved, so it can be recalculated */
+  discardPayRun: (id: string) => boolean;
+  /** Kilos entered on the weighing sheet (keyed staffId|date); null clears the entry */
+  weighLog: Record<string, number>;
+  setWeight: (staffId: string, iso: string, kg: number | null) => void;
   convertContractType: (workerId: string) => void;
   closeOshPermit: (id: string) => void;
   signoffClearanceDept: (id: string, dept: 'stores' | 'it' | 'finance' | 'hr') => void;
@@ -460,6 +474,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [payItems, staffLoans, leaveRequests, payComponents, payReductions, exitTypes, ratesStamp, payrollHolds]
   );
   const [extraBatches, setExtraBatches] = useState<PayrollBatch[]>([]);
+  // Weighing sheet: kilos entered per plucker per day, overriding the weighbridge stand-in
+  const [weighLog, setWeighLog] = useState<Record<string, number>>({});
+  const setWeight: AppContextType['setWeight'] = (staffId, iso, kg) =>
+    setWeighLog((m) => {
+      const next = { ...m };
+      if (kg === null) delete next[weighKey(staffId, iso)];
+      else next[weighKey(staffId, iso)] = kg;
+      return next;
+    });
   const [batchStatus, setBatchStatus] = useState<Record<string, PayrollBatch['status']>>({});
   const [payrollGlRefs, setPayrollGlRefs] = useState<Record<string, string>>({});
   const [closedPayrollPeriods, setClosedPayrollPeriods] = useState<string[]>([]);
@@ -987,7 +1010,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const hire = useHireState({ requisitions, setRequisitions, candidates, setCandidates, onboardingRecords, setOnboardingRecords, hrEmployees, addHrEmployee, updateHrEmployee, addToast, selectedOrgId, payrollOpenPeriod, tenantOrganizations });
 
   // Pay runs: daily, weekly or custom-date runs for daily-rated workers, calculated like payslips and approved before payment
-  const createPayRun: AppContextType['createPayRun'] = (req) => {
+  const createPayRun: AppContextType['createPayRun'] = (input) => {
+    const req: PayRunRequest = input.kind === 'CASUAL' ? { ...input, terms: input.terms ?? DEFAULT_CASUAL_TERMS } : input;
     const err = payRunWindowError(req);
     if (err) {
       addToast({ type: 'error', title: 'Check the dates', message: err });
@@ -999,15 +1023,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addToast({ type: 'error', title: 'Already paid for these days', message: `${clash.batchNo} covers ${clash.periodFrom} to ${clash.periodTo}. Choose other dates or a different site.` });
       return false;
     }
-    const rows = payRunRows(hrEmployees, selectedOrgId, req.from, req.to, req.branch);
+    const weigh = weighFor(weighLog);
+    const dueFor = (staffId: string) => deductionsDue(payItems, staffId, req.from, req.to);
+    const rows = req.kind === 'CASUAL' ? casualRows(hrEmployees, selectedOrgId, req.from, req.to, req.terms!, req.branch, weigh, dueFor) : payRunRows(hrEmployees, selectedOrgId, req.from, req.to, req.branch);
     if (!rows.length) {
-      addToast({ type: 'warning', title: 'Nobody to pay', message: 'No daily-rated workers attended in these dates for this site.' });
+      addToast({
+        type: 'warning',
+        title: 'Nobody to pay',
+        message: req.kind === 'CASUAL' ? 'No pluckers delivered green leaf in these dates for this site.' : 'No daily-rated workers attended in these dates for this site.'
+      });
       return false;
     }
     const stamp = Date.now().toString().slice(-6);
-    const batch = payRunBatch(req, selectedOrgId, { id: `PAY-RUN-${req.kind}-${req.from.replace(/-/g, '')}-${stamp}`, batchNo: `BATCH-${req.kind}-${stamp}` }, rows);
+    const built = payRunBatch(req, selectedOrgId, { id: `PAY-RUN-${req.kind}-${req.from.replace(/-/g, '')}-${stamp}`, batchNo: `BATCH-${req.kind}-${stamp}` }, rows);
+    // A per-kg run keeps the weights it was paid on, so later sheet changes don't alter its report
+    const batch: PayrollBatch =
+      req.kind === 'CASUAL'
+        ? {
+            ...built,
+            casualWeights: weighSnapshot(hrEmployees, selectedOrgId, req.from, req.to, weigh),
+            casualDeductions: dueSnapshot(hrEmployees, selectedOrgId, req.from, req.to, payItems)
+          }
+        : built;
     setExtraBatches((prev) => [batch, ...prev]);
     addToast({ type: 'success', title: `${PAY_RUN_LABEL[req.kind]} calculated`, message: `${batch.workerCount} workers, ${rangeLabel(req.from, req.to)}. Approve it, then pay it.` });
+    return true;
+  };
+
+  const discardPayRun: AppContextType['discardPayRun'] = (id) => {
+    const run = payrollBatches.find((b) => b.id === id);
+    if (!run || !id.startsWith('PAY-RUN-')) {
+      addToast({ type: 'error', title: 'Cannot discard', message: 'Only pay runs created here can be discarded.' });
+      return false;
+    }
+    if (run.status !== 'CALCULATED') {
+      addToast({ type: 'error', title: 'Already approved', message: `${run.batchNo} is approved or paid. It cannot be discarded.` });
+      return false;
+    }
+    setExtraBatches((prev) => prev.filter((b) => b.id !== id));
+    setBatchStatus((m) => {
+      const { [id]: _gone, ...rest } = m;
+      return rest;
+    });
+    addToast({ type: 'warning', title: 'Pay run discarded', message: `${run.batchNo} removed. Calculate it again with the corrected weights.` });
     return true;
   };
 
@@ -1449,6 +1507,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cancelLeaveRequest,
         createLeaveRequest,
         createPayRun,
+        discardPayRun,
+        weighLog,
+        setWeight,
         convertContractType,
         signoffClearanceDept,
 

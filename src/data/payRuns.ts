@@ -1,6 +1,7 @@
 import type { HREmployee, PayrollBatch } from '../types';
 import { computeStatutory } from '../utils/statutory';
 import type { TaxProfile } from '../utils/tax';
+import type { CasualTerms } from './casualPayroll';
 
 /**
  * Pay runs for daily-rated (casual) workers over one day, one week or any date range. They sit beside the
@@ -8,10 +9,10 @@ import type { TaxProfile } from '../utils/tax';
  * on the monthly calendar. Seeded weekly runs and runs created in Pay runs both come from payRunRows.
  */
 
-export type PayRunKind = 'DAILY' | 'WEEKLY' | 'CUSTOM';
+export type PayRunKind = 'DAILY' | 'WEEKLY' | 'CUSTOM' | 'CASUAL';
 
-export const PAY_RUN_LABEL: Record<PayRunKind, string> = { DAILY: 'Daily payroll', WEEKLY: 'Weekly payroll', CUSTOM: 'Custom date payroll' };
-export const PAY_RUN_PIPELINE: Record<PayRunKind, PayrollBatch['pipeline']> = { DAILY: 'Daily Payroll', WEEKLY: 'Weekly Payroll', CUSTOM: 'Custom Payroll' };
+export const PAY_RUN_LABEL: Record<PayRunKind, string> = { DAILY: 'Daily payroll', WEEKLY: 'Weekly payroll', CUSTOM: 'Custom date payroll', CASUAL: 'Casual payroll (per kg)' };
+export const PAY_RUN_PIPELINE: Record<PayRunKind, PayrollBatch['pipeline']> = { DAILY: 'Daily Payroll', WEEKLY: 'Weekly Payroll', CUSTOM: 'Custom Payroll', CASUAL: 'Casual Payroll' };
 /** Longest custom run; anything longer belongs to the monthly payroll */
 export const MAX_CUSTOM_DAYS = 31;
 
@@ -60,6 +61,8 @@ export interface PayRunRequest {
   payDate: string;
   /** "All sites" or one site label */
   branch: string;
+  /** Casual (per-kg) runs only */
+  terms?: CasualTerms;
 }
 
 export const payRunWindowError = ({ kind, from, to }: Pick<PayRunRequest, 'kind' | 'from' | 'to'>): string | null => {
@@ -68,7 +71,7 @@ export const payRunWindowError = ({ kind, from, to }: Pick<PayRunRequest, 'kind'
   const n = windowDays(from, to);
   if (kind === 'DAILY' && n !== 1) return 'A daily run covers one day: the end date must equal the start date.';
   if (kind === 'WEEKLY' && n !== 7) return 'A weekly run covers seven days.';
-  if (kind === 'CUSTOM' && n > MAX_CUSTOM_DAYS) return `A custom run covers at most ${MAX_CUSTOM_DAYS} days. Use the monthly payroll for longer periods.`;
+  if ((kind === 'CUSTOM' || kind === 'CASUAL') && n > MAX_CUSTOM_DAYS) return `A custom run covers at most ${MAX_CUSTOM_DAYS} days. Use the monthly payroll for longer periods.`;
   return null;
 };
 
@@ -113,11 +116,13 @@ export const payRunRows = (list: HREmployee[], orgId: string, from: string, to: 
 };
 
 /** A run already covering any of the same days at the same site (or across all sites): those days would be paid twice */
-export const payRunClash = (batches: PayrollBatch[], orgId: string, req: Pick<PayRunRequest, 'from' | 'to' | 'branch'>) =>
+export const payRunClash = (batches: PayrollBatch[], orgId: string, req: Pick<PayRunRequest, 'kind' | 'from' | 'to' | 'branch'>) =>
   batches.find(
     (b) =>
       b.orgId === orgId &&
       b.pipeline !== 'Monthly Payroll' &&
+      // Per-kg pluckers are paid in their own runs, so they never clash with day-rated runs
+      (b.pipeline === 'Casual Payroll') === (req.kind === 'CASUAL') &&
       !!b.periodFrom &&
       !!b.periodTo &&
       b.periodFrom <= req.to &&
@@ -158,6 +163,7 @@ export const payRunBatch = (
     runDate: req.to,
     periodFrom: req.from,
     periodTo: req.to,
-    payDate: req.payDate
+    payDate: req.payDate,
+    casualTerms: req.kind === 'CASUAL' ? req.terms : undefined
   };
 };
