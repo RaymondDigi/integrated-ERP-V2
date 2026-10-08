@@ -27,14 +27,20 @@ export const CustomerDrawer: React.FC<{ customerId: string; onClose: () => void 
   const setAddr = (kind: 'billTos' | 'shipTos', i: number, patch: Partial<Address>) => set({ [kind]: p[kind].map((a, j) => (j === i ? { ...a, ...patch } : a)) } as Partial<CustomerProfile>);
   const setContact = (i: number, patch: Partial<Contact>) => set({ contacts: p.contacts.map((a, j) => (j === i ? { ...a, ...patch } : a)) });
   const rating = deliveryRating(state, customerId);
+  // Group follow-up: a parent company sees its subsidiaries' interactions too.
+  const family = new Set([customerId, ...state.profiles.filter((x) => x.parentCustomerId === customerId).map((x) => x.customerId)]);
+  const who = (id: string) => (id === customerId ? '' : ` (${party(id)?.name})`);
   const nps = npsOf(state.surveys.filter((s) => s.customerId === customerId).map((s) => s.nps));
   const timeline = [
-    ...state.quotations.filter((q) => q.customerId === customerId).map((q) => ({ at: q.date, kind: 'Quotation', text: `${q.number} · ${q.status.toLowerCase()}` })),
-    ...state.orders.filter((o) => o.customerId === customerId).map((o) => ({ at: o.date, kind: 'Order', text: `${o.number} · ${o.customerRef}` })),
+    ...state.quotations.filter((q) => family.has(q.customerId)).map((q) => ({ at: q.date, kind: 'Quotation', text: `${q.number} · ${q.status.toLowerCase()}${who(q.customerId)}` })),
+    ...state.orders.filter((o) => family.has(o.customerId)).map((o) => ({ at: o.date, kind: 'Order', text: `${o.number} · ${o.customerRef}${who(o.customerId)}` })),
     ...state.deliveries.filter((d) => state.orders.find((o) => o.id === d.orderId)?.customerId === customerId).map((d) => ({ at: d.date, kind: 'Delivery', text: `${d.number}${d.rating ? ` · rated ${d.rating}/5` : ''}` })),
     ...finance.state.documents.filter((d) => d.kind === 'INVOICE' && d.partyId === customerId).map((d) => ({ at: d.date, kind: 'Invoice', text: `${d.number} · ${d.status.toLowerCase()}` })),
-    ...state.feedback.filter((f) => f.customerId === customerId).map((f) => ({ at: f.at.slice(0, 10), kind: 'Feedback', text: `${f.number} · ${f.subject}` })),
-    ...state.activities.filter((a) => a.customerId === customerId || state.opportunities.find((o) => o.id === a.opportunityId)?.customerId === customerId).map((a) => ({ at: a.due, kind: 'Activity', text: a.subject })),
+    ...state.feedback.filter((f) => family.has(f.customerId)).map((f) => ({ at: f.at.slice(0, 10), kind: 'Feedback', text: `${f.number} · ${f.subject}${who(f.customerId)}` })),
+    ...state.activities
+      .filter((a) => family.has(a.customerId ?? '') || family.has(state.opportunities.find((o) => o.id === a.opportunityId)?.customerId ?? ''))
+      .map((a) => ({ at: a.due, kind: a.done ? 'Activity (done)' : 'Activity', text: `${a.subject}${a.visitScore ? ` · visit ${a.visitScore}/5` : ''}` })),
+    ...state.portalEvents.filter((e) => family.has(e.customerId)).slice(0, 10).map((e) => ({ at: e.at.slice(0, 10), kind: 'Portal', text: `${e.kind.toLowerCase().replace('_', ' ')}${e.ref ? ` · ${e.ref}` : ''}` })),
     ...state.contracts.filter((x) => x.customerId === customerId).map((x) => ({ at: x.start, kind: 'Contract', text: `${x.number} · ${x.status.toLowerCase()}` })),
     ...state.rmas.filter((x) => x.customerId === customerId).map((x) => ({ at: x.history[0]?.at.slice(0, 10) ?? '', kind: 'Return', text: x.number }))
   ].sort((a, b) => b.at.localeCompare(a.at));

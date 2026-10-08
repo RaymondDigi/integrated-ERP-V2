@@ -1511,7 +1511,15 @@ export const makeTradeActions = (k: StoreKit) => {
     const customerId = s.portalCustomerId;
     if (!w.customerRef.trim()) return fail('Enter your order reference');
     if (s.orders.some((o) => o.customerId === customerId && o.status !== 'VOID' && o.customerRef.trim().toLowerCase() === w.customerRef.trim().toLowerCase())) return fail(`You already used reference ${w.customerRef}`);
-    const lines = w.lines.filter((l) => l.sku && l.qty > 0).map((l) => pricedLine(s, { ...l, id: uid('ol') }, { customerId, date: TODAY, shipDate: w.requiredBy }));
+    // Catalogue items are priced by the engine; configured blends at the configurator's price (never the browser's).
+    const lines = w.lines
+      .filter((l) => (l.sku || l.configId) && l.qty > 0)
+      .map((l) => {
+        const blend = l.configId ? s.blends.find((b) => b.id === l.configId && (!b.customerId || b.customerId === customerId)) : undefined;
+        if (l.configId) return blend ? { ...l, id: uid('ol'), sku: '', price: blend.unitPrice, discountPct: 0, ruleLabel: `Configured blend ${blend.number}` } : null;
+        return pricedLine(s, { ...l, id: uid('ol') }, { customerId, date: TODAY, shipDate: w.requiredBy });
+      })
+      .filter((l): l is Line => !!l);
     if (!lines.length) return fail('Add at least one product to the basket');
     if (w.segment === 'B2C' && !w.oneTimeShipTo?.trim()) return fail('Enter the delivery address');
     const prof = profileOf(s, customerId);

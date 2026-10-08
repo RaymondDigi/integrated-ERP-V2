@@ -7,6 +7,7 @@ import type { Line } from '../types';
 import type { Feedback } from '../tradeTypes';
 import { Chips, Field, Panel, Pill, SuitePage } from '../../ui/kit';
 import { highestBid, profileOf, resolvePrice } from '../tradeEngine';
+import { suggestFor } from '../parts';
 
 type Tab = 'SHOP' | 'BASKET' | 'ORDERS' | 'BIDS' | 'FEEDBACK' | 'APPLY';
 
@@ -54,7 +55,7 @@ export const PortalPage: React.FC = () => {
           ]}
         />
       </div>
-      {tab === 'SHOP' && <Shop me={me} onAdd={(l) => setBasket([...basket.filter((x) => x.sku !== l.sku), l])} />}
+      {tab === 'SHOP' && <Shop me={me} onAdd={(l) => setBasket([...basket.filter((x) => x.id !== l.id), l])} />}
       {tab === 'BASKET' && <Basket me={me} basket={basket} setBasket={setBasket} onDone={() => (setBasket([]), setTab('ORDERS'))} />}
       {tab === 'ORDERS' && <MyOrders me={me} />}
       {tab === 'BIDS' && <Bids me={me} />}
@@ -67,8 +68,44 @@ export const PortalPage: React.FC = () => {
 const Shop: React.FC<{ me: string; onAdd: (l: Line) => void }> = ({ me, onAdd }) => {
   const { state, portalTrack } = useCommercial();
   const [qty, setQty] = useState<Record<string, number>>({});
-  const items = state.products.filter((p) => p.kind === 'GOODS' && p.status !== 'INACTIVE' && p.status !== 'PROVISIONAL' && p.price > 0);
+  const [grade, setGrade] = useState('');
+  const all = state.products.filter((p) => p.kind === 'GOODS' && p.status !== 'INACTIVE' && p.status !== 'PROVISIONAL' && p.price > 0);
+  const grades = [...new Set(all.map((p) => p.attributes?.grade).filter(Boolean))] as string[];
+  const items = all.filter((p) => !grade || p.attributes?.grade === grade);
+  const blends = state.blends.filter((b) => !b.customerId || b.customerId === me);
   return (
+    <>
+    <div className="tr-row" style={{ marginBottom: 10 }}>
+      <span className="sx-muted">Filter by grade</span>
+      <select className="form-control" aria-label="Grade filter" value={grade} onChange={(e) => setGrade(e.target.value)} style={{ maxWidth: 160 }}>
+        <option value="">All grades</option>
+        {grades.map((g) => (
+          <option key={g}>{g}</option>
+        ))}
+      </select>
+    </div>
+    {blends.length > 0 && (
+      <Panel title="Your configured blends" subtitle="Blends built for you in the configurator, priced and scheduled for production">
+        <div className="tr-cards">
+          {blends.map((b) => (
+            <div className="tr-card" key={b.id}>
+              <div className="tr-img">{b.attributes.grade} · {b.attributes.flavour}</div>
+              <h4>{b.name}</h4>
+              <small>
+                {b.number} · {b.attributes.packSize} · {b.components.map((c) => `${c.pct}% ${c.origin} ${c.grade}`).join(', ')}
+              </small>
+              <b>{kes(b.unitPrice)}</b>
+              <div className="tr-row">
+                <input className="form-control" type="number" min="1" aria-label={`Quantity ${b.name}`} value={qty[b.id] ?? b.batchSize} onChange={(e) => setQty({ ...qty, [b.id]: Number(e.target.value) })} />
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => onAdd({ id: `cfg-${b.id}`, sku: '', configId: b.id, description: `${b.number} ${b.name}`, qty: qty[b.id] ?? b.batchSize, price: b.unitPrice, discountPct: 0 })}>
+                  <ShoppingCart size={13} /> Add
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+    )}
     <div className="tr-cards">
       {items.map((p) => {
         const r = me ? resolvePrice(state, { customerId: me, sku: p.sku, qty: qty[p.sku] || 1, date: TODAY }) : null;
@@ -80,6 +117,8 @@ const Shop: React.FC<{ me: string; onAdd: (l: Line) => void }> = ({ me, onAdd })
             <h4>{p.name}</h4>
             <small>
               {p.sku} · {p.unit}
+              {p.attributes?.garden ? ` · ${p.attributes.garden}` : ''}
+              {p.attributes?.packSize ? ` · ${p.attributes.packSize}` : ''}
             </small>
             <b>{kes(r?.net ?? p.price)}</b>
             {r && r.net < p.price && <small>Your price ({r.ruleLabel}) — list {kes(p.price)}</small>}
@@ -96,6 +135,7 @@ const Shop: React.FC<{ me: string; onAdd: (l: Line) => void }> = ({ me, onAdd })
         );
       })}
     </div>
+    </>
   );
 };
 
@@ -104,21 +144,37 @@ const Basket: React.FC<{ me: string; basket: Line[]; setBasket: (l: Line[]) => v
   const prof = profileOf(state, me);
   const [w, setW] = useState({ segment: 'B2B' as 'B2B' | 'B2C', shipToId: prof.shipTos[0]?.id ?? '', oneTimeShipTo: '', customerRef: '', requiredBy: addDays(TODAY, 5), buyerName: '' });
   const t = totals(basket, state.products, party(me));
+  const ideas = suggestFor(basket, state.products);
   return (
     <Panel title="Checkout" subtitle="Business customers order on account; consumers pay online before dispatch">
       <ul className="sx-list">
         {basket.map((l) => (
-          <li key={l.sku}>
+          <li key={l.id}>
             <span>{l.description}</span>
             <span>
               {l.qty} × {kes(l.price)}
             </span>
-            <button type="button" className="sx-icon-btn" aria-label="Remove" onClick={() => setBasket(basket.filter((x) => x.sku !== l.sku))}>
+            <button type="button" className="sx-icon-btn" aria-label="Remove" onClick={() => setBasket(basket.filter((x) => x.id !== l.id))}>
               <Trash2 size={13} />
             </button>
           </li>
         ))}
       </ul>
+      {ideas.length > 0 && (
+        <div className="tr-suggest">
+          <div>
+            <b>You may also like</b>
+            {ideas.map((s) => (
+              <span key={s.key}>
+                {s.text}{' '}
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setBasket([...basket, { id: s.sku, sku: s.sku, description: s.name, qty: s.qty, price: s.price, discountPct: 0 }])}>
+                  Add {s.name}
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="sx-grid">
         <Field label="Buying as">
           <select className="form-control" value={w.segment} onChange={(e) => setW({ ...w, segment: e.target.value as 'B2B' | 'B2C' })}>
@@ -156,7 +212,10 @@ const Basket: React.FC<{ me: string; basket: Line[]; setBasket: (l: Line[]) => v
       </div>
       <div className="tr-row">
         <span className="sx-grow" />
-        <b>Total {kes(t.total)} (shipping added at checkout)</b>
+        <span className="sx-muted">
+          Net {kes(t.net)} · VAT {kes(t.vat)}
+        </span>
+        <b>Total {kes(t.total)} (shipping and handling added when the order is placed)</b>
         <button
           type="button"
           className="btn btn-primary btn-sm"
@@ -217,11 +276,27 @@ const MyOrders: React.FC<{ me: string }> = ({ me }) => {
 };
 
 const Bids: React.FC<{ me: string }> = ({ me }) => {
-  const { state, placeBid } = useCommercial();
+  const { state, placeBid, exposure } = useCommercial();
   const [price, setPrice] = useState<Record<string, number>>({});
   const open = state.auctions.filter((a) => a.status === 'OPEN');
+  const exp = exposure(me);
+  const leading = open.flatMap((a) => a.lots.filter((l) => l.status === 'OPEN' && highestBid(l)?.customerId === me).map((l) => highestBid(l)!.price * l.netKg * a.fxRate * 1.16)).reduce((x, v) => x + v, 0);
   return (
     <Panel title="Bid at this week's sale" subtitle="Bids count against your credit limit">
+      <div className="sx-amount-hero">
+        <div>
+          <span>Credit limit</span>
+          <strong>{exp.limit ? kes(exp.limit, { compact: true }) : 'Cash only'}</strong>
+        </div>
+        <div>
+          <span>Used (invoices + open orders)</span>
+          <b>{kes(exp.total, { compact: true })}</b>
+        </div>
+        <div>
+          <span>Available to bid</span>
+          <b>{exp.limit ? kes(Math.max(0, exp.headroom - leading), { compact: true }) : '—'}</b>
+        </div>
+      </div>
       {open.map((a) => (
         <div key={a.id}>
           <h4 className="sx-subhead">
@@ -239,6 +314,7 @@ const Bids: React.FC<{ me: string }> = ({ me }) => {
                       {l.garden} {l.grade} · {l.netKg} kg
                     </span>
                     <span>{top ? `Top USD ${top.price.toFixed(2)}${top.customerId === me ? ' (you)' : ''}` : `Valuation USD ${l.valuation.toFixed(2)}`}</span>
+                    <span className="sx-muted">{l.packages} pkgs available{l.tastingScore ? ` · tasting ${l.tastingScore}/10` : ''}</span>
                     <input className="form-control" style={{ maxWidth: 110 }} type="number" step="0.01" aria-label={`Bid on lot ${l.lotNo}`} value={price[l.lotNo] ?? ''} onChange={(e) => setPrice({ ...price, [l.lotNo]: Number(e.target.value) })} />
                     <button type="button" className="btn btn-primary btn-sm" onClick={() => placeBid(a.id, l.lotNo, me, price[l.lotNo] ?? 0, true)}>
                       <Gavel size={13} /> Bid

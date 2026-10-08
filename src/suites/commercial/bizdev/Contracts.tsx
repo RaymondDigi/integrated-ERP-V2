@@ -116,6 +116,9 @@ const ContractDrawer: React.FC<{ c: Contract; onClose: () => void }> = ({ c, onC
           ['Signatures', c.signatures.map((s) => `${s.party === 'COMPANY' ? 'Company' : 'Customer'}: ${s.text}`).join(' · ') || '—']
         ]}
       />
+      {(c.status === 'SENT' || c.status === 'SIGNED') && (
+        <div className="tr-sim">E-signing is simulated: signatures are captured in-app with the signer's PIN and time-stamped in the audit trail. A qualified signing provider (e.g. DocuSign) is not connected.</div>
+      )}
       <h4 className="sx-subhead">Steps</h4>
       <ul className="tr-steps">
         {c.steps.map((s, i) => (

@@ -77,6 +77,9 @@ export const PricingPage: React.FC = () => {
         <Stat label="Expiring in 30 days" value={lists.filter((x) => x.status === 'ACTIVE' && x.validTo <= addDays(TODAY, 30)).length} icon={<Tags size={17} />} tone="red" />
         <Stat label="Policy" value={state.pricing.lowestPrice ? 'Lowest price' : 'Most specific'} detail="Customer › contract › group › promotion › external" icon={<Calculator size={17} />} tone="blue" />
       </div>
+      <div className="tr-sim">
+        External price feeds (EATTA auction averages, broker reference prices) are simulated: use “Import reference prices” with a CSV export (sku, price). Closing an auction sale also publishes its averages as an external reference list.
+      </div>
       <Panel title="Precedence" subtitle="How the engine chooses when several lists apply">
         <label className="sx-check">
           <input type="checkbox" checked={state.pricing.lowestPrice} onChange={(e) => setLowestPrice(e.target.checked)} disabled={actor.role !== 'MANAGER' && actor.role !== 'DIRECTOR'} /> Give the customer the lowest of all applicable prices (otherwise the most specific list wins)
