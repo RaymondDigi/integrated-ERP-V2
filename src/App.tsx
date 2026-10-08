@@ -68,7 +68,12 @@ import { LoginView } from './views/auth/LoginView';
 import { setDirectory, useSession } from './auth/session';
 
 export const App: React.FC = () => {
-  const { currentView, moduleTabs, hrEmployees } = useApp();
+  const { currentView, setCurrentView, moduleTabs, hrEmployees, setIsLauncherOpen } = useApp();
+  // Development-only hook so the end-to-end checks in scripts/e2e can open any screen directly
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    (window as unknown as { __erp?: unknown }).__erp = { open: (v: typeof currentView) => (setIsLauncherOpen(false), setCurrentView(v)) };
+  }, [setCurrentView, setIsLauncherOpen]);
   // Every screen and module tab opens at the top
   const tabKey = moduleTabs[currentView] ?? '';
   useLayoutEffect(() => {

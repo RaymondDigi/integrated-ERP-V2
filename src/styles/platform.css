@@ -1,0 +1,25 @@
+/* Shared platform widgets: attachments, notifications, signatures, imports */
+.pf-attach { border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+.pf-attach-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pf-attach-head strong { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.pf-attach-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.pf-attach-list li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; }
+.pf-attach-list a { display: inline-flex; gap: 5px; align-items: center; color: var(--brand-primary); font-weight: 600; text-decoration: none; }
+.pf-attach-list small { color: var(--text-secondary); flex: 1; }
+.pf-muted { color: var(--text-secondary); font-size: 12.5px; margin: 6px 0; }
+.pf-error { color: var(--status-critical, #c9573f); font-size: 12.5px; margin: 6px 0; }
+.pf-ok { color: var(--status-success, #2f8a5b); font-size: 12.5px; margin: 6px 0; }
+.pf-errlist { font-size: 12px; color: var(--text-secondary); max-height: 260px; overflow: auto; }
+.pf-signature { font-family: 'Brush Script MT', 'Segoe Script', cursive; font-size: 28px; margin: 12px 0 0; color: var(--brand-primary); }
+.pf-bell { position: relative; }
+.pf-bell-badge { position: absolute; top: -3px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #c9573f; color: #fff; font: 700 10px/16px system-ui; font-style: normal; text-align: center; }
+.pf-notice-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.pf-notice { border: 1px solid var(--border-subtle); border-left: 3px solid var(--border-subtle); border-radius: 8px; padding: 8px 10px; cursor: default; }
+.pf-notice.unread { background: var(--brand-subtle); cursor: pointer; }
+.pf-notice.warning { border-left-color: #d1a54a; }
+.pf-notice.critical { border-left-color: #c9573f; }
+.pf-notice strong { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.pf-notice small { color: var(--text-secondary); font-size: 11.5px; }
+.pf-notice p { margin: 4px 0 0; font-size: 12.5px; }
+.pf-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.pf-readonly { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--bg-surface-elevated); color: var(--text-secondary); border: 1px solid var(--border-subtle); }

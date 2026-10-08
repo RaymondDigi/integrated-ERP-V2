@@ -19,6 +19,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { HR_PROCESS_APPS } from '../../data/hrMockData';
 import { BrandLogo } from './BrandLogo';
+import { NotificationBell } from '../../platform/NotificationCentre';
 import { ROLE_LABEL, signOut, useSession } from '../../auth/session';
 import { FinanceCrumb } from '../../suites/finance/FinanceSuite';
 import { TradingCrumb } from '../../suites/commercial/trading/TradingSuite';
@@ -267,6 +268,8 @@ export const Header: React.FC = () => {
         >
           <Sparkles size={16} color="var(--brand-primary)" />
         </button>
+
+        <NotificationBell />
 
         {/* Theme Toggle (Light / Dark) */}
         <button
