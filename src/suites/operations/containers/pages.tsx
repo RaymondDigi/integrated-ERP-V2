@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Send, CheckCircle2, Ship, Container as Box, AlertTriangle, Mail, Trash2, Clock } from 'lucide-react';
-import { ExportCsvButton, PrintButton, esc } from '../../../platform/Widgets';
+import { Attachments, ExportCsvButton, PrintButton, esc } from '../../../platform/Widgets';
+import { useFleetExt } from '../fleet/store';
 import { useOperations } from '../store';
 import { addDays, fmtDate, TODAY } from '../../finance/engine';
 import { Chips, DataTable, DefList, Drawer, Field, Modal, Panel, Pill, Stat, SuitePage, Timeline } from '../../ui/kit';
@@ -182,6 +183,7 @@ const BookingDrawer: React.FC<{ b: ContainerBooking; onClose: () => void }> = ({
         </>
       )}
       {released.length > 0 && <p className="sx-muted">Containers: {released.map((x) => `${x.number} (${STATUS_LABEL[x.status].toLowerCase()})`).join(', ')}</p>}
+      <Attachments owner={`container-booking:${b.number}`} by={cx.actor.name} readOnly={!cx.canWrite} title="Line confirmation, release order and agent documents" />
       <h4 className="sx-subhead">History</h4>
       <Timeline items={b.history} />
     </Drawer>
@@ -342,6 +344,7 @@ const ContainerDrawer: React.FC<{ c: Container; onClose: () => void }> = ({ c, o
           </div>
         </>
       )}
+      <Attachments owner={`container:${c.number}`} by={cx.actor.name} readOnly={!cx.canWrite} title="EIR, seal and terminal documents" />
       <h4 className="sx-subhead">Movements</h4>
       <Timeline items={[...c.events].reverse().map((e) => ({ at: e.at, by: e.by, action: `${STATUS_LABEL[e.status]} — ${e.location}`, note: e.note }))} />
     </Drawer>
@@ -354,7 +357,10 @@ const ContainerDrawer: React.FC<{ c: Container; onClose: () => void }> = ({ c, o
 
 export const ContainerReportsPage: React.FC = () => {
   const cx = useContainers();
-  const [tab, setTab] = useState<'ageing' | 'stuffing' | 'preadvice' | 'status'>('ageing');
+  const fx = useFleetExt();
+  const [tab, setTab] = useState<'ageing' | 'stuffing' | 'preadvice' | 'trucks' | 'status' | 'rolled'>('ageing');
+  const trucks = fx.state.instructions.filter((i) => i.status !== 'DELIVERED');
+  const rolled = cx.state.containers.filter((c) => c.events.some((e) => e.status === 'ROLLED_OVER'));
   const [from, setFrom] = useState(addDays(TODAY, -30));
   const [to, setTo] = useState(TODAY);
   const ageing = containerAgeing(cx.state.containers);
@@ -371,7 +377,9 @@ export const ContainerReportsPage: React.FC = () => {
             { value: 'ageing', label: 'Ageing', count: ageing.length },
             { value: 'stuffing', label: 'Stuffing', count: stuffed.length },
             { value: 'preadvice', label: 'Pre-advice', count: pre.length },
-            { value: 'status', label: 'Status', count: status.length }
+            { value: 'trucks', label: 'Ready trucks', count: trucks.length },
+            { value: 'status', label: 'Status', count: status.length },
+            { value: 'rolled', label: 'Rolled over', count: rolled.length }
           ]}
         />
       </div>
@@ -392,6 +400,16 @@ export const ContainerReportsPage: React.FC = () => {
       {tab === 'preadvice' && (
         <Panel title="Terminal pre-advice" subtitle="Stuffed containers due at the port in the next 7 days" action={<ExportCsvButton name="pre-advice" header={['Container', 'Type', 'Seal', 'Vessel', 'Cut-off', 'Gross kg']} rows={() => pre.map((c) => [c.number, c.type, c.sealNo, c.vessel, c.cutOff, stuffedKg(c)])} />}>
           <DataTable rows={pre} rowKey={(c) => c.id} empty="Nothing due at the port this week" columns={[{ key: 'n', header: 'Container', render: (c) => c.number }, { key: 'v', header: 'Vessel', render: (c) => c.vessel ?? '' }, { key: 'c', header: 'Cut-off', render: (c) => c.cutOff?.replace('T', ' ') ?? '' }, { key: 'k', header: 'kg', render: (c) => stuffedKg(c).toLocaleString(), align: 'right' }]} />
+        </Panel>
+      )}
+      {tab === 'trucks' && (
+        <Panel title="Ready truck list" subtitle="Trucks with a loading instruction, waiting to load or on the way to the port" action={<ExportCsvButton name="ready-trucks" header={['Instruction', 'Truck', 'Driver', 'Lots', 'kg', 'Status']} rows={() => trucks.map((t) => [t.number, fx.reg(t.vehicleId), t.driver, t.teas.length, t.teas.reduce((x, y) => x + y.kg, 0), t.status])} />}>
+          <DataTable rows={trucks} rowKey={(t) => t.id} empty="No trucks waiting" columns={[{ key: 'n', header: 'Instruction', render: (t) => t.number }, { key: 'v', header: 'Truck', render: (t) => fx.reg(t.vehicleId) }, { key: 'd', header: 'Driver', render: (t) => t.driver }, { key: 'k', header: 'kg', render: (t) => t.teas.reduce((x, y) => x + y.kg, 0).toLocaleString(), align: 'right' }, { key: 's', header: 'Status', render: (t) => (t.status === 'ISSUED' ? 'Ready to load' : 'Loaded, on the road') }]} />
+        </Panel>
+      )}
+      {tab === 'rolled' && (
+        <Panel title="Rolled-over containers" action={<ExportCsvButton name="rolled-over" header={['Container', 'Status', 'Vessel', 'Cut-off', 'Reason']} rows={() => rolled.map((c) => [c.number, STATUS_LABEL[c.status], c.vessel, c.cutOff, c.events.filter((e) => e.status === 'ROLLED_OVER').map((e) => e.note).join('; ')])} />}>
+          <DataTable rows={rolled} rowKey={(c) => c.id} empty="No roll-overs" columns={[{ key: 'n', header: 'Container', render: (c) => c.number }, { key: 'v', header: 'Now on', render: (c) => c.vessel ?? '' }, { key: 'c', header: 'Cut-off', render: (c) => c.cutOff?.replace('T', ' ') ?? '' }, { key: 'r', header: 'Reason', render: (c) => c.events.filter((e) => e.status === 'ROLLED_OVER').map((e) => e.note).join('; ') }]} />
         </Panel>
       )}
       {tab === 'status' && (
