@@ -1,4 +1,5 @@
 import type { HistoryEntry } from '../finance/types';
+import type { Charge, NoteEntry, PriceHistoryEntry, Release, TradeState } from './tradeTypes';
 
 export type ComRole = 'OFFICER' | 'STOREKEEPER' | 'MANAGER' | 'DIRECTOR';
 
@@ -25,6 +26,21 @@ export interface Product {
   /** Finance account the item is sold to (goods, services) or bought to (materials). */
   account: string;
   preferredSupplier?: string;
+  /** Barcode (UPC/EAN) of the selling unit, plus barcodes of other pack variants. */
+  upc?: string;
+  barcodes?: string[];
+  /** Provisional part numbers are created from quotes/orders and activated by a manager. */
+  status?: 'ACTIVE' | 'PROVISIONAL' | 'INACTIVE';
+  priceHistory?: PriceHistoryEntry[];
+  /** Alternative selling units, e.g. a kg price for a carton item. */
+  uomPrices?: { uom: string; factor: number; price: number }[];
+  substitutes?: string[];
+  complements?: { sku: string; script: string }[];
+  imageUrl?: string;
+  weightKg?: number;
+  /** Certificate needed to export it, e.g. an MRL certificate. */
+  requiresCert?: string;
+  attributes?: { grade?: string; garden?: string; origin?: string; season?: string; packSize?: string };
 }
 
 export interface Line {
@@ -34,6 +50,20 @@ export interface Line {
   qty: number;
   price: number;
   discountPct: number;
+  /** Price rule the pricing engine applied, and the net unit price it gave. */
+  ruleId?: string;
+  ruleLabel?: string;
+  rulePrice?: number;
+  uom?: string;
+  note?: string;
+  /** Quote lines can expire before the quotation. */
+  validUntil?: string;
+  customerCode?: string;
+  shipToId?: string;
+  termId?: string;
+  configId?: string;
+  directShip?: boolean;
+  requestedDate?: string;
 }
 
 export interface ComApproval {
@@ -58,18 +88,25 @@ export interface Quotation {
   date: string;
   validUntil: string;
   lines: Line[];
-  status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'LOST' | 'EXPIRED';
+  status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'LOST' | 'EXPIRED' | 'CANCELLED';
   preparedBy: string;
   history: HistoryEntry[];
   notes: string;
   lostReason?: string;
   orderId?: string;
   opportunityId?: string;
+  leadSource?: string;
+  orderClass?: string;
+  sourceCode?: string;
+  reasonCodeId?: string;
+  noteLog?: NoteEntry[];
+  copiedFrom?: string;
 }
 
 export interface OrderLine extends Line {
   delivered: number;
   invoiced: number;
+  releases?: Release[];
 }
 
 export interface SalesOrder extends Workflow {
@@ -85,6 +122,30 @@ export interface SalesOrder extends Workflow {
   invoices: { id?: string; number: string }[];
   closed?: boolean;
   notes: string;
+  leadSource?: string;
+  orderClass?: string;
+  sourceCode?: string;
+  incoterm?: string;
+  namedPlace?: string;
+  priority?: 1 | 2 | 3;
+  hold?: { reasonCodeId: string; note: string; by: string; at: string };
+  charges?: Charge[];
+  channel?: 'DIRECT' | 'WEB' | 'POS' | 'AUCTION';
+  segment?: 'B2B' | 'B2C';
+  paymentMode?: 'ACCOUNT' | 'CASH';
+  /** Walk-in buyer on a cash sale or a one-time customer. */
+  oneTimeName?: string;
+  orderFromId?: string;
+  billToId?: string;
+  shipToId?: string;
+  oneTimeBillTo?: string;
+  oneTimeShipTo?: string;
+  contactName?: string;
+  termId?: string;
+  revision?: number;
+  noteLog?: NoteEntry[];
+  copiedFrom?: string;
+  directShipPOs?: string[];
 }
 
 export interface Delivery {
@@ -92,13 +153,20 @@ export interface Delivery {
   number: string;
   orderId: string;
   date: string;
-  lines: { lineId: string; qty: number }[];
+  lines: { lineId: string; qty: number; warehouseId?: string }[];
   vehicle: string;
   driver: string;
   dispatchedBy: string;
   status: 'DISPATCHED' | 'DELIVERED';
   receivedBy?: string;
   deliveredAt?: string;
+  /** Quantities the customer signed for, when different from what was sent. */
+  received?: { lineId: string; qty: number; damaged: number }[];
+  /** Customer's service rating 1–5 captured with proof of delivery. */
+  rating?: number;
+  bol?: { carrier: string; seal: string; packages: number; grossKg: number };
+  /** Supplier delivered straight to the customer (direct ship). */
+  directShipPo?: string;
 }
 
 /* ---------------- Procurement ---------------- */
@@ -150,6 +218,10 @@ export interface PurchaseOrder extends Workflow {
   bills: { id?: string; number: string }[];
   closed?: boolean;
   notes: string;
+  /** Direct-ship purchase order raised from a sales order: the supplier delivers to the customer. */
+  salesOrderId?: string;
+  directShip?: boolean;
+  shipTo?: string;
 }
 
 export interface GoodsReceipt {
@@ -195,9 +267,13 @@ export interface Activity {
   done: boolean;
   owner: string;
   outcome?: string;
+  /** Customer-level activities (follow-ups, buyer visits) not tied to a deal. */
+  customerId?: string;
+  visitScore?: number;
+  visitReport?: string;
 }
 
-export interface CommercialState {
+export interface CommercialState extends TradeState {
   actor: ComActor;
   products: Product[];
   quotations: Quotation[];
