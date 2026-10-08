@@ -63,6 +63,10 @@ export interface Vacancy {
   criteria: Criterion[];
   panel: string[];
   hiringManagerStaffId?: string;
+  /** Aptitude or skills tests every candidate sits before interview */
+  tests?: { name: string; passMark: number }[];
+  /** Published on the public careers portal */
+  published?: boolean;
 }
 
 export type PipelineStage = 'Applied' | 'Screened' | 'Shortlisted' | 'Interview' | 'Assessment' | 'Offer' | 'Hired' | 'Rejected' | 'Withdrawn';
@@ -183,7 +187,19 @@ export interface HireTerms {
   taxEmployment: 'PRIMARY' | 'SECONDARY';
 }
 
-export type ChangeKind = 'CONFIRM_PROBATION' | 'EXTEND_PROBATION' | 'RENEW_CONTRACT' | 'CONVERT_CONTRACT' | 'TRANSFER' | 'PROMOTION' | 'INCREMENT' | 'REGRADE';
+export type ChangeKind =
+  | 'CONFIRM_PROBATION'
+  | 'EXTEND_PROBATION'
+  | 'RENEW_CONTRACT'
+  | 'CONVERT_CONTRACT'
+  | 'TRANSFER'
+  | 'PROMOTION'
+  | 'INCREMENT'
+  | 'REGRADE'
+  | 'DEMOTION'
+  | 'REASSIGNMENT'
+  | 'ACTING'
+  | 'REHIRE';
 
 export const CHANGE_LABEL: Record<ChangeKind, string> = {
   CONFIRM_PROBATION: 'Confirm probation',
@@ -193,7 +209,11 @@ export const CHANGE_LABEL: Record<ChangeKind, string> = {
   TRANSFER: 'Transfer',
   PROMOTION: 'Promotion',
   INCREMENT: 'Salary increment',
-  REGRADE: 'Regrade'
+  REGRADE: 'Regrade',
+  DEMOTION: 'Demotion',
+  REASSIGNMENT: 'Duty reassignment',
+  ACTING: 'Acting appointment',
+  REHIRE: 'Re-hire'
 };
 
 export interface EmployeeChange {
@@ -217,6 +237,17 @@ export interface EmployeeChange {
     contractType?: string;
     contractEndDate?: string;
     probationEndDate?: string;
+    /** Duty reassignment: the new duties */
+    duties?: string;
+    /** Demotion: the disciplinary or performance case behind it */
+    caseRef?: string;
+    /** Acting appointment: role, whom they act for, last day and monthly allowance */
+    actingTitle?: string;
+    actingForStaffId?: string;
+    actingTo?: string;
+    allowance?: number;
+    /** Re-hire: start date of the new engagement */
+    startDate?: string;
   };
   requestedBy: string;
   requestedOn: string;

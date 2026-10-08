@@ -1,6 +1,7 @@
 import { demoPersonalEmail } from '../utils/emailRouting';
 import type { HREmployee } from '../types';
 import { INITIAL_HR_EMPLOYEES } from './hrMockData';
+import { SEED_DOB_OFFSETS } from './hcmConfig';
 
 /**
  * The whole workforce for every company in the group.
@@ -280,4 +281,12 @@ export const WORKFORCE: HREmployee[] = uniqueEmails(
   buildWorkforce()
     .map((e) => (HIRE_FIELDS[e.staffId] ? { ...e, ...HIRE_FIELDS[e.staffId] } : e))
     .map((e) => (e.staffId === 'KHE-0102' ? { ...e, ...PORTAL_USER } : e))
+    .map((e) => {
+      // Long-serving staff get a date of birth so retirement tracking has live cases
+      const o = SEED_DOB_OFFSETS[e.staffId];
+      if (e.dateOfBirth || !o) return e;
+      const t = new Date();
+      const d = new Date(t.getFullYear() - o.years, t.getMonth(), t.getDate() + o.days);
+      return { ...e, dateOfBirth: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, retirementAge: e.retirementAge ?? 60 };
+    })
 );

@@ -3,6 +3,7 @@ import type { EssRequest } from '../context/essState';
 import { REQUEST_APPROVERS } from '../context/essState';
 import type { ExitCase } from './sepEngine';
 import { hrApproverFor } from './leaveConfig';
+import { hrAlerts } from './hcmEngine';
 import { MONTHS, PAY_DAY, latestPaidMonth, periodKey } from './payrollEngine';
 import { CHANNEL_FOR, addressFor, type MailCategory, type MailChannel } from '../utils/emailRouting';
 
@@ -42,6 +43,9 @@ export const buildOutbox = ({ hrEmployees, leaveRequests, essRequests, exitCases
   const byId = new Map(hrEmployees.map((e) => [e.staffId, e]));
   const byName = new Map(hrEmployees.map((e) => [e.fullName, e]));
   const out: OutboxMessage[] = [];
+  // Final dues go to the finance head of the leaver's company (any company's if it has none)
+  const isFinanceHead = (x: HREmployee) => x.status !== 'TERMINATED' && /finance (manager|director)|chief finance/i.test(x.jobTitle);
+  const financeApprover = (orgId?: string) => hrEmployees.find((x) => isFinanceHead(x) && x.orgId === orgId) ?? hrEmployees.find(isFinanceHead);
   const send = (e: HREmployee | undefined, category: MailCategory, on: string | undefined, subject: string, ref: string, channel: MailChannel = CHANNEL_FOR[category]) => {
     if (!e || !on) return;
     const a = addressFor(e, channel);
@@ -79,7 +83,7 @@ export const buildOutbox = ({ hrEmployees, leaveRequests, essRequests, exitCases
       continue;
     }
     send(e, 'Exit & final dues', c.raisedOn, `Exit confirmed — last working day ${c.lastDay}`, c.id);
-    if (c.dues && !c.dues.approvedBy) send(byName.get('David Otieno'), 'Approval request', c.dues.preparedOn, `Approve final dues for ${e?.fullName ?? c.staffId}`, c.id);
+    if (c.dues && !c.dues.approvedBy) send(financeApprover(e?.orgId), 'Approval request', c.dues.preparedOn, `Approve final dues for ${e?.fullName ?? c.staffId}`, c.id);
     if (c.dues?.approvedOn) send(e, 'Exit & final dues', c.dues.approvedOn, `Final dues approved${c.dues.net ? ` — net KES ${Math.round(c.dues.net).toLocaleString()}` : ''}`, c.id);
     if (c.certificateIssuedOn) send(e, 'Exit & final dues', c.certificateIssuedOn, 'Certificate of service issued', c.id);
   }
@@ -96,6 +100,15 @@ export const buildOutbox = ({ hrEmployees, leaveRequests, essRequests, exitCases
     for (const e of hrEmployees)
       if (e.joinedDate <= payDate && !(e.exitDate && e.exitDate < start) && e.status !== 'SUSPENDED')
         send(e, 'Payslip', payDate, `Your ${fmtPeriod(key)} payslip is ready`, `PAY-${key}`);
+  }
+
+  /* Contract end and retirement: each notice bucket once, to the employee and to HR */
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  for (const a of hrAlerts(hrEmployees, todayIso, 183).filter((x) => x.kind === 'CONTRACT' || x.kind === 'RETIREMENT')) {
+    const e = byId.get(a.staffId);
+    const subject = a.kind === 'CONTRACT' ? `Contract ends ${a.date} (${a.bucket} notice)` : `Retirement on ${a.date} (${a.bucket} notice)`;
+    send(e, 'Contract & retirement', todayIso, subject, a.key);
+    send(e ? hrApproverFor(e.orgId, hrEmployees) : undefined, 'Contract & retirement', todayIso, `${a.name}: ${subject.toLowerCase()}`, a.key);
   }
 
   return out.sort((a, b) => b.on.localeCompare(a.on) || a.recipient.localeCompare(b.recipient));

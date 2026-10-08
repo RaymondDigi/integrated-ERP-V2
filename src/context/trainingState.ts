@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { useSession } from '../auth/session';
+import { canApprove } from '../platform/access';
 import type { HREmployee, LeaveRequest } from '../types';
 import { fmtDate, isoOf } from '../data/timeEngine';
 import {
@@ -80,6 +82,7 @@ let needSeq = 105;
 
 export const useTrainingState = ({ hrEmployees, leaveRequests, addToast }: Deps): TrainingStateSlice => {
   const trainingToday = isoOf(new Date());
+  const session = useSession();
   const [certRecords, setCertRecords] = useState<CertRecord[]>(() => seedCertRecords(WORKFORCE, SEED_SESSIONS));
   const [trainingNeeds, setNeeds] = useState<TrainingNeed[]>(SEED_NEEDS);
   const [trainingSessions, setSessions] = useState<TrainingSession[]>(SEED_SESSIONS);
@@ -151,7 +154,17 @@ export const useTrainingState = ({ hrEmployees, leaveRequests, addToast }: Deps)
   };
 
   const decideTrainingNeeds: TrainingStateSlice['decideTrainingNeeds'] = (ids, status) => {
-    setNeeds((prev) => prev.map((n) => (ids.includes(n.id) && n.status === 'Proposed' ? { ...n, status, decidedBy: HR_LEAD } : n)));
+    // Decided by the signed-in manager; others cannot approve the plan
+    if (!session || !canApprove(session.role)) {
+      addToast({ type: 'error', title: 'Approval needed', message: 'Only a manager or administrator can approve training needs.' });
+      return;
+    }
+    const own = trainingNeeds.filter((n) => ids.includes(n.id) && n.staffId === session.staffId);
+    if (own.length) {
+      addToast({ type: 'error', title: 'Segregation of duties', message: 'You cannot decide your own training need.' });
+      return;
+    }
+    setNeeds((prev) => prev.map((n) => (ids.includes(n.id) && n.status === 'Proposed' ? { ...n, status, decidedBy: session.name ?? HR_LEAD } : n)));
     addToast({ type: status === 'Approved' ? 'success' : 'info', title: status === 'Approved' ? `${ids.length} approved` : `${ids.length} rejected`, message: status === 'Approved' ? 'Approved needs are in the plan — enrol them on a session.' : 'Removed from the plan.' });
   };
 

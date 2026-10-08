@@ -6,6 +6,7 @@ import { computeStatutory, type StatutoryResult } from '../utils/statutory';
 import { PAYROLL_POLICY, ratesOn, type PayrollPolicy } from './statutoryRates';
 import { componentAt, PAY_COMPONENTS, type PayCalc, type PayComponentType } from './payComponents';
 import { evalFormula } from '../utils/formula';
+import { gradeRuleAt } from './salaryStructure';
 import { EMPLOYER_LOANS, LOAN_TYPE_LABEL, loanStartingBalance, SEED_LOANS, SEED_PAY_ITEMS, type PayItem, type StaffLoan } from './payItems';
 
 /**
@@ -37,13 +38,13 @@ export const departmentFor = (e: HREmployee, key: string) => {
   const hit = moves.filter((m) => m.effectiveFrom <= key).pop();
   return hit ? hit.department : moves.length ? moves[0].previous : e.department;
 };
-/** Paid overtime for operational staff below KES 120k basic, judged as at the pay month. */
-const operational = (e: HREmployee, year: number, month: number) => {
-  const basic = basicFor(e, year, month);
-  return ['Operations', 'Production & Quality Control', 'Engineering & Maintenance', 'General Services'].includes(departmentFor(e, periodKey(year, month))) && basic > 0 && basic < 120_000;
-};
 
-export const allowances = (basic: number) => ({ house: basic ? round500(basic * 0.15) : 0, transport: basic >= 100_000 ? 8_000 : basic > 0 ? 4_000 : 0 });
+export const allowances = (basic: number, rule?: { housePct: number; transportKes: number }) =>
+  rule
+    ? { house: basic ? round500((basic * rule.housePct) / 100) : 0, transport: basic > 0 ? rule.transportKes : 0 }
+    : { house: basic ? round500(basic * 0.15) : 0, transport: basic >= 100_000 ? 8_000 : basic > 0 ? 4_000 : 0 };
+/** Allowances from the company's salary structure for the employee's grade in that pay month. */
+const allowancesFor = (e: HREmployee, basic: number, key: string) => allowances(basic, gradeRuleAt(e.orgId, e.grade, basic, key));
 /** Basic salary for a month: the salary history entry in force, else the contract salary (92% before the 2026 review). */
 export const basicFor = (e: HREmployee, year: number, month = 11) => {
   const key = periodKey(year, month);
@@ -57,7 +58,6 @@ export const basicFor = (e: HREmployee, year: number, month = 11) => {
 
 /** Days a daily-rated worker was paid for in a month (attendance-based, 18–24). */
 export const daysWorked = (e: HREmployee, year: number, month: number) => 18 + ((hash(e.staffId) + year * 12 + month) % 7);
-const overtimeHours = (e: HREmployee, year: number, month: number) => (operational(e, year, month) ? [0, 4, 8, 0, 6, 12, 2, 0, 10][(hash(e.staffId) + month + year) % 9] : 0);
 
 /* ------------------------------------------------------------------ context */
 
@@ -273,7 +273,7 @@ export const terminalDues = (e: HREmployee, ctx: PayrollContext = SEED_CONTEXT) 
 /** Named values a pay item formula can use, for one employee and month. */
 export const formulaVars = (e: HREmployee, year: number, month: number, daysPaid = PAYROLL_POLICY.dayDivisor) => {
   const basic = isCasual(e) ? 0 : basicFor(e, year, month);
-  const a = allowances(basic);
+  const a = allowancesFor(e, basic, periodKey(year, month));
   const end = `${periodKey(year, month)}-28`;
   return {
     BASIC: basic,
@@ -355,12 +355,13 @@ export const payslip = (e: HREmployee, year: number, month: number, ctx: Payroll
   const f = daysPaid / div;
 
   const fullBasic = casual ? 0 : basicFor(e, year, month);
-  const a = allowances(fullBasic);
+  const a = allowancesFor(e, fullBasic, key);
   const basic = Math.round(fullBasic * f);
   const house = Math.round(a.house * f);
   const transport = Math.round(a.transport * f);
-  const otH = exitThisMonth || joinedThisMonth ? 0 : overtimeHours(e, year, month);
-  const overtime = Math.round((fullBasic / STANDARD_HOURS) * OT_RATE * otH);
+  // Overtime is paid only from approved timesheet claims (OT_EXTRA items posted by Attendance); hours shown for reference
+  const otH = itemsFor(ctx, e.staffId, key).filter((i) => i.componentId === 'OT_EXTRA').reduce((n, i) => n + (i.quantity ?? 0), 0);
+  const overtime = 0;
   const days = casual ? daysWorked(e, year, month) : 0;
   const wages = casual ? days * (e.payRateKes ?? 0) : 0;
   if (f < 1) {
@@ -381,7 +382,6 @@ export const payslip = (e: HREmployee, year: number, month: number, ctx: Payroll
   if (basic) earnings.push(line(comp('BASIC'), basic, f < 1 ? { ref: `${daysPaid}/${div} days of KES ${fullBasic.toLocaleString()}` } : {}, policy));
   if (house) earnings.push(line(comp('HOUSE'), house, {}, policy));
   if (transport) earnings.push(line(comp('TRANSPORT'), transport, {}, policy));
-  if (overtime) earnings.push(line(comp('OVERTIME'), overtime, { ref: `${otH} hours at 1.5×` }, policy));
   if (wages) earnings.push(line(comp('WAGES'), wages, { ref: `${days} days × KES ${e.payRateKes}` }, policy));
 
   const voluntaryItems: PayItem[] = [];

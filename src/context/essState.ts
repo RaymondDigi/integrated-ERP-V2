@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import type { HREmployee } from '../types';
 import type { PayItem, StaffLoan } from '../data/payItems';
+import { useSession } from '../auth/session';
+import { canApprove } from '../platform/access';
+import { advanceCheck, suspensionBlock } from '../data/hcmEngine';
 
 /**
  * Requests employees raise in the self-service portal. HR, payroll and Finance decide them from the
@@ -40,7 +43,14 @@ export interface EssRequest {
   note?: string;
   /** What approval created: loan, payroll item, exit case, incident, training need */
   link?: string;
+  /** Two-step requests (advance, expense claim): the line manager approves first, then Finance */
+  stage?: 'MANAGER' | 'FINANCE';
+  managerApprovedBy?: string;
+  managerApprovedOn?: string;
 }
+
+/** Requests that need the line manager and then Finance. */
+export const TWO_STEP: EssRequestType[] = ['Salary Advance', 'Expense Reimbursement'];
 
 export const REQUEST_ROUTING: Record<EssRequestType, string> = {
   'Employment Confirmation Letter': 'HR Officer',
@@ -75,9 +85,9 @@ const rel = (days: number) => iso(new Date(NOW.getFullYear(), NOW.getMonth(), NO
 
 export const INITIAL_ESS_REQUESTS: EssRequest[] = [
   { id: 'ESS-REQ-1042', staffId: 'KHE-0102', type: 'Employment Confirmation Letter', details: 'Letter addressed to Embassy of Germany for visa application.', submittedOn: rel(-8), status: 'Completed', assignedTo: 'HR Officer', decidedBy: 'Rose Chepkoech', decidedOn: rel(-7), note: 'Letter issued and emailed.' },
-  { id: 'ESS-REQ-1057', staffId: 'KHE-0102', type: 'Expense Reimbursement', details: 'Travel to Kericho branch for quarterly HR clinic — fuel and accommodation.', amountKes: 18_450, submittedOn: rel(-5), status: 'In Review', assignedTo: 'Line Manager → Finance' },
+  { id: 'ESS-REQ-1057', staffId: 'KHE-0102', type: 'Expense Reimbursement', details: 'Travel to Kericho branch for quarterly HR clinic — fuel and accommodation.', amountKes: 18_450, submittedOn: rel(-5), status: 'In Review', assignedTo: 'Finance', stage: 'FINANCE', managerApprovedBy: 'Esther Muthoni', managerApprovedOn: rel(-4) },
   // Other staff, so HR has a queue to work
-  { id: 'ESS-REQ-1061', staffId: 'KHE-0251', type: 'Salary Advance', details: 'School fees for third term.', amountKes: 20_000, months: 2, submittedOn: rel(-2), status: 'Submitted', assignedTo: 'Line Manager → Finance' },
+  { id: 'ESS-REQ-1061', staffId: 'KHE-0251', type: 'Salary Advance', details: 'School fees for third term.', amountKes: 20_000, months: 2, submittedOn: rel(-2), status: 'Submitted', assignedTo: 'Line Manager → Finance', stage: 'MANAGER' },
   { id: 'ESS-REQ-1062', staffId: 'KHE-0280', type: 'Bank / M-Pesa Details Change', details: 'Moved salary account to Co-op Bank.', newValue: 'Co-op 01****2291', submittedOn: rel(-1), status: 'Submitted', assignedTo: 'Payroll Officer' },
   { id: 'ESS-REQ-1063', staffId: 'KHE-0263', type: 'Payroll Query', details: 'Holiday overtime for Mazingira Day stock count not on my September payslip.', submittedOn: rel(-3), status: 'In Review', assignedTo: 'Payroll Officer' }
 ];
@@ -113,18 +123,42 @@ interface Deps {
     staffId?: string;
   }) => { id: string } | null;
   addToast: Toast;
+  /** Basic, gross and net pay for the open period — used for the advance limits */
+  payOf?: (staffId: string) => { basic: number; gross: number; net: number };
+  /** Salary advances still being recovered */
+  openAdvances?: (staffId: string) => number;
 }
 
 export const useEssState = (d: Deps): EssStateSlice => {
   const [essRequests, setRequests] = useState<EssRequest[]>(INITIAL_ESS_REQUESTS);
   const emp = (id: string) => d.hrEmployees.find((e) => e.staffId === id);
   const today = iso(new Date());
+  const session = useSession();
+  const fail = (title: string, message: string) => {
+    d.addToast({ type: 'error', title, message });
+    return false;
+  };
+  /** The signed-in approver may decide when their role approves; named approvers stand in for HR and Finance logins */
+  const sessionApprover = (by: string) => !!session && session.name === by && canApprove(session.role);
 
   const submitEssRequest: EssStateSlice['submitEssRequest'] = (r) => {
     const e = emp(r.staffId);
     if (!e) return null;
     const id = `ESS-REQ-${1064 + essRequests.length}`;
-    let req: EssRequest = { ...r, id, submittedOn: today, status: 'Submitted', assignedTo: REQUEST_ROUTING[r.type] };
+    let req: EssRequest = { ...r, id, submittedOn: today, status: 'Submitted', assignedTo: REQUEST_ROUTING[r.type], stage: TWO_STEP.includes(r.type) ? 'MANAGER' : undefined };
+    if (TWO_STEP.includes(r.type) && !((r.amountKes ?? 0) > 0)) {
+      fail('Amount needed', 'Enter the amount.');
+      return null;
+    }
+    if (r.type === 'Salary Advance') {
+      // Policy: at most half of basic, 1–3 months, one advance at a time, net pay stays above a third of gross
+      const pay = d.payOf?.(r.staffId) ?? { basic: e.basicSalaryKes, gross: e.basicSalaryKes, net: e.basicSalaryKes };
+      const chk = advanceCheck({ amount: r.amountKes ?? 0, months: r.months ?? 1, basic: pay.basic, gross: pay.gross, net: pay.net, openAdvances: (d.openAdvances?.(r.staffId) ?? 0) + essRequests.filter((x) => x.staffId === r.staffId && x.type === 'Salary Advance' && (x.status === 'Submitted' || x.status === 'In Review')).length });
+      if (!chk.ok) {
+        fail('Advance not submitted', chk.errors.join(' '));
+        return null;
+      }
+    }
     // Some requests act straight away; the rest wait for a decision
     if (r.type === 'Training Request' && d.addTrainingNeed) {
       d.addTrainingNeed({ staffId: r.staffId, skill: r.details.split(/[,.\n]/)[0].slice(0, 80), reason: r.details, source: 'Employee', ref: id, priority: 'Low' });
@@ -166,13 +200,25 @@ export const useEssState = (d: Deps): EssStateSlice => {
       d.addToast({ type: 'error', title: 'Segregation of duties', message: 'You cannot decide your own request.' });
       return false;
     }
-    if (!REQUEST_APPROVERS[r.type].includes(by)) {
-      d.addToast({ type: 'error', title: 'Not an approver', message: `${r.type} is decided by ${REQUEST_APPROVERS[r.type].join(' or ')}.` });
-      return false;
+    const approver = d.hrEmployees.find((x) => x.fullName === by);
+    const susp = approver ? suspensionBlock(approver, 'decide requests') : null;
+    if (susp) return fail('Approver suspended', susp);
+    const managerStep = TWO_STEP.includes(r.type) && r.stage !== 'FINANCE';
+    if (managerStep) {
+      const lineManager = d.hrEmployees.find((x) => x.staffId === e.reportsToStaffId)?.fullName;
+      if (by !== lineManager && !sessionApprover(by)) return fail('Not the line manager', `${r.type} goes first to ${lineManager ?? 'the line manager'}.`);
+    } else if (!REQUEST_APPROVERS[r.type].includes(by) && !sessionApprover(by)) {
+      return fail('Not an approver', `${r.type} is decided by ${REQUEST_APPROVERS[r.type].join(' or ')}.`);
     }
+    if (!managerStep && TWO_STEP.includes(r.type) && r.managerApprovedBy === by) return fail('Segregation of duties', `${by} approved this as line manager; Finance must be someone else.`);
     if (!approve && !note?.trim()) {
       d.addToast({ type: 'error', title: 'Reason needed', message: 'Say why the request is declined — the employee sees it.' });
       return false;
+    }
+    if (managerStep && approve) {
+      setRequests((prev) => prev.map((x) => (x.id === id ? { ...x, status: 'In Review', stage: 'FINANCE', assignedTo: 'Finance', managerApprovedBy: by, managerApprovedOn: today, note: note?.trim() || undefined } : x)));
+      d.addToast({ type: 'success', title: 'Manager approved', message: `${r.id} for ${e.fullName} now goes to Finance.` });
+      return true;
     }
     let link = r.link;
     let done = 'Approved';

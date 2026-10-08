@@ -372,7 +372,14 @@ export const useTimeState = (deps: Deps): TimeStateSlice => {
       const factor = s.pay === 'HALF' ? 0.5 : 1;
       const r = addPayReduction({ staffId: c.staffId, from: s.from, to: s.to, factor, reason: s.pay === 'HALF' ? `Suspension on half pay — case ${id}` : `Suspension without pay — case ${id}`, source: 'Disciplinary', ref: id });
       outcome.reductionId = r.id;
-      events.push(`suspended ${s.pay === 'HALF' ? 'on half pay' : 'without pay'} ${fmtDate(s.from)} to ${fmtDate(s.to)}; payroll notified`);
+      // The suspension also withholds sign-in, self-service and approval authority for the period
+      const emp = hrEmployees.find((x) => x.staffId === c.staffId);
+      updateHrEmployee(c.staffId, {
+        suspension: { from: s.from, to: s.to, caseId: id, pay: s.pay },
+        status: s.from <= timeToday ? 'SUSPENDED' : emp?.status ?? 'ACTIVE',
+        history: [...(emp?.history ?? []), { date: s.from, kind: 'Suspended', summary: `Suspended ${fmtDate(s.from)} to ${fmtDate(s.to)} (${s.pay === 'HALF' ? 'half pay' : 'no pay'}) — system access and approvals withheld`, ref: id, by: HR_OFFICER }]
+      });
+      events.push(`suspended ${s.pay === 'HALF' ? 'on half pay' : 'without pay'} ${fmtDate(s.from)} to ${fmtDate(s.to)}; payroll notified; sign-in and approval authority withheld`);
       docs.push({ name: 'Suspension letter', kind: 'SUSPENSION' });
     }
     if (months) docs.push({ name: SANCTION_LABEL[o.sanction], kind: 'WARNING' });
@@ -409,6 +416,10 @@ export const useTimeState = (deps: Deps): TimeStateSlice => {
     if ((status === 'UPHELD' || (status === 'VARIED' && varied !== 'SUSPENSION')) && outcome?.reductionId) {
       removePayReduction(outcome.reductionId);
       outcome = { ...outcome, reductionId: undefined };
+      // Suspension set aside: access and status restored at once
+      const emp = hrEmployees.find((x) => x.staffId === c.staffId);
+      if (emp?.suspension?.caseId === id)
+        updateHrEmployee(c.staffId, { suspension: undefined, status: emp.status === 'SUSPENDED' ? 'ACTIVE' : emp.status, history: [...(emp.history ?? []), { date: timeToday, kind: 'Reinstated', summary: `Suspension set aside on appeal (${id})`, ref: id, by: HR_OFFICER }] });
     }
     if (status === 'VARIED' && varied && outcome) {
       const months = WARNING_MONTHS[varied];
