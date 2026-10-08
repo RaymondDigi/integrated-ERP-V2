@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Printer, Wand2, Banknote, Clock3, ArrowDownLeft, ArrowUpRight, Landmark } from 'lucide-react';
 import { useFinance, type SettlementDraft } from '../store';
-import { docBalance, docTotals, fmtDate, kes, periodOf, round2, TODAY } from '../engine';
+import { docBalance, docTotals, fmtDate, kes, periodOf, rateOn, round2, TODAY } from '../engine';
+import { usePrompt } from '../ext/ui';
 import type { Settlement } from '../types';
 import { Chips, DataTable, DefList, Drawer, Empty, Field, Modal, Pill, SearchBox, Stat, SuitePage, type Column } from '../../ui/kit';
 import { PrintHeader, useLookups, WorkflowPanel } from '../parts';
@@ -140,7 +141,8 @@ const mostUsed = (list: Settlement[]) => {
 };
 
 const SettlementDrawer: React.FC<{ s: Settlement; onClose: () => void; onEdit: () => void }> = ({ s, onClose, onEdit }) => {
-  const { state } = useFinance();
+  const { state, voidPayment } = useFinance();
+  const prompt = usePrompt();
   const { party, accountLabel } = useLookups();
   const copy = COPY[s.kind];
   const p = party(s.partyId)!;
@@ -153,9 +155,18 @@ const SettlementDrawer: React.FC<{ s: Settlement; onClose: () => void; onEdit: (
       badge={<Pill status={s.status} />}
       onClose={onClose}
       footer={
-        <button type="button" className="btn btn-secondary btn-sm" onClick={printArea}>
-          <Printer size={14} /> Print {s.kind === 'RECEIPT' ? 'receipt' : 'payment voucher'}
-        </button>
+        <>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={printArea}>
+            <Printer size={14} /> Print {s.kind === 'RECEIPT' ? 'receipt' : 'payment voucher'}
+          </button>
+          <span className="sx-grow" />
+          {s.status === 'POSTED' && !s.voided && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => prompt.open({ title: `Void ${s.number}`, subtitle: 'Reverses the posted payment and reopens the documents it settled (stopped cheque, failed transfer).', fields: [{ key: 'reason', label: 'Reason', required: true }, { key: 'date', label: 'Reversal date', type: 'date', initial: TODAY }], submitLabel: 'Void', onSubmit: (v) => voidPayment(s.id, v.reason, v.date) })}>
+              Void
+            </button>
+          )}
+          {prompt.node}
+        </>
       }
     >
       <div className="sx-amount-hero">
@@ -173,6 +184,10 @@ const SettlementDrawer: React.FC<{ s: Settlement; onClose: () => void; onEdit: (
           [copy.party, p.name],
           ['Bank account', accountLabel(s.bankAccount)],
           ['Reference', s.reference || '—'],
+          ...(s.chequeNo ? [['Cheque', s.chequeNo] as [string, string]] : []),
+          ...(s.wht ? [['Withholding', `${s.wht.code} ${s.wht.amount.toLocaleString()}`] as [string, string]] : []),
+          ...(s.purpose ? [['Purpose', `${s.purpose}${s.poNumber ? ` · ${s.poNumber}` : ''}`] as [string, string]] : []),
+          ...(s.voided ? [['Voided', `${fmtDate(s.voided.date)} by ${s.voided.by}: ${s.voided.reason}`] as [string, string]] : []),
           ['Allocated', kes(allocated)],
           ['On account', kes(round2(s.amount - allocated))],
           ['Prepared by', s.preparedBy]
@@ -383,6 +398,73 @@ export const SettlementEditor: React.FC<{
         </Field>
         <Field label="Bank or M-Pesa reference">
           <input className="form-control" value={d.reference} onChange={(e) => set({ reference: e.target.value })} />
+        </Field>
+        {d.method === 'CHEQUE' && kind === 'PAYMENT' && (
+          <Field label="Cheque number">
+            <input className="form-control" value={d.chequeNo ?? ''} onChange={(e) => set({ chequeNo: e.target.value || undefined })} name="chequeNo" />
+          </Field>
+        )}
+        <Field label="Purpose">
+          <select className="form-control" value={d.purpose ?? 'NORMAL'} onChange={(e) => set({ purpose: e.target.value === 'NORMAL' ? undefined : (e.target.value as Settlement['purpose']) })} name="purpose">
+            <option value="NORMAL">Against open items</option>
+            <option value="ADVANCE">Advance (unapplied)</option>
+            <option value="PREPAYMENT">Prepayment</option>
+            <option value="DOWNPAYMENT">Down payment against an order</option>
+          </select>
+        </Field>
+        {(d.purpose === 'PREPAYMENT' || d.purpose === 'DOWNPAYMENT') && (
+          <>
+            <Field label="Purchase / sales order" required>
+              <input className="form-control" value={d.poNumber ?? ''} onChange={(e) => set({ poNumber: e.target.value || undefined })} name="poNumber" />
+            </Field>
+            {d.purpose === 'DOWNPAYMENT' && (
+              <Field label="Order value" required hint={`Limit ${state.settings.downPaymentLimitPct}%`}>
+                <input className="form-control" type="number" value={d.poValue ?? ''} onChange={(e) => set({ poValue: Number(e.target.value) || undefined })} name="poValue" />
+              </Field>
+            )}
+          </>
+        )}
+        <Field label="Currency">
+          <select className="form-control" value={d.currency ?? 'KES'} onChange={(e) => set({ currency: e.target.value === 'KES' ? undefined : e.target.value, fxRate: e.target.value === 'KES' ? undefined : rateOn(state, e.target.value, d.date) })}>
+            <option value="KES">KES</option>
+            {state.currencies
+              .filter((c) => c.code !== 'KES')
+              .map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code}
+                </option>
+              ))}
+          </select>
+        </Field>
+        {d.currency && (
+          <Field label="Exchange rate">
+            <input className="form-control" type="number" step="any" value={d.fxRate ?? ''} onChange={(e) => set({ fxRate: Number(e.target.value) || undefined })} />
+          </Field>
+        )}
+        <Field label="Withholding tax" hint={d.wht ? `Withheld ${d.wht.amount.toLocaleString()}` : 'Deducted at source'}>
+          <select
+            className="form-control"
+            value={d.wht?.code ?? ''}
+            name="wht"
+            onChange={(e) => {
+              const t = state.taxCodes.find((x) => x.code === e.target.value);
+              const rate = t ? [...t.rates].filter((r) => r.from <= d.date).pop()?.rate ?? 0 : 0;
+              const base = d.allocations.reduce((x, a) => {
+                const doc = state.documents.find((y) => y.id === a.docId);
+                return x + (doc ? docTotals(doc).net * (a.amount / Math.max(1, docTotals(doc).total)) : 0);
+              }, 0);
+              set({ wht: t ? { code: t.code, rate, amount: round2((base || d.amount) * rate) } : undefined });
+            }}
+          >
+            <option value="">None</option>
+            {state.taxCodes
+              .filter((x) => x.kind === 'WHT' && x.active)
+              .map((x) => (
+                <option key={x.code} value={x.code}>
+                  {x.name}
+                </option>
+              ))}
+          </select>
         </Field>
       </div>
 

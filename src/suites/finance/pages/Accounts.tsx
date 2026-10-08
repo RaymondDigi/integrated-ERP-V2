@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { BookOpenCheck } from 'lucide-react';
+import { BookOpenCheck, Plus } from 'lucide-react';
+import { ExportCsvButton, PrintButton, esc } from '../../../platform/Widgets';
+import { usePrompt } from '../ext/ui';
 import { useFinance } from '../store';
 import { balanceOf, fmtDate, kes, round2, TODAY } from '../engine';
 import type { Account, AccountType } from '../types';
@@ -15,8 +17,46 @@ const TYPES: { value: AccountType | 'ALL'; label: string }[] = [
 ];
 
 export const AccountsPage: React.FC = () => {
-  const { state, entries } = useFinance();
+  const f = useFinance();
+  const { state, entries } = f;
+  const prompt = usePrompt();
   const [type, setType] = useState<AccountType | 'ALL'>('ALL');
+  const groupsAll = [...new Set(state.accounts.map((a) => a.group))];
+  const edit = (a: Account | null) =>
+    prompt.open({
+      title: a ? `Edit ${a.code}` : 'New account',
+      subtitle: 'Codes are unique; inactive accounts keep their history but cannot be posted to.',
+      fields: [
+        { key: 'code', label: 'Code', initial: a?.code ?? '', required: true },
+        { key: 'name', label: 'Name', initial: a?.name ?? '', required: true },
+        { key: 'type', label: 'Type', type: 'select', options: TYPES.filter((t) => t.value !== 'ALL').map((t) => ({ value: t.value, label: t.label })), initial: a?.type ?? 'EXPENSE' },
+        { key: 'group', label: 'Group', initial: a?.group ?? groupsAll[0], hint: groupsAll.slice(0, 6).join(', ') },
+        { key: 'bank', label: 'Bank account', type: 'checkbox', initial: !!a?.bank },
+        { key: 'control', label: 'Control account (sub-ledger only)', type: 'checkbox', initial: !!a?.control },
+        { key: 'header', label: 'Header (no posting)', type: 'checkbox', initial: a?.postingAllowed === false },
+        { key: 'stat', label: 'Statistical (quantities)', type: 'checkbox', initial: !!a?.statistical },
+        { key: 'unit', label: 'Unit (statistical)', initial: a?.unit ?? '' },
+        { key: 'currency', label: 'Currency (foreign bank)', initial: a?.currency ?? '' }
+      ],
+      onSubmit: (v) =>
+        f.saveAccount(
+          {
+            ...a,
+            code: v.code,
+            name: v.name,
+            type: v.type as AccountType,
+            group: v.group,
+            bank: v.bank === 'true' || undefined,
+            control: v.control === 'true' || undefined,
+            postingAllowed: v.header === 'true' ? false : undefined,
+            statistical: v.stat === 'true' || undefined,
+            unit: v.unit || undefined,
+            currency: v.currency || undefined,
+            active: a?.active
+          },
+          !a
+        )
+    });
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<Account | null>(null);
   const year = TODAY.slice(0, 4);
@@ -27,7 +67,20 @@ export const AccountsPage: React.FC = () => {
   const groups = [...new Set(list.map((a) => `${a.type}|${a.group}`))];
 
   return (
-    <SuitePage eyebrow="General ledger" title="Chart of accounts" subtitle="Every account with its balance today and its movement this year. Open an account to see each entry.">
+    <SuitePage
+      eyebrow="General ledger"
+      title="Chart of accounts"
+      subtitle="Every account with its balance today and its movement this year. Open an account to see each entry."
+      actions={
+        <>
+          <PrintButton title="Chart of accounts" html={() => `<h1>Chart of accounts</h1><table><tr><th>Code</th><th>Account</th><th>Type</th><th>Group</th><th>Flags</th><th class="r">Balance</th></tr>${state.accounts.map((a) => `<tr><td>${esc(a.code)}</td><td>${esc(a.name)}</td><td>${esc(a.type)}</td><td>${esc(a.group)}</td><td>${[a.control && 'control', a.bank && 'bank', a.active === false && 'inactive', a.statistical && 'statistical', a.postingAllowed === false && 'header'].filter(Boolean).join(', ')}</td><td class="r">${balanceOf(entries, a).toLocaleString()}</td></tr>`).join('')}</table>`} />
+          <ExportCsvButton name="chart-of-accounts" header={['code', 'name', 'type', 'group', 'active']} rows={() => state.accounts.map((a) => [a.code, a.name, a.type, a.group, a.active === false ? 'no' : 'yes'])} />
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => edit(null)}>
+            <Plus size={14} /> Account
+          </button>
+        </>
+      }
+    >
       <div className="sx-toolbar">
         <Chips value={type} onChange={setType} options={TYPES.map((t) => ({ ...t, count: state.accounts.filter((a) => t.value === 'ALL' || a.type === t.value).length }))} />
         <SearchBox value={q} onChange={setQ} placeholder="Search accounts…" />
@@ -60,6 +113,16 @@ export const AccountsPage: React.FC = () => {
                           {a.name}
                           {a.control && <span className="sx-tag">Control</span>}
                           {a.bank && <span className="sx-tag">Bank</span>}
+                          {a.active === false && <span className="sx-tag">Inactive</span>}
+                          {a.statistical && <span className="sx-tag">Statistical</span>}
+                          <span className="fx-row-actions" style={{ marginLeft: 8 }} onClick={(e) => e.stopPropagation()}>
+                            <button type="button" className="sx-link" onClick={() => edit(a)}>
+                              Edit
+                            </button>
+                            <button type="button" className="sx-link" onClick={() => f.setAccountActive(a.code, a.active === false)}>
+                              {a.active === false ? 'Activate' : 'Deactivate'}
+                            </button>
+                          </span>
                         </td>
                         <td className="sx-hide-sm sx-muted">{a.type.charAt(0) + a.type.slice(1).toLowerCase()}</td>
                         <td style={{ textAlign: 'right' }} className="sx-muted">
@@ -78,6 +141,7 @@ export const AccountsPage: React.FC = () => {
         </div>
       </div>
       {open && <AccountLedger account={open} onClose={() => setOpen(null)} />}
+      {prompt.node}
     </SuitePage>
   );
 };

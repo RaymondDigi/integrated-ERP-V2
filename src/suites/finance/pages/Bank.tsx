@@ -4,11 +4,12 @@ import { useFinance } from '../store';
 import { addDays, daysBetween, fmtDate, kes, round2, TODAY } from '../engine';
 import { Chips, Empty, Panel, Pill, Stat, SuitePage } from '../../ui/kit';
 import { AccountSelect, useLookups } from '../parts';
+import { ImportCsvButton } from '../../../platform/Widgets';
 
 const SINCE = addDays(TODAY, -35);
 
 export const BankPage: React.FC = () => {
-  const { state, entries, autoMatch, matchBank, bankEntry, reconciliationFor } = useFinance();
+  const { state, entries, autoMatch, matchBank, bankEntry, reconciliationFor, importStatement } = useFinance();
   const { accountLabel } = useLookups();
   const banks = state.accounts.filter((a) => a.bank);
   const [account, setAccount] = useState('1000');
@@ -50,9 +51,19 @@ export const BankPage: React.FC = () => {
       title="Bank reconciliation"
       subtitle="Tick off the bank statement against the ledger. Book charges and standing orders straight from the statement."
       actions={
-        <button type="button" className="btn btn-primary btn-sm" onClick={() => autoMatch(account)}>
-          <Wand2 size={15} /> Auto-match
-        </button>
+        <>
+          <ImportCsvButton
+            label="Import statement"
+            template={['date', 'description', 'reference', 'amount']}
+            onImport={(rows) => {
+              const r = importStatement(account, rows);
+              return r.ok ? { imported: rows.length, errors: [] } : { imported: 0, errors: [(r as { error: string }).error] };
+            }}
+          />
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => autoMatch(account)}>
+            <Wand2 size={15} /> Auto-match
+          </button>
+        </>
       }
     >
       <div className="sx-tabs">
@@ -102,7 +113,7 @@ export const BankPage: React.FC = () => {
           }
         >
           {rec.lines.length === 0 ? (
-            <Empty icon={<Landmark size={20} />} title="No statement imported yet" text="Statements for this account arrive with the next bank feed." />
+            <Empty icon={<Landmark size={20} />} title="No statement imported yet" text="Import a CSV statement (date, description, reference, amount) or wait for the next bank feed." />
           ) : lines.length === 0 ? (
             <Empty icon={<CheckCircle2 size={20} />} title="Statement fully reconciled" text="Every line on the statement is matched to the ledger." />
           ) : (

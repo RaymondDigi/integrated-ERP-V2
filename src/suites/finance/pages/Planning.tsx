@@ -3,6 +3,7 @@ import { Target, TrendingDown, TrendingUp, Pencil, Plus, Play, Building2, Lock, 
 import { useFinance, CHECKLIST } from '../store';
 import {
   accumulatedDepreciation,
+  budgetLinesFor,
   budgetVsActual,
   depreciationFor,
   fmtDate,
@@ -17,20 +18,89 @@ import { MONTH_NAMES } from '../../../data/orgSettings';
 import type { FixedAsset } from '../types';
 import { Chips, DataTable, DefList, Drawer, Field, Meter, Modal, Panel, Pill, Stat, SuitePage, type Column } from '../../ui/kit';
 import { useLookups } from '../parts';
+import { DEPARTMENTS } from '../data';
+import { SPREAD_PROFILES } from '../ext/planning';
+import { num, usePrompt } from '../ext/ui';
 
 /* ------------------------------------------------------------------ */
 /* Budgets                                                             */
 /* ------------------------------------------------------------------ */
 
 export const BudgetsPage: React.FC = () => {
-  const { state, entries, actor } = useFinance();
+  const f = useFinance();
+  const { state, entries, actor } = f;
+  const prompt = usePrompt();
   const month = Number(TODAY.slice(5, 7)) - 1;
   // Compare to the last complete month by default
   const [through, setThrough] = useState(Math.max(0, month - 1));
+  const [year, setYear] = useState(state.budgetYear);
   const [kind, setKind] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL');
   const [editing, setEditing] = useState<string | null>(null);
-  const rows = budgetVsActual(state, entries, through).filter((r) => kind === 'ALL' || r.account.type === kind);
-  const all = budgetVsActual(state, entries, through);
+  const years = [...new Set([state.budgetYear, ...state.budgets.map((b) => b.year ?? state.budgetYear), state.budgetYear + 1])].sort();
+  const all = budgetVsActual(state, entries, through, year);
+  const rows = all.filter((r) => kind === 'ALL' || r.account.type === kind);
+  const lyActual = (code: string, type: string) =>
+    round2(
+      entries
+        .filter((e) => e.account === code && e.date >= `${year - 1}-01-01` && e.date <= `${year - 1}-${String(through + 1).padStart(2, '0')}-31` && !e.closing)
+        .reduce((x, e) => x + (type === 'INCOME' ? e.credit - e.debit : e.debit - e.credit), 0)
+    );
+  const lines = budgetLinesFor(state, year);
+  const pendingApproval = lines.filter((b) => b.status === 'DRAFT').length;
+  const plAccounts = state.accounts.filter((a) => (a.type === 'EXPENSE' || a.type === 'INCOME') && a.active !== false).map((a) => ({ value: a.code, label: `${a.code} · ${a.name}` }));
+  const budgetAccounts = lines.map((b) => ({ value: b.account, label: `${b.account} · ${state.accounts.find((a) => a.code === b.account)?.name ?? ''}` }));
+  const monthOpts = MONTH_NAMES.map((m, i) => ({ value: String(i), label: m }));
+  const spread = () =>
+    prompt.open({
+      title: `Add or re-spread a ${year} budget line`,
+      fields: [
+        { key: 'account', label: 'Account', type: 'select', options: plAccounts, span: 2 },
+        { key: 'dept', label: 'Department', type: 'select', options: DEPARTMENTS.map((d) => ({ value: d, label: d })) },
+        { key: 'annual', label: 'Annual amount', type: 'number', required: true },
+        { key: 'profile', label: 'Spread', type: 'select', options: [...Object.keys(SPREAD_PROFILES).map((k) => ({ value: k, label: k.replace(/_/g, ' ').toLowerCase() })), { value: 'LAST_YEAR', label: 'like last year' }] }
+      ],
+      submitLabel: 'Spread',
+      onSubmit: (v) => f.spreadBudget(v.account, v.dept, year, num(v.annual), v.profile as keyof typeof SPREAD_PROFILES)
+    });
+  const copy = () =>
+    prompt.open({
+      title: `Prepare the ${year + 1} budget`,
+      subtitle: `Copies every ${year} line as a draft for ${year + 1}.`,
+      fields: [{ key: 'uplift', label: 'Uplift %', type: 'number', initial: 5 }],
+      submitLabel: 'Copy',
+      onSubmit: (v) => {
+        const r = f.copyBudget(year, year + 1, num(v.uplift));
+        if (r.ok) setYear(year + 1);
+        return r;
+      }
+    });
+  const change = () =>
+    prompt.open({
+      title: 'Request a budget change',
+      fields: [
+        { key: 'type', label: 'Type', type: 'select', options: [{ value: 'SUPPLEMENTARY', label: 'Supplementary (extra money)' }, { value: 'REALLOCATION', label: 'Reallocation between lines' }] },
+        { key: 'month', label: 'Month', type: 'select', options: monthOpts, initial: String(month) },
+        { key: 'from', label: 'From line (reallocation)', type: 'select', options: [{ value: '', label: '—' }, ...budgetAccounts] },
+        { key: 'to', label: 'To line', type: 'select', options: budgetAccounts },
+        { key: 'amount', label: 'Amount', type: 'number', required: true },
+        { key: 'reason', label: 'Reason', type: 'textarea', required: true }
+      ],
+      submitLabel: 'Request',
+      onSubmit: (v) => f.requestBudgetChange({ type: v.type as 'SUPPLEMENTARY' | 'REALLOCATION', year, month: Number(v.month), fromAccount: v.from || undefined, toAccount: v.to, amount: num(v.amount), reason: v.reason })
+    });
+  const objective = () =>
+    prompt.open({
+      title: 'Strategic objective',
+      fields: [
+        { key: 'code', label: 'Code', required: true },
+        { key: 'name', label: 'Objective', required: true },
+        { key: 'kpi', label: 'KPI' },
+        { key: 'target', label: 'Target', type: 'number' },
+        { key: 'actual', label: 'Actual', type: 'number' }
+      ],
+      onSubmit: (v) => f.saveObjective({ id: '', code: v.code, name: v.name, kpi: v.kpi, target: num(v.target), actual: num(v.actual) })
+    });
+  const changes = state.budgetChanges.filter((b) => b.year === year);
   const rev = all.filter((r) => r.account.type === 'INCOME');
   const exp = all.filter((r) => r.account.type === 'EXPENSE');
   const sum = (list: typeof all, k: 'budget' | 'actual') => round2(list.reduce((s, r) => s + r[k], 0));
@@ -54,6 +124,22 @@ export const BudgetsPage: React.FC = () => {
     { key: 'annual', header: 'Annual budget', render: (r) => kes(r.annual, { compact: true }), sort: (r) => r.annual, align: 'right', hideOnMobile: true },
     { key: 'budget', header: 'Budget to date', render: (r) => kes(r.budget, { compact: true }), sort: (r) => r.budget, align: 'right' },
     { key: 'actual', header: 'Actual to date', render: (r) => <b>{kes(r.actual, { compact: true })}</b>, sort: (r) => r.actual, align: 'right' },
+    { key: 'ly', header: 'Last year to date', render: (r) => kes(lyActual(r.account.code, r.account.type), { compact: true }), align: 'right', hideOnMobile: true },
+    {
+      key: 'obj',
+      header: 'Objective',
+      render: (r) => (
+        <select className="form-control" value={r.line.objectiveId ?? ''} onClick={(e) => e.stopPropagation()} onChange={(e) => f.linkBudgetObjective(r.account.code, year, e.target.value)} aria-label="Strategic objective">
+          <option value="">—</option>
+          {state.objectives.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.code}
+            </option>
+          ))}
+        </select>
+      ),
+      hideOnMobile: true
+    },
     {
       key: 'variance',
       header: 'Variance',
@@ -93,9 +179,20 @@ export const BudgetsPage: React.FC = () => {
   return (
     <SuitePage
       eyebrow="Planning"
-      title={`Budget ${state.budgetYear}`}
-      subtitle="Compare the approved budget with what has actually been posted. Over-spending shows in red."
+      title={`Budget ${year}`}
+      subtitle="Compare the approved budget with what has actually been posted and with last year. Over-spending shows in red."
       actions={
+        <>
+        <label className="sx-inline-select">
+          <span>Year</span>
+          <select className="form-control" value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="Budget year">
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="sx-inline-select">
           <span>Through</span>
           <select className="form-control" value={through} onChange={(e) => setThrough(Number(e.target.value))}>
@@ -106,8 +203,26 @@ export const BudgetsPage: React.FC = () => {
             ))}
           </select>
         </label>
+        </>
       }
     >
+      <div className="sx-actions fx-bar">
+        <button type="button" className="btn btn-secondary btn-sm" onClick={spread}>
+          <Plus size={14} /> Budget line
+        </button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={copy}>
+          Prepare {year + 1}
+        </button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={change}>
+          Request change
+        </button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={objective}>
+          Objective
+        </button>
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => f.approveBudget(year)} disabled={!pendingApproval}>
+          Approve {year} ({pendingApproval} draft)
+        </button>
+      </div>
       <div className="sx-stats">
         <Stat label="Revenue vs budget" value={`${Math.round((sum(rev, 'actual') / (sum(rev, 'budget') || 1)) * 100)}%`} detail={`${kes(sum(rev, 'actual'), { compact: true })} of ${kes(sum(rev, 'budget'), { compact: true })}`} icon={<TrendingUp size={17} />} />
         <Stat label="Spending vs budget" value={`${Math.round((sum(exp, 'actual') / (sum(exp, 'budget') || 1)) * 100)}%`} detail={`${kes(sum(exp, 'actual'), { compact: true })} of ${kes(sum(exp, 'budget'), { compact: true })}`} icon={<TrendingDown size={17} />} tone="blue" />
@@ -127,22 +242,90 @@ export const BudgetsPage: React.FC = () => {
         {actor.role === 'ACCOUNTANT' && <span className="sx-note">Budgets are changed by the Finance Manager or Director.</span>}
       </div>
       <DataTable rows={rows} columns={columns} rowKey={(r) => r.account.code} pageSize={20} />
-      {editing && <BudgetEditor account={editing} onClose={() => setEditing(null)} />}
+      <div className="sx-grid sx-grid-2">
+        <Panel title="Budget changes" subtitle="Supplementary budgets and reallocations go through approval before they change the plan">
+          {changes.length ? (
+            <table className="fx-table">
+              <tbody>
+                {changes.map((b) => (
+                  <tr key={b.id}>
+                    <td className="sx-mono">{b.number}</td>
+                    <td>
+                      {b.type === 'REALLOCATION' ? `${b.fromAccount} → ` : '+ '}
+                      {b.toAccount} · {MONTH_NAMES[b.month]}
+                    </td>
+                    <td className="r">{b.amount.toLocaleString()}</td>
+                    <td>
+                      <Pill status={b.status} />
+                    </td>
+                    <td>
+                      <span className="fx-row-actions">
+                        {b.status === 'SUBMITTED' && (
+                          <>
+                            <button type="button" className="sx-link" onClick={() => f.workflow('budgetChanges', b.id, 'approve')}>
+                              Approve
+                            </button>
+                            <button type="button" className="sx-link" onClick={() => f.workflow('budgetChanges', b.id, 'reject', 'Not supported')}>
+                              Reject
+                            </button>
+                          </>
+                        )}
+                        {b.status === 'APPROVED' && (
+                          <button type="button" className="sx-link" onClick={() => f.applyBudgetChange(b.id)}>
+                            Apply
+                          </button>
+                        )}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="sx-muted">No changes requested for {year}.</p>
+          )}
+        </Panel>
+        <Panel title="Strategic objectives" subtitle="Budget funding linked to each objective">
+          {state.objectives.length ? (
+            <table className="fx-table">
+              <tbody>
+                {state.objectives.map((o) => (
+                  <tr key={o.id}>
+                    <td className="sx-mono">{o.code}</td>
+                    <td>
+                      {o.name}
+                      <small className="sx-muted"> · {o.kpi}</small>
+                    </td>
+                    <td className="r">
+                      {o.actual.toLocaleString()} / {o.target.toLocaleString()}
+                    </td>
+                    <td className="r">{kes(lines.filter((b) => b.objectiveId === o.id).reduce((x, b) => x + b.monthly.reduce((y, m) => y + m, 0), 0), { compact: true })}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="sx-muted">No objectives yet.</p>
+          )}
+        </Panel>
+      </div>
+      {prompt.node}
+      {editing && <BudgetEditor account={editing} year={year} onClose={() => setEditing(null)} />}
     </SuitePage>
   );
 };
 
-const BudgetEditor: React.FC<{ account: string; onClose: () => void }> = ({ account, onClose }) => {
-  const { state, setBudget } = useFinance();
+const BudgetEditor: React.FC<{ account: string; year: number; onClose: () => void }> = ({ account, year, onClose }) => {
+  const { setBudget, state } = useFinance();
   const { accountLabel } = useLookups();
-  const line = state.budgets.find((b) => b.account === account)!;
+  const line = budgetLinesFor(state, year).find((b) => b.account === account)!;
   const [months, setMonths] = useState(line.monthly.map(String));
   const total = months.reduce((s, m) => s + (Number(m) || 0), 0);
   return (
     <Modal
       size="lg"
       title={`Budget — ${accountLabel(account)}`}
-      subtitle={`${state.budgetYear} monthly plan`}
+      subtitle={`${year} monthly plan${line.status ? ` · ${line.status.toLowerCase()}` : ''}`}
       onClose={onClose}
       footer={
         <>
@@ -157,8 +340,7 @@ const BudgetEditor: React.FC<{ account: string; onClose: () => void }> = ({ acco
             type="button"
             className="btn btn-primary btn-sm"
             onClick={() => {
-              setBudget(account, months.map((m) => Number(m) || 0));
-              onClose();
+              if (setBudget(account, months.map((m) => Number(m) || 0), year).ok) onClose();
             }}
           >
             Save budget
@@ -278,13 +460,34 @@ export const AssetsPage: React.FC = () => {
 };
 
 const AssetDrawer: React.FC<{ asset: FixedAsset; onClose: () => void }> = ({ asset, onClose }) => {
-  const { state } = useFinance();
+  const f = useFinance();
+  const { state } = f;
   const { accountLabel } = useLookups();
+  const prompt = usePrompt();
+  const banks = state.accounts.filter((a) => a.bank).map((a) => ({ value: a.code, label: `${a.code} · ${a.name}` }));
+  const live = asset.status !== 'DISPOSED';
+  const actions = live && (
+    <div className="fx-row-actions" data-testid="asset-actions">
+      <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Dispose of ${asset.name}`, subtitle: 'Removes cost and depreciation and posts the gain or loss on disposal.', fields: [{ key: 'date', label: 'Date', type: 'date', initial: TODAY }, { key: 'proceeds', label: 'Sale proceeds', type: 'number', initial: 0 }, { key: 'bank', label: 'Received into', type: 'select', options: banks }, { key: 'reason', label: 'Reason', required: true }], submitLabel: 'Dispose', onSubmit: (v) => f.disposeAsset(asset.id, { date: v.date, proceeds: num(v.proceeds), bankAccount: v.bank, reason: v.reason }) })}>
+        Dispose / retire
+      </button>
+      <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Transfer ${asset.name}`, fields: [{ key: 'location', label: 'New location', initial: asset.location }, { key: 'custodian', label: 'Custodian', initial: asset.custodian }, { key: 'cc', label: 'Cost centre', type: 'select', options: [{ value: '', label: '—' }, ...state.costCenters.map((c) => ({ value: c.code, label: `${c.code} · ${c.name}` }))] }, { key: 'co', label: 'To company', type: 'select', options: [{ value: '', label: 'Same company' }, ...f.fullState.companies.filter((c) => c.id !== state.activeCompany).map((c) => ({ value: c.id, label: c.name }))] }, { key: 'date', label: 'Date', type: 'date', initial: TODAY }], submitLabel: 'Transfer', onSubmit: (v) => f.transferAsset(asset.id, { location: v.location, custodian: v.custodian, costCenter: v.cc || undefined, toCompany: v.co || undefined, date: v.date }) })}>
+        Transfer
+      </button>
+      <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Revalue ${asset.name}`, subtitle: 'Fair value above book value goes to the revaluation reserve; below it is an impairment.', fields: [{ key: 'fv', label: 'Fair value', type: 'number', required: true }, { key: 'date', label: 'Date', type: 'date', initial: TODAY }, { key: 'reason', label: 'Valuer / reason', required: true }], submitLabel: 'Revalue', onSubmit: (v) => f.revalueAsset(asset.id, num(v.fv), v.date, v.reason) })}>
+        Revalue / impair
+      </button>
+      <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Depreciation method for ${asset.name}`, fields: [{ key: 'm', label: 'Method', type: 'select', options: [{ value: 'SL', label: 'Straight line' }, { value: 'RB', label: 'Reducing balance' }], initial: asset.method ?? 'SL' }, { key: 'rate', label: 'Reducing balance rate % per year', type: 'number', initial: asset.rbRate ? asset.rbRate * 100 : 25 }, { key: 'fy', label: 'Fiscal year starts in month (1-12)', type: 'number', initial: 1 }], onSubmit: (v) => f.setAssetMethod(asset.id, v.m as 'SL' | 'RB', num(v.rate) / 100, num(v.fy) || undefined) })}>
+        Depreciation method
+      </button>
+      {prompt.node}
+    </div>
+  );
   const acc = accumulatedDepreciation(state, asset);
   const runs = state.depreciationRuns.filter((r) => r.perAsset[asset.id]);
   const remainingMonths = Math.ceil((asset.cost - asset.residual - acc) / monthlyCharge(asset));
   return (
-    <Drawer title={asset.name} subtitle={`${asset.number} · ${asset.category}`} badge={<Pill status={asset.status} />} onClose={onClose} wide>
+    <Drawer title={asset.name} subtitle={`${asset.number} · ${asset.category}`} badge={<Pill status={asset.status} />} onClose={onClose} wide footer={actions || undefined}>
       <div className="sx-amount-hero">
         <div>
           <span>Book value</span>
@@ -427,7 +630,10 @@ const AssetEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 /* ------------------------------------------------------------------ */
 
 export const ClosePage: React.FC = () => {
-  const { state, actor, autoChecks, toggleCheck, closePeriod, reopenPeriod, setPage } = useFinance();
+  const f = useFinance();
+  const { state, actor, autoChecks, toggleCheck, closePeriod, reopenPeriod, setPage } = f;
+  const prompt = usePrompt();
+  const label = (k: string, long = false) => state.periods.find((p) => p.key === k)?.label ?? periodLabel(k, long);
   const firstOpen = state.periods.find((p) => p.status === 'OPEN')?.key ?? periodOf(TODAY);
   const [key, setKey] = useState(firstOpen);
   const [reason, setReason] = useState('');
@@ -461,15 +667,15 @@ export const ClosePage: React.FC = () => {
         {state.periods.map((p) => (
           <button key={p.key} type="button" className={`${p.key === key ? 'active' : ''} ${p.status === 'CLOSED' ? 'closed' : ''} ${p.key === periodOf(TODAY) ? 'current' : ''}`} onClick={() => setKey(p.key)}>
             {p.status === 'CLOSED' ? <Lock size={12} /> : <Unlock size={12} />}
-            <span>{periodLabel(p.key).split(' ')[0]}</span>
+            <span>{p.special ? `A${p.key.split('-A')[1] ?? ''}` : periodLabel(p.key).split(' ')[0]}</span>
           </button>
         ))}
       </div>
 
       <div className="sx-split">
         <Panel
-          title={periodLabel(key, true)}
-          subtitle={period.status === 'CLOSED' ? `Closed by ${period.closedBy} on ${fmtDate(period.closedAt!.slice(0, 10))}` : future ? 'This month has not started' : `${doneCount} of ${items.length} steps complete`}
+          title={label(key, true)}
+          subtitle={period.status === 'SOFT' ? `Soft-closed by ${period.closedBy}: sub-ledgers locked, managers can still post journals` : period.status === 'CLOSED' ? `Closed by ${period.closedBy} on ${fmtDate(period.closedAt!.slice(0, 10))}` : future ? 'This month has not started' : `${doneCount} of ${items.length} steps complete`}
           action={<Pill status={period.status} />}
         >
           {period.status === 'OPEN' && !future && (
@@ -502,12 +708,19 @@ export const ClosePage: React.FC = () => {
         </Panel>
 
         <Panel title={period.status === 'CLOSED' ? 'Reopen the period' : 'Close the period'} subtitle={period.status === 'CLOSED' ? 'Only the Finance Director can reopen a month' : 'Managers and the Director can close a month'}>
-          {period.status === 'OPEN' ? (
+          {period.status !== 'CLOSED' ? (
             <>
-              <p className="sx-note">Closing locks {periodLabel(key, true)}: approved documents dated in it can no longer be posted, and reports for the month stop changing.</p>
-              <button type="button" className="btn btn-primary" disabled={future || actor.role === 'ACCOUNTANT'} onClick={() => closePeriod(key)}>
-                <Lock size={15} /> Close {periodLabel(key, true)}
-              </button>
+              <p className="sx-note">Closing locks {label(key, true)}: approved documents dated in it can no longer be posted, and reports for the month stop changing. A soft close locks invoices, bills and payments but still lets managers post adjusting journals.</p>
+              <div className="sx-actions">
+                {period.status === 'OPEN' && (
+                  <button type="button" className="btn btn-secondary" disabled={future || actor.role === 'ACCOUNTANT'} onClick={() => closePeriod(key, 'SOFT')}>
+                    Soft close
+                  </button>
+                )}
+                <button type="button" className="btn btn-primary" disabled={future || actor.role === 'ACCOUNTANT'} onClick={() => closePeriod(key)}>
+                  <Lock size={15} /> Close {label(key, true)}
+                </button>
+              </div>
               {actor.role === 'ACCOUNTANT' && <p className="sx-note">Switch to the Finance Manager or Director to close.</p>}
             </>
           ) : (
@@ -525,11 +738,118 @@ export const ClosePage: React.FC = () => {
               >
                 <Unlock size={15} /> Reopen {periodLabel(key, true)}
               </button>
-              {actor.role !== 'DIRECTOR' && <p className="sx-note">Switch to the Finance Director to reopen.</p>}
+              {actor.role !== 'DIRECTOR' && (
+                <button type="button" className="btn btn-secondary sx-mt" onClick={() => (f.requestReopen(key, reason).ok ? setReason('') : undefined)}>
+                  Request reopening
+                </button>
+              )}
             </>
+          )}
+          {(period.reopenRequests ?? []).length > 0 && (
+            <>
+              <h4 className="sx-subhead">Reopen requests</h4>
+              <ul className="fx-list">
+                {period.reopenRequests!.map((r) => (
+                  <li key={r.id}>
+                    {r.by}, {fmtDate(r.at.slice(0, 10))}: {r.reason} · <b>{r.status}</b>
+                    {r.status === 'PENDING' && actor.role === 'DIRECTOR' && (
+                      <span className="fx-row-actions">
+                        {' '}
+                        <button type="button" className="sx-link" onClick={() => f.decideReopen(key, r.id, true)}>
+                          Approve
+                        </button>
+                        <button type="button" className="sx-link" onClick={() => f.decideReopen(key, r.id, false, 'Declined')}>
+                          Decline
+                        </button>
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <h4 className="sx-subhead">Close owner</h4>
+          <p className="sx-note">
+            {period.owner ? `${period.owner}, due ${fmtDate(period.due ?? '')}` : 'No owner assigned.'}{' '}
+            <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Close owner for ${label(key, true)}`, fields: [{ key: 'owner', label: 'Owner', initial: period.owner ?? actor.name, required: true }, { key: 'due', label: 'Due', type: 'date', initial: period.due ?? TODAY }], onSubmit: (v) => f.setPeriodOwner(key, v.owner, v.due) })}>
+              Assign
+            </button>
+          </p>
+        </Panel>
+      </div>
+
+      <div className="sx-grid sx-grid-2">
+        <Panel
+          title="Close cockpit"
+          subtitle="Every period with its status, owner and due date"
+          action={
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => f.runDueReversals()}>
+              Run due reversals
+            </button>
+          }
+        >
+          <table className="fx-table">
+            <thead>
+              <tr>
+                <th>Period</th>
+                <th>Status</th>
+                <th>Owner</th>
+                <th>Due</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.periods.map((p) => (
+                <tr key={p.key}>
+                  <td>{p.label ?? periodLabel(p.key)}</td>
+                  <td>
+                    <Pill status={p.status} />
+                  </td>
+                  <td>{p.owner ?? '—'}</td>
+                  <td className={p.due && p.due < TODAY && p.status === 'OPEN' ? 'sx-danger-text' : ''}>{p.due ? fmtDate(p.due) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+        <Panel
+          title="Fiscal calendar"
+          subtitle="Fiscal years with monthly, 4-4-5 or 13-period patterns and adjustment periods; year-end closes income and expense to retained earnings"
+          action={
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => prompt.open({ title: 'New fiscal year', fields: [{ key: 'start', label: 'First day', type: 'date', required: true }, { key: 'pattern', label: 'Pattern', type: 'select', options: [{ value: 'MONTHLY', label: '12 calendar months' }, { value: '4-4-5', label: '4-4-5 weeks' }, { value: '13', label: '13 four-week periods' }] }, { key: 'special', label: 'Adjustment periods (0-4)', type: 'number', initial: 1 }, { key: 'name', label: 'Name' }], submitLabel: 'Create', onSubmit: (v) => f.createFiscalYear({ start: v.start, pattern: v.pattern as 'MONTHLY' | '4-4-5' | '13', specialPeriods: num(v.special), name: v.name || undefined }) })}>
+              <Plus size={14} /> Fiscal year
+            </button>
+          }
+        >
+          {state.fiscalYears.length ? (
+            <table className="fx-table">
+              <tbody>
+                {state.fiscalYears.map((y) => (
+                  <tr key={y.id}>
+                    <td>{y.name}</td>
+                    <td>
+                      {fmtDate(y.start)} – {fmtDate(y.end)}
+                    </td>
+                    <td>{y.pattern}</td>
+                    <td>
+                      <Pill status={y.status} />
+                    </td>
+                    <td>
+                      {y.status === 'OPEN' && (
+                        <button type="button" className="sx-link" onClick={() => f.yearEnd(y.id)}>
+                          Year-end close
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="sx-muted">Calendar months; no fiscal years defined.</p>
           )}
         </Panel>
       </div>
+      {prompt.node}
     </SuitePage>
   );
 };

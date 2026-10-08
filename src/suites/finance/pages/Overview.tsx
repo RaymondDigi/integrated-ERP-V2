@@ -40,6 +40,8 @@ import {
 } from '../engine';
 import { Bars, Donut, Meter, Panel, Stat, LinkButton } from '../../ui/kit';
 import { useLookups } from '../parts';
+import { TAX_FILING_ACCOUNTS } from '../ext/planning';
+import { runReport } from '../ext/analytics';
 import type { FinDocument, Journal, Settlement } from '../types';
 
 const greet = () => {
@@ -50,7 +52,7 @@ const greet = () => {
 type Item = { id: string; tone: 'critical' | 'warning' | 'info' | 'success'; icon: React.ReactNode; title: string; detail: string; page: FinancePage; focus?: string };
 
 export const FinanceOverview: React.FC = () => {
-  const { state, entries, actor, setPage } = useFinance();
+  const { state, fullState, entries, actor, setPage } = useFinance();
   const { party } = useLookups();
   const year = Number(TODAY.slice(0, 4));
   const month = Number(TODAY.slice(5, 7)) - 1;
@@ -92,6 +94,26 @@ export const FinanceOverview: React.FC = () => {
     if (!state.depreciationRuns.some((r) => r.period === prev.key)) items.push({ id: 'dep', tone: 'warning', icon: <CalendarClock size={15} />, title: `Run depreciation for ${periodLabel(prev.key, true)}`, detail: 'Needed before the month can close', page: 'assets' });
     items.push({ id: 'close', tone: 'info', icon: <Lock size={15} />, title: `Close ${periodLabel(prev.key, true)}`, detail: 'Month-end checklist', page: 'close' });
   }
+
+  // Tax calendar: last month's returns due this month and not yet filed
+  const lastPeriod = periodOf(addDays(`${TODAY.slice(0, 7)}-01`, -1));
+  for (const [tax, t] of Object.entries(TAX_FILING_ACCOUNTS)) {
+    const filed = state.taxFilings.some((x) => x.tax === tax && x.period === lastPeriod && x.status !== 'PREPARED');
+    const due = `${TODAY.slice(0, 7)}-${String(t.dueDay).padStart(2, '0')}`;
+    if (!filed && actor.role !== 'ACCOUNTANT')
+      items.push({ id: `tax${tax}`, tone: due < TODAY ? 'critical' : 'warning', icon: <CalendarClock size={15} />, title: `File ${t.label} for ${periodLabel(lastPeriod, true)}`, detail: `Due ${fmtDate(due)}`, page: 'tax' });
+  }
+  // Tolerance alerts set in Finance setup
+  if (ar.total > 0 && (arOverdue / ar.total) * 100 > state.settings.overdueTolerancePct)
+    items.push({ id: 'tolOverdue', tone: 'critical', icon: <AlertTriangle size={15} />, title: `Overdue receivables at ${Math.round((arOverdue / ar.total) * 100)}%`, detail: `Above the ${state.settings.overdueTolerancePct}% tolerance`, page: 'collections' });
+  const recurringDue = state.recurring.filter((r) => r.active && r.nextRun <= TODAY).length;
+  if (recurringDue) items.push({ id: 'rec', tone: 'info', icon: <Receipt size={15} />, title: `${recurringDue} recurring document${recurringDue === 1 ? '' : 's'} due`, detail: 'Generate them from Recurring & batches', page: 'recurring' });
+  const reopenReqs = state.periods.flatMap((p) => (p.reopenRequests ?? []).filter((r) => r.status === 'PENDING').map((r) => ({ ...r, key: p.key })));
+  if (actor.role === 'DIRECTOR')
+    for (const r of reopenReqs) items.push({ id: `ro${r.id}`, tone: 'warning', icon: <Lock size={15} />, title: `Reopen request for ${periodLabel(r.key, true)}`, detail: `${r.by}: ${r.reason}`, page: 'close' });
+  const changesWaiting = state.budgetChanges.filter((b) => b.status === 'SUBMITTED').length;
+  if (changesWaiting && actor.role !== 'ACCOUNTANT') items.push({ id: 'bc', tone: 'warning', icon: <Clock3 size={15} />, title: `${changesWaiting} budget change${changesWaiting === 1 ? '' : 's'} to approve`, detail: 'Supplementary budgets and reallocations', page: 'budgets' });
+  const pinned = state.reportDefs.filter((r) => r.pinned);
 
   const budget = budgetVsActual(state, entries, Math.max(0, month - 1))
     .filter((b) => b.account.type === 'EXPENSE')
@@ -227,6 +249,27 @@ export const FinanceOverview: React.FC = () => {
       </div>
 
       <div className="sx-row">
+        {pinned.length > 0 && (
+          <Panel title="Pinned reports" subtitle="Management reports pinned in the report writer" action={<LinkButton onClick={() => setPage('writer')}>Report writer</LinkButton>}>
+            <table className="sx-mini-table">
+              <tbody>
+                {pinned.map((r) => {
+                  const g = runReport(fullState, state, r, `${year}-01-01`, TODAY)[0];
+                  const last = r.rows.filter((x) => x.kind !== 'HEADING').pop();
+                  return (
+                    <tr key={r.id}>
+                      <td>{r.name}</td>
+                      <td className="sx-muted">{last?.label}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <b>{last && g ? kes(g.actual.get(last.id) ?? 0, { compact: true }) : '—'}</b>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Panel>
+        )}
         <Panel title="Largest balances owed" subtitle="Customers with the most outstanding" action={<LinkButton onClick={() => setPage('customers')}>Customers</LinkButton>}>
           <table className="sx-mini-table">
             <tbody>

@@ -11,6 +11,7 @@ import {
   kes,
   payState,
   periodOf,
+  rateOn,
   round2,
   TODAY,
   VAT_RATE
@@ -21,6 +22,7 @@ import { Chips, DataTable, DefList, Drawer, Empty, Field, Modal, Pill, SearchBox
 import { AccountSelect, PrintHeader, useLookups, WorkflowPanel } from '../parts';
 import { SettlementEditor } from './Settlements';
 import { printArea } from '../../../views/ess/EssRecords';
+import { Simulated, num, usePrompt } from '../ext/ui';
 
 type Kind = FinDocument['kind'];
 type Filter = 'ALL' | 'DRAFTS' | 'APPROVAL' | 'UNPAID' | 'OVERDUE' | 'PAID';
@@ -187,6 +189,99 @@ export const DocumentsPage: React.FC<{ kind: Kind }> = ({ kind }) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* Document actions: holds, e-invoicing, disputes, write-off, transfer, chargeback, PO match */
+/* ------------------------------------------------------------------ */
+
+const DocActions: React.FC<{ doc: FinDocument; balance: number }> = ({ doc, balance }) => {
+  const f = useFinance();
+  const { state } = f;
+  const prompt = usePrompt();
+  const isAR = doc.kind === 'INVOICE';
+  const posted = doc.status === 'POSTED';
+  const reasons = state.reasonCodes.map((r) => ({ value: r.code, label: `${r.code} · ${r.label}` }));
+  const others = state.parties.filter((p) => p.kind === (isAR ? 'CUSTOMER' : 'SUPPLIER') && p.id !== doc.partyId).map((p) => ({ value: p.id, label: p.name }));
+  const d = doc.delivery;
+  return (
+    <>
+      <h4 className="sx-subhead">Actions</h4>
+      {doc.hold && (
+        <p className="sx-note sx-danger-text">
+          On payment hold: {doc.hold.reason} ({doc.hold.by}, {fmtDate(doc.hold.at)})
+        </p>
+      )}
+      {d && (
+        <p className="sx-note">
+          Sent by {d.channel} on {fmtDate(d.sentAt)} · {d.status}
+          {d.etims && <> · eTIMS CU {d.etims.cuInvoiceNo}</>}
+          {d.payLink && <> · pay link {d.payLink}</>}
+          {d.dispute && !d.dispute.resolved && <> · disputed: {d.dispute.reason}</>} <Simulated what="eTIMS / email delivery" />
+        </p>
+      )}
+      <div className="fx-row-actions" data-testid="doc-actions">
+        {doc.hold ? (
+          <button type="button" className="sx-link" onClick={() => f.releaseDocument(doc.id)}>
+            Release hold
+          </button>
+        ) : (
+          <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Hold ${doc.number}`, fields: [{ key: 'reason', label: 'Reason', required: true }], submitLabel: 'Place hold', onSubmit: (v) => f.holdDocument(doc.id, v.reason) })}>
+            Place payment hold
+          </button>
+        )}
+        {isAR && posted && (
+          <>
+            <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Send ${doc.number}`, fields: [{ key: 'ch', label: 'Channel', type: 'select', options: [{ value: 'ETIMS', label: 'KRA eTIMS + email' }, { value: 'EMAIL', label: 'Email only' }, { value: 'PORTAL', label: 'Customer portal' }] }], submitLabel: 'Send', onSubmit: (v) => f.sendInvoice(doc.id, v.ch as 'ETIMS' | 'EMAIL' | 'PORTAL') })}>
+              {d ? 'Resend e-invoice' : 'Send e-invoice'}
+            </button>
+            {d && !d.payLink && balance > 0 && (
+              <button type="button" className="sx-link" onClick={() => f.payByLink(doc.id)}>
+                Simulate pay-by-link payment
+              </button>
+            )}
+            {d && (!d.dispute || d.dispute.resolved) ? (
+              <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Dispute on ${doc.number}`, fields: [{ key: 'reason', label: 'Customer dispute reason', required: true }], onSubmit: (v) => f.disputeInvoice(doc.id, v.reason) })}>
+                Log dispute
+              </button>
+            ) : d?.dispute ? (
+              <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Resolve dispute on ${doc.number}`, fields: [{ key: 'res', label: 'Resolution', required: true }], onSubmit: (v) => f.resolveDispute(doc.id, v.res) })}>
+                Resolve dispute
+              </button>
+            ) : null}
+          </>
+        )}
+        {posted && balance > 0 && (
+          <>
+            <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Write off ${doc.number}`, fields: [{ key: 'amount', label: 'Amount', type: 'number', initial: balance, required: true }, { key: 'reason', label: 'Reason code', type: 'select', options: reasons }, { key: 'date', label: 'Date', type: 'date', initial: TODAY }], submitLabel: 'Write off', onSubmit: (v) => f.writeOff(doc.id, num(v.amount), v.reason, v.date) })}>
+              Write off balance
+            </button>
+            <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Transfer ${doc.number}`, subtitle: `Moves the open balance to another ${isAR ? 'customer' : 'supplier'}.`, fields: [{ key: 'to', label: 'To', type: 'select', options: others }, { key: 'reason', label: 'Reason', required: true }], submitLabel: 'Transfer', onSubmit: (v) => f.transferInvoice(doc.id, v.to, v.reason) })}>
+              Transfer to another account
+            </button>
+            {isAR && (
+              <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Chargeback on ${doc.number}`, subtitle: 'Splits the disputed short payment into its own open item.', fields: [{ key: 'reason', label: 'Reason', required: true }], submitLabel: 'Create chargeback', onSubmit: (v) => f.chargeback(doc.id, v.reason) })}>
+                Chargeback
+              </button>
+            )}
+          </>
+        )}
+        {!isAR && (
+          <>
+            <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Three-way match for ${doc.number}`, fields: [{ key: 'po', label: 'PO number', initial: doc.match?.po ?? doc.poNumber ?? '' }, { key: 'grn', label: 'GRN number', initial: doc.match?.grn ?? '' }, { key: 'poAmount', label: 'PO amount', type: 'number' }, { key: 'grnQty', label: 'Quantity received', type: 'number' }, { key: 'billQty', label: 'Quantity billed', type: 'number' }], submitLabel: 'Check match', onSubmit: (v) => f.recordMatch(doc.id, { po: v.po, grn: v.grn, poAmount: num(v.poAmount), grnQty: num(v.grnQty), billQty: num(v.billQty) }) })}>
+              Record PO / GRN match
+            </button>
+            {doc.match && !doc.match.matched && (
+              <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Override match on ${doc.number}`, subtitle: 'Directors only. The reason is kept on the bill and in the audit trail.', fields: [{ key: 'reason', label: 'Reason', required: true }], submitLabel: 'Override', onSubmit: (v) => f.overrideMatch(doc.id, v.reason) })}>
+                Override match exception
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {prompt.node}
+    </>
+  );
+};
+
+/* ------------------------------------------------------------------ */
 /* Detail drawer                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -225,7 +320,7 @@ const DocumentDrawer: React.FC<{ doc: FinDocument; onClose: () => void; onEdit: 
         footer={
           <>
             <button type="button" className="btn btn-secondary btn-sm" onClick={printArea}>
-              <Printer size={14} /> Print {doc.kind === 'INVOICE' ? 'tax invoice' : 'bill'}
+              <Printer size={14} /> Print {doc.kind === 'INVOICE' ? (doc.status === 'POSTED' ? 'tax invoice' : 'proforma invoice') : 'bill'}
             </button>
             <span className="sx-grow" />
             {doc.status === 'POSTED' && balance > 0 && !pending.length && (
@@ -348,6 +443,8 @@ const DocumentDrawer: React.FC<{ doc: FinDocument; onClose: () => void; onEdit: 
           </tbody>
         </table>
 
+        <DocActions doc={doc} balance={balance} />
+
         <h4 className="sx-subhead">Approval</h4>
         <WorkflowPanel collection="documents" doc={doc} onEdit={onEdit} />
 
@@ -372,7 +469,7 @@ const PrintableDocument: React.FC<{ doc: FinDocument }> = ({ doc }) => {
   return (
     <article className="sx-print-only ess-print-area sx-paper">
       <PrintHeader
-        title={doc.kind === 'INVOICE' ? 'Tax invoice' : 'Supplier bill'}
+        title={doc.kind === 'INVOICE' ? (doc.status === 'POSTED' ? 'Tax invoice' : 'Proforma invoice') : 'Supplier bill'}
         number={doc.number}
         meta={[
           ['Date', fmtDate(doc.date)],
@@ -474,6 +571,23 @@ export const DocumentEditor: React.FC<{ kind: Kind; doc: FinDocument | null; onC
   const set = (patch: Partial<DocumentDraft>) => setD((x) => ({ ...x, ...patch }));
   const setLine = (id: string, patch: Partial<DocLine>) => set({ lines: d.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)) });
   const party = parties.find((p) => p.id === d.partyId);
+  const taxCodes = state.taxCodes.filter((x) => x.active && ['VAT', 'ZERO', 'EXEMPT', 'REVERSE'].includes(x.kind) && (x.appliesTo === 'BOTH' || x.appliesTo === (kind === 'INVOICE' ? 'SALES' : 'PURCHASE')));
+  const levyCodes = state.taxCodes.filter((x) => x.active && (x.kind === 'LEVY' || x.kind === 'EXCISE') && (x.appliesTo === 'BOTH' || x.appliesTo === (kind === 'INVOICE' ? 'SALES' : 'PURCHASE')));
+  const rateOf = (code: string) => [...(state.taxCodes.find((x) => x.code === code)?.rates ?? [])].filter((r) => r.from <= d.date).pop()?.rate ?? 0;
+  const setTax = (id: string, code: string) => {
+    const t = state.taxCodes.find((x) => x.code === code);
+    setLine(id, { taxCode: code || undefined, taxRate: code ? rateOf(code) : undefined, vat: code ? rateOf(code) > 0 : false, reverseCharge: t?.kind === 'REVERSE' || undefined });
+  };
+  const setLevy = (id: string, code: string) => {
+    const t = state.taxCodes.find((x) => x.code === code);
+    setLine(id, { levies: t ? [{ code: t.code, rate: rateOf(t.code), account: t.account }] : undefined });
+  };
+  const addresses = party?.addresses ?? [];
+  const pickCurrency = (cur: string) => set({ currency: cur === 'KES' ? undefined : cur, fxRate: cur === 'KES' ? undefined : rateOn(state, cur, d.date) });
+  const addRateCard = (id: string) => {
+    const rc = state.rateCards.find((x) => x.id === id);
+    if (rc) set({ lines: [...d.lines.filter((l) => l.description.trim() || l.price), { ...blankLine(kind), description: `${rc.name} (per ${rc.unit.toLowerCase()})`, account: rc.account, price: rc.rate }] });
+  };
   const t = docTotals(d);
 
   const choose = (partyId: string) => {
@@ -552,6 +666,68 @@ export const DocumentEditor: React.FC<{ kind: Kind; doc: FinDocument | null; onC
             ))}
           </select>
         </Field>
+        <Field label="Currency" hint={d.currency ? `KES per ${d.currency}` : 'Base currency'}>
+          <select className="form-control" value={d.currency ?? 'KES'} onChange={(e) => pickCurrency(e.target.value)} name="currency">
+            <option value="KES">KES</option>
+            {state.currencies
+              .filter((c) => c.code !== 'KES')
+              .map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code} · {c.name}
+                </option>
+              ))}
+          </select>
+        </Field>
+        {d.currency && (
+          <Field label="Exchange rate" required>
+            <input className="form-control" type="number" step="any" value={d.fxRate ?? ''} onChange={(e) => set({ fxRate: Number(e.target.value) || undefined })} name="fxRate" />
+          </Field>
+        )}
+        {kind === 'INVOICE' && addresses.length > 0 && (
+          <>
+            <Field label="Bill to">
+              <select className="form-control" value={d.billToId ?? ''} onChange={(e) => set({ billToId: e.target.value || undefined })}>
+                <option value="">Main address</option>
+                {addresses
+                  .filter((a) => a.type === 'BILL_TO')
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            <Field label="Ship to">
+              <select className="form-control" value={d.shipToId ?? ''} onChange={(e) => set({ shipToId: e.target.value || undefined })}>
+                <option value="">Same as bill to</option>
+                {addresses
+                  .filter((a) => a.type === 'SHIP_TO')
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+          </>
+        )}
+        {kind === 'INVOICE' && (
+          <Field label="Sales rep">
+            <input className="form-control" value={d.salesRep ?? ''} onChange={(e) => set({ salesRep: e.target.value || undefined })} />
+          </Field>
+        )}
+        <Field label="Entry batch">
+          <select className="form-control" value={d.batchId ?? ''} onChange={(e) => set({ batchId: e.target.value || undefined })}>
+            <option value="">None</option>
+            {state.invoiceBatches
+              .filter((b) => b.kind === kind)
+              .map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.number}
+                </option>
+              ))}
+          </select>
+        </Field>
         {kind === 'BILL' && d.match && (
           <>
             <Field label="Purchase order">
@@ -605,8 +781,56 @@ export const DocumentEditor: React.FC<{ kind: Kind; doc: FinDocument | null; onC
             <button type="button" className="sx-icon-btn" onClick={() => set({ lines: d.lines.length > 1 ? d.lines.filter((x) => x.id !== l.id) : d.lines })} aria-label="Remove line" disabled={d.lines.length === 1}>
               <Trash2 size={14} />
             </button>
+            <div className="fx-dims" style={{ gridColumn: '1 / -1' }}>
+              <select className="form-control" value={l.taxCode ?? ''} onChange={(e) => setTax(l.id, e.target.value)} aria-label="Tax code">
+                <option value="">{l.vat ? 'VAT 16% (default)' : 'No tax code'}</option>
+                {taxCodes.map((x) => (
+                  <option key={x.code} value={x.code}>
+                    {x.code} · {x.name}
+                  </option>
+                ))}
+              </select>
+              <select className="form-control" value={l.levies?.[0]?.code ?? ''} onChange={(e) => setLevy(l.id, e.target.value)} aria-label="Levy">
+                <option value="">No levy</option>
+                {levyCodes.map((x) => (
+                  <option key={x.code} value={x.code}>
+                    {x.code} · {x.name}
+                  </option>
+                ))}
+              </select>
+              <select className="form-control" value={l.costCenter ?? ''} onChange={(e) => setLine(l.id, { costCenter: e.target.value || undefined })} aria-label="Cost centre">
+                <option value="">Cost / profit centre…</option>
+                {state.costCenters
+                  .filter((c) => c.active)
+                  .map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.code} · {c.name}
+                    </option>
+                  ))}
+              </select>
+              <select className="form-control" value={l.project ?? ''} onChange={(e) => setLine(l.id, { project: e.target.value || undefined })} aria-label="Project">
+                <option value="">Project / order…</option>
+                {state.costObjects
+                  .filter((c) => c.status === 'OPEN')
+                  .map((c) => (
+                    <option key={c.id} value={c.code}>
+                      {c.code} · {c.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
           </div>
         ))}
+        {state.rateCards.length > 0 && (
+          <select className="form-control fx-inline-select" value="" onChange={(e) => addRateCard(e.target.value)} aria-label="Add from rate card">
+            <option value="">Add a line from a rate card…</option>
+            {state.rateCards.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name} · {r.rate.toLocaleString()} per {r.unit.toLowerCase()}
+              </option>
+            ))}
+          </select>
+        )}
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => set({ lines: [...d.lines, blankLine(kind)] })}>
           <Plus size={14} /> Add line
         </button>

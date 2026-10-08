@@ -5,6 +5,8 @@ import { docBalance, docTotals, fmtDate, isOverdue, kes, round2, TODAY } from '.
 import type { Party } from '../types';
 import { DataTable, DefList, Drawer, Field, Meter, Modal, SearchBox, Stat, SuitePage, type Column } from '../../ui/kit';
 import { PrintHeader } from '../parts';
+import { partyStats } from '../ext/analytics';
+import { num, usePrompt } from '../ext/ui';
 import { printArea } from '../../../views/ess/EssRecords';
 
 export const PartiesPage: React.FC<{ kind: Party['kind'] }> = ({ kind }) => {
@@ -116,6 +118,88 @@ export const PartiesPage: React.FC<{ kind: Party['kind'] }> = ({ kind }) => {
   );
 };
 
+/** Statistics, holds, credit extensions, contacts, addresses and notes for one customer or supplier. */
+const PartyExtras: React.FC<{ party: Party }> = ({ party }) => {
+  const f = useFinance();
+  const prompt = usePrompt();
+  const st = partyStats(f.state, party.id);
+  const customer = party.kind === 'CUSTOMER';
+  const save = (patch: Partial<Party>) => f.saveParty({ ...party, ...patch });
+  const ext = (party.creditExtensions ?? []).filter((e) => e.to >= TODAY);
+  return (
+    <>
+      <h4 className="sx-subhead">Account statistics</h4>
+      <DefList
+        items={[
+          ['Open balance', kes(st.open)],
+          ['Overdue', kes(st.overdue)],
+          [customer ? 'Average days to pay' : 'Average days we take', st.paidCount ? `${st.avgDaysToPay} days` : '—'],
+          ['Paid late', st.paidCount ? `${Math.round(st.lateShare * 100)}%` : '—'],
+          ...(customer ? [['DSO (90 days)', `${st.dso} days`] as [string, string]] : []),
+          ['Largest document', kes(st.highest)],
+          ['Last payment', st.lastPayment ? `${fmtDate(st.lastPayment.date)} · ${kes(st.lastPayment.amount)}` : '—'],
+          ...(customer && party.creditLimit ? [['Credit limit', `${kes(party.creditLimit)}${ext.length ? ` + ${kes(ext.reduce((x, e) => x + e.amount, 0))} temporary` : ''}`] as [string, string]] : [])
+        ]}
+      />
+      {party.paymentHold && <p className="sx-note sx-danger-text">On hold: {party.paymentHold.reason} ({party.paymentHold.by})</p>}
+      <div className="fx-row-actions" data-testid="party-actions">
+        {party.paymentHold ? (
+          <button type="button" className="sx-link" onClick={() => f.releaseParty(party.id)}>
+            Release hold
+          </button>
+        ) : (
+          <button type="button" className="sx-link" onClick={() => prompt.open({ title: `Hold ${party.name}`, fields: [{ key: 'reason', label: 'Reason', required: true }], submitLabel: 'Place hold', onSubmit: (v) => f.holdParty(party.id, v.reason) })}>
+            Place {customer ? 'credit' : 'payment'} hold
+          </button>
+        )}
+        {customer && (
+          <button type="button" className="sx-link" onClick={() => prompt.open({ title: 'Temporary credit extension', fields: [{ key: 'amount', label: 'Extra credit', type: 'number', required: true }, { key: 'from', label: 'From', type: 'date', initial: TODAY }, { key: 'to', label: 'Until', type: 'date', required: true }, { key: 'reason', label: 'Reason', required: true }], onSubmit: (v) => f.addCreditExtension(party.id, { amount: num(v.amount), from: v.from, to: v.to, reason: v.reason }) })}>
+            Extend credit
+          </button>
+        )}
+        <button type="button" className="sx-link" onClick={() => prompt.open({ title: 'Add contact', fields: [{ key: 'name', label: 'Name', required: true }, { key: 'role', label: 'Role', type: 'select', options: ['BILLING', 'AR', 'AP', 'OTHER'].map((r) => ({ value: r, label: r })) }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }], onSubmit: (v) => (v.name.trim() ? save({ contacts: [...(party.contacts ?? []), { id: `ct${Date.now()}`, name: v.name.trim(), role: v.role as 'BILLING', email: v.email, phone: v.phone }] }) : { ok: false as const, error: 'Enter the name' }) })}>
+          Add contact
+        </button>
+        <button type="button" className="sx-link" onClick={() => prompt.open({ title: 'Add address', fields: [{ key: 'type', label: 'Type', type: 'select', options: [{ value: 'BILL_TO', label: 'Bill to' }, { value: 'SHIP_TO', label: 'Ship to' }] }, { key: 'label', label: 'Label', required: true }, { key: 'address', label: 'Address', type: 'textarea' }, { key: 'taxCode', label: 'Tax code', initial: 'V16' }, { key: 'taxId', label: 'Tax registration', initial: party.pin }], onSubmit: (v) => (v.label.trim() ? save({ addresses: [...(party.addresses ?? []), { id: `ad${Date.now()}`, type: v.type as 'BILL_TO', label: v.label.trim(), address: v.address, taxCode: v.taxCode, taxId: v.taxId }] }) : { ok: false as const, error: 'Enter a label' }) })}>
+          Add address
+        </button>
+        <button type="button" className="sx-link" onClick={() => prompt.open({ title: 'Add note', fields: [{ key: 'text', label: 'Note', type: 'textarea', required: true }, { key: 'promise', label: 'Promise-to-pay date', type: 'date' }], onSubmit: (v) => (v.text.trim() ? save({ notes: [{ at: new Date().toISOString(), by: f.actor.name, text: v.text.trim(), promiseDate: v.promise || undefined }, ...(party.notes ?? [])] }) : { ok: false as const, error: 'Write the note' }) })}>
+          Add note
+        </button>
+      </div>
+      {!!party.contacts?.length && (
+        <ul className="fx-list">
+          {party.contacts.map((c) => (
+            <li key={c.id}>
+              <b>{c.name}</b> ({c.role}) {c.email} {c.phone}
+            </li>
+          ))}
+        </ul>
+      )}
+      {!!party.addresses?.length && (
+        <ul className="fx-list">
+          {party.addresses.map((a) => (
+            <li key={a.id}>
+              <b>{a.type === 'BILL_TO' ? 'Bill to' : 'Ship to'} · {a.label}</b> {a.address} · {a.taxCode} {a.taxId}
+            </li>
+          ))}
+        </ul>
+      )}
+      {!!party.notes?.length && (
+        <ul className="fx-list">
+          {party.notes.slice(0, 6).map((n, i) => (
+            <li key={i}>
+              {fmtDate(n.at.slice(0, 10))} {n.by}: {n.text}
+              {n.promiseDate ? ` · promised ${fmtDate(n.promiseDate)}` : ''}
+            </li>
+          ))}
+        </ul>
+      )}
+      {prompt.node}
+    </>
+  );
+};
+
 const PartyDrawer: React.FC<{ party: Party; onClose: () => void; onEdit: () => void; onOpenDoc: (id: string, page: 'invoices' | 'bills' | 'receipts' | 'payments') => void }> = ({
   party,
   onClose,
@@ -168,6 +252,8 @@ const PartyDrawer: React.FC<{ party: Party; onClose: () => void; onEdit: () => v
         )}
       </div>
       <DefList items={[['KRA PIN', party.pin], ['Email', party.email], ['Phone', party.phone], ['Payment terms', `${party.terms} days`]]} />
+      <PartyExtras party={party} />
+
       <h4 className="sx-subhead">Statement — latest {recent.length} entries</h4>
       <table className="sx-mini-table">
         <thead>

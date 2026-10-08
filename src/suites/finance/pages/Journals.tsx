@@ -247,7 +247,7 @@ const JournalLinesTable: React.FC<{ lines: JournalLine[]; accountLabel: (c: stri
 const blank = (): JournalLine => ({ id: `n${Math.random().toString(36).slice(2, 8)}`, account: '', description: '', debit: 0, credit: 0 });
 
 const JournalEditor: React.FC<{ journal: Journal | null; onClose: () => void; onSaved: (id: string) => void }> = ({ journal, onClose, onSaved }) => {
-  const { saveJournal, transition } = useFinance();
+  const { state, saveJournal, transition } = useFinance();
   const [d, setD] = useState<JournalDraft>(() =>
     journal ? { id: journal.id, date: journal.date, memo: journal.memo, lines: journal.lines.map((l) => ({ ...l })) } : { date: TODAY, memo: '', lines: [blank(), blank()] }
   );
@@ -291,6 +291,31 @@ const JournalEditor: React.FC<{ journal: Journal | null; onClose: () => void; on
         </Field>
         <Field label="Date" required>
           <input className="form-control" type="date" value={d.date} onChange={(e) => setD({ ...d, date: e.target.value })} />
+        </Field>
+        <Field label="Reason code">
+          <select className="form-control" value={d.reasonCode ?? ''} onChange={(e) => setD({ ...d, reasonCode: e.target.value || undefined })} name="reasonCode">
+            <option value="">None</option>
+            {state.reasonCodes.map((r) => (
+              <option key={r.code} value={r.code}>
+                {r.code} · {r.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Reverse automatically on" hint="Accruals: reversed by the close run">
+          <input className="form-control" type="date" value={d.autoReverseOn ?? ''} onChange={(e) => setD({ ...d, autoReverseOn: e.target.value || undefined })} name="autoReverseOn" />
+        </Field>
+        <Field label="Adjustment period">
+          <select className="form-control" value={d.periodKey ?? ''} onChange={(e) => setD({ ...d, periodKey: e.target.value || undefined })} name="periodKey">
+            <option value="">Normal period for the date</option>
+            {state.periods
+              .filter((p) => p.special && p.status === 'OPEN')
+              .map((p) => (
+                <option key={p.key} value={p.key}>
+                  {p.label ?? p.key}
+                </option>
+              ))}
+          </select>
         </Field>
       </div>
       <div className="sx-lines sx-jlines">
