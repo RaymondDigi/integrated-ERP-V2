@@ -3,7 +3,8 @@ import { useSession } from '../../../auth/session';
 import { usePhotoActions } from './usePhotoActions';
 import { kinOf } from '../../../utils/nextOfKin';
 import React, { useState } from 'react';
-import { Eye, EyeOff, TrendingUp, ArrowLeftRight, FileClock, BadgeCheck, CalendarPlus, Lock, FileText, Pencil } from 'lucide-react';
+import { Eye, EyeOff, TrendingUp, ArrowLeftRight, FileClock, BadgeCheck, CalendarPlus, Lock, FileText, Pencil, TrendingDown, Shuffle, UserCog, RotateCcw } from 'lucide-react';
+import { Attachments } from '../../../platform/Widgets';
 import { useApp } from '../../../context/AppContext';
 import type { HREmployee } from '../../../types';
 import { CHANGE_LABEL, type ChangeKind, type EmployeeChange } from '../../../data/hireConfig';
@@ -57,7 +58,10 @@ export const ProfileDrawer: React.FC<{ e: HREmployee; onClose: () => void; unmas
     { kind: 'PROMOTION', label: 'Promotion / increment', icon: TrendingUp, show: !casual },
     { kind: 'TRANSFER', label: 'Transfer', icon: ArrowLeftRight, show: true },
     { kind: 'RENEW_CONTRACT', label: 'Renew contract', icon: FileClock, show: !!ct?.hasEndDate && !casual },
-    { kind: 'CONVERT_CONTRACT', label: 'Convert contract', icon: FileText, show: !casual }
+    { kind: 'CONVERT_CONTRACT', label: 'Convert contract', icon: FileText, show: !casual },
+    { kind: 'DEMOTION', label: 'Demotion', icon: TrendingDown, show: !casual },
+    { kind: 'REASSIGNMENT', label: 'Reassign duties', icon: Shuffle, show: true },
+    { kind: 'ACTING', label: 'Acting appointment', icon: UserCog, show: true }
   ];
 
   const docs = [
@@ -100,6 +104,11 @@ export const ProfileDrawer: React.FC<{ e: HREmployee; onClose: () => void; unmas
                     <a.icon size={13} /> {a.label}
                   </button>
                 ))}
+            {e.status === 'TERMINATED' && (
+              <button className="btn btn-secondary btn-sm" onClick={() => setChange('REHIRE')}>
+                <RotateCcw size={13} /> Re-hire
+              </button>
+            )}
           </div>
         }
       >
@@ -369,6 +378,7 @@ export const ProfileDrawer: React.FC<{ e: HREmployee; onClose: () => void; unmas
                 ))}
               </tbody>
             </table>
+            <Attachments owner={`EMP-${e.staffId}`} by={session?.name ?? 'HR office'} readOnly={session?.role === 'viewer'} title="Scanned personnel documents" />
           </div>
         )}
 
@@ -405,7 +415,7 @@ export const ProfileDrawer: React.FC<{ e: HREmployee; onClose: () => void; unmas
 
 /* ------------------------------------------------------------------ change request */
 
-const PAY: ChangeKind[] = ['PROMOTION', 'INCREMENT', 'REGRADE'];
+const PAY: ChangeKind[] = ['PROMOTION', 'INCREMENT', 'REGRADE', 'DEMOTION'];
 
 export const ChangeModal: React.FC<{ e: HREmployee; kind: ChangeKind; onClose: () => void }> = ({ e, kind: initialKind, onClose }) => {
   const { requestEmployeeChange, payrollOpenPeriod, hireRules, tenantEmployees, orgStructure, hrEmployees } = useApp();
@@ -427,6 +437,14 @@ export const ChangeModal: React.FC<{ e: HREmployee; kind: ChangeKind; onClose: (
   const [endDate, setEndDate] = useState(kind === 'EXTEND_PROBATION' ? addDays(prob.end ?? todayIso(), 90) : e.contractEndDate ? addDays(e.contractEndDate, 365) : '');
   const [contractType, setContractType] = useState(e.contractType === 'Standard Employment Contract' ? 'Fixed-Term Contract' : 'Standard Employment Contract');
   const [reason, setReason] = useState('');
+  const [caseRef, setCaseRef] = useState('');
+  const [duties, setDuties] = useState('');
+  const [actingTitle, setActingTitle] = useState('');
+  const [actingFor, setActingFor] = useState('');
+  const [actingTo, setActingTo] = useState(addDays(todayIso(), 90));
+  const [allowance, setAllowance] = useState(0);
+  const [startDate, setStartDate] = useState(addDays(todayIso(), 7));
+  const [rehireContract, setRehireContract] = useState(e.contractType);
   const band = bandOf(grade);
   const pos = bandPosition(basic, grade);
   const stations = orgStructure.stations.filter((s) => orgStructure.branches.find((b) => b.id === s.branchId)?.name === e.branch);
@@ -437,8 +455,12 @@ export const ChangeModal: React.FC<{ e: HREmployee; kind: ChangeKind; onClose: (
     let effectiveFrom = date;
     if (PAY.includes(kind)) {
       effectiveFrom = month;
-      Object.assign(payload, { newBasic: basic, grade, jobTitle: kind === 'PROMOTION' ? title : undefined });
+      Object.assign(payload, { newBasic: basic, grade, jobTitle: kind === 'PROMOTION' || (kind === 'DEMOTION' && title !== e.jobTitle) ? title : undefined });
     }
+    if (kind === 'DEMOTION') payload.caseRef = caseRef;
+    if (kind === 'REASSIGNMENT') Object.assign(payload, { duties, jobTitle: title !== e.jobTitle ? title : undefined });
+    if (kind === 'ACTING') Object.assign(payload, { actingTitle, actingForStaffId: actingFor || undefined, actingTo, allowance });
+    if (kind === 'REHIRE') Object.assign(payload, { startDate, contractType: rehireContract });
     if (kind === 'TRANSFER') Object.assign(payload, { department: department !== e.department ? department : undefined, stationId: station && station !== e.stationId ? station : undefined, supervisorStaffId: supervisor || undefined });
     if (kind === 'EXTEND_PROBATION') payload.probationEndDate = endDate;
     if (kind === 'RENEW_CONTRACT') payload.contractEndDate = endDate;
@@ -492,7 +514,12 @@ export const ChangeModal: React.FC<{ e: HREmployee; kind: ChangeKind; onClose: (
                 </select>
               </Field>
             )}
-            {kind === 'PROMOTION' && (
+            {kind === 'DEMOTION' && (
+              <Field label="Case reference" hint="Disciplinary or performance case">
+                <input className="form-control" value={caseRef} onChange={(ev) => setCaseRef(ev.target.value)} placeholder="e.g. DC-2026-014" />
+              </Field>
+            )}
+            {(kind === 'PROMOTION' || kind === 'DEMOTION') && (
               <Field label="New job title">
                 <input className="form-control" value={title} onChange={(ev) => setTitle(ev.target.value)} />
               </Field>
@@ -540,6 +567,52 @@ export const ChangeModal: React.FC<{ e: HREmployee; kind: ChangeKind; onClose: (
           </Field>
           <Field label="Effective date">
             <input className="form-control" type="date" min={todayIso()} value={date} onChange={(ev) => setDate(ev.target.value)} />
+          </Field>
+        </div>
+      )}
+      {kind === 'REASSIGNMENT' && (
+        <div className="pr-form-grid">
+          <Field label="Job title (optional change)">
+            <input className="form-control" value={title} onChange={(ev) => setTitle(ev.target.value)} />
+          </Field>
+          <Field label="Effective date">
+            <input className="form-control" type="date" value={date} onChange={(ev) => setDate(ev.target.value)} />
+          </Field>
+          <Field label="New duties" wide>
+            <textarea className="form-control" rows={2} value={duties} onChange={(ev) => setDuties(ev.target.value)} placeholder="e.g. Covers withering and rolling lines on night shift" />
+          </Field>
+        </div>
+      )}
+      {kind === 'ACTING' && (
+        <div className="pr-form-grid">
+          <Field label="Acting as">
+            <input className="form-control" value={actingTitle} onChange={(ev) => setActingTitle(ev.target.value)} placeholder="e.g. Acting Factory Manager" />
+          </Field>
+          <Field label="Acting for (optional)">
+            <PersonSelect value={actingFor} onChange={setActingFor} people={tenantEmployees.filter((x) => x.staffId !== e.staffId && x.status !== 'TERMINATED')} />
+          </Field>
+          <Field label="From">
+            <input className="form-control" type="date" value={date} onChange={(ev) => setDate(ev.target.value)} />
+          </Field>
+          <Field label="To" hint="At most 6 months">
+            <input className="form-control" type="date" value={actingTo} onChange={(ev) => setActingTo(ev.target.value)} />
+          </Field>
+          <Field label="Acting allowance (KES / month)" hint="Paid through payroll until the end date">
+            <input className="form-control" type="number" min={0} step={500} value={allowance} onChange={(ev) => setAllowance(Number(ev.target.value))} />
+          </Field>
+        </div>
+      )}
+      {kind === 'REHIRE' && (
+        <div className="pr-form-grid">
+          <Field label="New start date" hint={e.exitDate ? `Last exit ${fmtDate(e.exitDate)}` : undefined}>
+            <input className="form-control" type="date" value={startDate} onChange={(ev) => setStartDate(ev.target.value)} />
+          </Field>
+          <Field label="Contract">
+            <select className="form-control" value={rehireContract} onChange={(ev) => setRehireContract(ev.target.value)}>
+              {CONTRACT_TYPES.map((c) => (
+                <option key={c.id}>{c.name}</option>
+              ))}
+            </select>
           </Field>
         </div>
       )}

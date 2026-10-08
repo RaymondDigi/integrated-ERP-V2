@@ -5,6 +5,7 @@ import type { LeaveRequest } from '../../../types';
 import { hrApproverFor } from '../../../data/leaveConfig';
 import { usePaged, Pager } from '../../../components/common/Pager';
 import { codeOf, countLeaveDays, leaveCodes, leaveName, typeAt, todayIso, typeLedger, validateLeaveRequest, workflowFor } from '../../../data/leaveEngine';
+import { RecordAttachments } from '../hcm/ui';
 import { ApprovalChain, Drawer, Messages, StatusPill, TXN_LABEL, fmtDate, fmtDays, fmtNum, fmtShort, signed } from './shared';
 
 type StatusFilter = 'ALL' | LeaveRequest['status'];
@@ -384,6 +385,7 @@ const RequestDrawer: React.FC<{ request: LeaveRequest; onClose: () => void; onRe
             </table>
           </div>
         )}
+        <RecordAttachments owner={`LEAVE-${r.id}`} title="Supporting documents (medical certificate, letters)" />
       </div>
     </Drawer>
   );

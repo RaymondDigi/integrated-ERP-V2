@@ -3,6 +3,7 @@ import { useApp } from '../../../context/AppContext';
 import { useAccess } from '../../../platform/access';
 import type { HREmployee } from '../../../types';
 import { active } from '../../../data/hcmEngine';
+import { Attachments } from '../../../platform/Widgets';
 
 /** Shared bits for the HR services screens: staff lookups, buttons, status pills and simulated-integration labels. */
 
@@ -67,3 +68,9 @@ export const Toolbar: React.FC<{ children: React.ReactNode }> = ({ children }) =
     {children}
   </div>
 );
+
+/** Supporting documents for any HR record, attributed to the signed-in user; read-only for viewer accounts. */
+export const RecordAttachments: React.FC<{ owner: string; title?: string }> = ({ owner, title }) => {
+  const { canEdit, name } = useCanEdit();
+  return <Attachments owner={owner} by={name} readOnly={!canEdit} title={title} />;
+};
