@@ -130,8 +130,8 @@ const useProcExtValue = () => {
   /* ---------------- Budget position for a requisition ---------------- */
   const accountOf = (sku: string) => com.snapshot().products.find((p) => p.sku === sku)?.account ?? '5000';
   const reqAccount = (reqId: string) => ref.current.reqExt[reqId]?.budgetAccount;
-  const budgetFor = (r: Pick<Requisition, 'lines'> & { id?: string; number?: string }) => {
-    const account = (r.id && reqAccount(r.id)) || accountOf(r.lines[0]?.sku ?? '');
+  const budgetFor = (r: Pick<Requisition, 'lines'> & { id?: string; number?: string }, accountOverride?: string) => {
+    const account = accountOverride || (r.id && reqAccount(r.id)) || accountOf(r.lines[0]?.sku ?? '');
     const pos = budgetPosition(fin.snapshot(), fin.entries, com.snapshot(), account, accountOf, reqAccount, r.number);
     const value = round2(r.lines.reduce((a, l) => a + l.qty * l.estPrice, 0));
     return { ...pos, value, over: pos.hasBudget && value > pos.available };

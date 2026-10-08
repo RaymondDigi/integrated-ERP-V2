@@ -238,6 +238,21 @@ export const supplierActions = (c: Ctx) => {
     return done('Update submitted', 'The procurement team will verify and approve it');
   };
 
+  /** Supplier edits its own profile on the portal without being asked: becomes a submitted update request. */
+  const proposeUpdate = (id: string, changes: Partial<SupplierCore>): Result => {
+    if (c.readOnly()) return fail(c.readOnly()!);
+    const p = prof(id);
+    if (!p || p.status !== 'APPROVED') return fail('Only approved suppliers can update their details here');
+    const open = p.updateRequests.find((u) => u.status === 'SENT' || u.status === 'REJECTED');
+    if (open) return submitUpdate(id, open.id, changes);
+    if (p.updateRequests.some((u) => u.status === 'SUBMITTED' || u.status === 'UNDER_REVIEW')) return fail('Your previous update is still being reviewed');
+    const changed = (Object.keys(changes) as (keyof SupplierCore)[]).filter((k) => JSON.stringify(changes[k]) !== JSON.stringify(p[k]));
+    if (!changed.length) return fail('Nothing has changed');
+    const reqId = uid('ur');
+    setProf(id, (x) => ({ updateRequests: [...x.updateRequests, { id: reqId, formCategory: p.category, status: 'SENT', sentAt: now(), due: addDays(TODAY, 14), sentBy: 'Supplier portal', changes: {}, comments: [] }] }), 'Supplier started a profile update');
+    return submitUpdate(id, reqId, Object.fromEntries(changed.map((k) => [k, changes[k]])) as Partial<SupplierCore>);
+  };
+
   const decideUpdate = (id: string, reqId: string, approve: boolean, note: string): Result => {
     if (c.readOnly()) return fail(c.readOnly()!);
     const p = prof(id);
@@ -371,5 +386,5 @@ export const supplierActions = (c: Ctx) => {
 
   const setPortalSupplier = (partyId: string) => commit({ ...get(), portalSupplier: partyId });
 
-  return { requestOnboarding, register, saveProfile, submit, approve, reject, setStatus, addDocument, verifyDocument, toggleCheck, sendUpdateRequest, submitUpdate, decideUpdate, markUnderReview, evaluate, importSuppliers, saveFormConfig, submitCatalogueItem, decideCatalogueItem, submitAsn, setPortalSupplier, configFor };
+  return { requestOnboarding, register, saveProfile, submit, approve, reject, setStatus, addDocument, verifyDocument, toggleCheck, sendUpdateRequest, submitUpdate, proposeUpdate, decideUpdate, markUnderReview, evaluate, importSuppliers, saveFormConfig, submitCatalogueItem, decideCatalogueItem, submitAsn, setPortalSupplier, configFor };
 };
