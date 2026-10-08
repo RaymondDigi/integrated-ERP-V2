@@ -1,6 +1,7 @@
 import { addDays, localStamp, TODAY } from '../finance/engine';
 import type { HistoryEntry } from '../finance/types';
 import type { Audit, Capa, Change, Complaint, Connector, ControlState, CtlActor, CtlRole, ItAsset, Licence, Obligation, Permit, Policy, Risk, SyncEntry, Ticket, Workstream } from './types';
+import { buildControlExtras } from './data2';
 
 export const CTL_ACTORS: Record<CtlRole, CtlActor> = {
   QHSE: { role: 'QHSE', name: 'Ruth Chebet', title: 'QHSE Manager' },
@@ -23,7 +24,7 @@ const dueDay = (day: number, monthOffset = 0) => {
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
 };
 
-export const buildControlSeed = (): ControlState => {
+const buildBase = (): ControlState => {
   /* ---------------- Quality ---------------- */
   const audits: Audit[] = [
     {
@@ -196,6 +197,36 @@ export const buildControlSeed = (): ControlState => {
     policies,
     permits,
     workstreams,
-    sequence: { AUD: 5, CAPA: 5, CMP: 4, INC: 9, CHG: 3 }
+    sequence: { AUD: 5, CAPA: 5, CMP: 4, INC: 9, CHG: 3, OPP: 2, EMG: 2, PRB: 1, KB: 4, TC: 4, DOC: 4 },
+    ...buildControlExtras()
+  };
+};
+
+export const buildControlSeed = (): ControlState => {
+  const state = buildBase();
+  /* Richer detail on a few existing records for the newer screens */
+  const kri = (id: string, name: string, metric: NonNullable<Risk['kris']>[number]['metric'], warn: number, limit: number) => ({ id, name, metric, warn, limit });
+  const riskKris: Record<string, Risk['kris']> = {
+    rk2: [kri('k1', 'Materials below reorder level', 'LOW_STOCK_ITEMS', 2, 4)],
+    rk3: [kri('k2', 'Critical equipment down', 'EQUIPMENT_DOWN', 1, 2)],
+    rk4: [kri('k3', 'Overdue statutory filings', 'OVERDUE_FILINGS', 1, 2), kri('k4', 'Licences expiring in 30 days', 'EXPIRING_PERMITS', 2, 3)],
+    rk5: [kri('k5', 'Overdue corrective actions', 'OVERDUE_CAPAS', 1, 3)],
+    rk6: [kri('k6', 'Tickets breaching SLA', 'SLA_BREACHES', 1, 3), kri('k7', 'Failed integration syncs', 'FAILED_SYNCS', 1, 3)],
+    rk7: [kri('k8', 'Receivables overdue (% of total)', 'OVERDUE_RECEIVABLES_PCT', 20, 35)]
+  };
+  const channels: Complaint['channel'][] = ['Email', 'Sales rep', 'Phone', 'Customer portal'];
+  return {
+    ...state,
+    risks: state.risks.map((r) => ({ ...r, status: 'ACTIVE' as const, kris: riskKris[r.id] ?? [], history: [] })),
+    complaints: state.complaints.map((c, i) => ({ ...c, channel: channels[i % channels.length], acknowledgedAt: c.status === 'NEW' ? undefined : c.date, resolvedOn: c.status === 'RESOLVED' ? addDays(c.date, 5) : undefined, feedback: c.id === 'cm1' ? { rating: 4, comment: 'Quick replacement, thank you', at: addDays(c.date, 7) } : undefined })),
+    audits: state.audits.map((a) =>
+      a.id === 'au4'
+        ? { ...a, auditee: 'Esther Muthoni', scope: 'Blending floor, dryer area, fumigation store', checklist: [{ question: 'Fire extinguishers inspected this month', clause: 'OSHA 2007 s.78' }, { question: 'Guards fitted on all sorting machines', clause: 'OSHA 2007 s.55' }, { question: 'PPE worn in the fumigation store', clause: 'OSHA 2007 s.101' }] }
+        : a.id === 'au3'
+          ? { ...a, auditee: 'John Kiprop', programmeAreaId: 'pa2', checklist: [{ question: 'Stock-count variances explained in writing', clause: 'ICF 4.2', result: 'NONCONFORM' as const }, { question: 'Bonded stock reconciled to KRA customs records', clause: 'ICF 4.5', result: 'CONFORM' as const }, { question: 'Lot numbers on every pallet', clause: 'ICF 4.7' }] }
+          : a
+    ),
+    assets: state.assets.map((a, i) => ({ ...a, serial: `SN${(70421 + i * 137).toString(36).toUpperCase()}`, location: a.department === 'Operations' ? 'Mombasa — Shimanzi' : 'Nairobi head office', ...(a.type === 'Laptop' ? { cpu: 'Intel Core i5-1235U', ram: '16 GB', os: 'Windows 11 Pro' } : a.type === 'Server' ? { cpu: 'Xeon Silver 4310', ram: '64 GB', os: 'Windows Server 2022' } : {}) })),
+    permits: state.permits.map((p) => ({ ...p, owner: p.site === 'Factory' ? 'Ruth Chebet' : 'Agnes Wairimu', annualCost: { pe1: 120_000, pe2: 18_000, pe3: 5_000, pe4: 25_000, pe5: 60_000, pe6: 15_000, pe7: 40_000 }[p.id] }))
   };
 };

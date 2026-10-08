@@ -6,6 +6,7 @@ import {
   KeyRound,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { AccessRequestsPanel, ModuleAccessPanel } from './PlatformPanels';
 
 export const RolesView: React.FC = () => {
   const { roles, addToast } = useApp();
@@ -51,6 +52,9 @@ export const RolesView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      <AccessRequestsPanel />
+      <ModuleAccessPanel />
 
       <div className="responsive-split-view">
         {/* Role Selection List */}

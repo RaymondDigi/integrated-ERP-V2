@@ -3,6 +3,7 @@ import { Download, FileUp, Paperclip, PenLine, Printer, Trash2, Upload } from 'l
 import { addAttachment, removeAttachment, useAttachments } from './attachments';
 import { exportCsv, parseCsvObjects, readFileText, type Cell } from './csv';
 import { Field, Modal } from '../suites/ui/kit';
+import { barcodeSvg } from './barcode';
 
 const kb = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
@@ -131,10 +132,11 @@ export const ImportCsvButton: React.FC<{
   );
 };
 
-/** Opens a printable copy of a document (the browser's print dialog can save it as PDF). */
-export const printDocument = (title: string, bodyHtml: string) => {
+/** Opens a printable copy of a document (the browser's print dialog can save it as PDF). Pass `barcode` to print the document number as a Code 128 barcode at the top. */
+export const printDocument = (title: string, bodyHtml: string, opts?: { barcode?: string }) => {
   const w = window.open('', '_blank', 'width=900,height=1000');
   if (!w) return false;
+  if (opts?.barcode) bodyHtml = `<div style="float:right;text-align:center">${barcodeSvg(opts.barcode, { height: 46, caption: opts.barcode })}</div>${bodyHtml}`;
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>
     body{font:13px/1.45 system-ui,Segoe UI,Arial,sans-serif;color:#111;margin:32px}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:18px 0 6px}
     table{border-collapse:collapse;width:100%;margin:8px 0}th,td{border:1px solid #bbb;padding:5px 7px;text-align:left}th{background:#f1f3f6}
@@ -145,8 +147,8 @@ export const printDocument = (title: string, bodyHtml: string) => {
 };
 export const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
-export const PrintButton: React.FC<{ title: string; html: () => string; label?: string }> = ({ title, html, label = 'Print / PDF' }) => (
-  <button type="button" className="btn btn-secondary btn-sm" onClick={() => printDocument(title, html())}>
+export const PrintButton: React.FC<{ title: string; html: () => string; label?: string; barcode?: string }> = ({ title, html, label = 'Print / PDF', barcode }) => (
+  <button type="button" className="btn btn-secondary btn-sm" onClick={() => printDocument(title, html(), { barcode })}>
     <Printer size={14} /> {label}
   </button>
 );

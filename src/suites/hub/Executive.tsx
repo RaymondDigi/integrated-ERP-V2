@@ -18,75 +18,28 @@ import {
   CalendarDays,
   Inbox,
   AlertTriangle,
-  Wallet
+  Wallet,
+  UserRound,
+  BellRing,
+  FileBarChart,
+  Lightbulb,
+  Gauge,
+  DatabaseZap
 } from 'lucide-react';
+import { AlertsPage, DataQualityPage, ForecastsPage, ManufacturingPage, MyDashboardPage, OverviewExport, ReportBuilderPage } from './Insights';
 import { useApp, type NavigationTarget } from '../../context/AppContext';
 import { useHub, type ExecutivePage } from './store';
 import { useInbox } from './useInbox';
-import { useFinance } from '../finance/store';
-import { useCommercial } from '../commercial/store';
-import { useOperations } from '../operations/store';
-import { useControl } from '../control/store';
-import { addDays, ageing, cashPosition, monthlySeries, profitAndLoss, round2, TODAY } from '../finance/engine';
+import { addDays, monthlySeries, round2, TODAY } from '../finance/engine';
 import { kes } from '../finance/engine';
-import { needsReorder, orderStage, pipelineStats, STAGE_LABEL, OPEN_STAGES, totals } from '../commercial/engine';
-import { poLate } from '../commercial/engine';
-import { shipValue, vehicleAlerts } from '../operations/engine';
-import { rating, riskScore, slaState } from '../control/engine';
+import { orderStage, STAGE_LABEL, OPEN_STAGES, totals } from '../commercial/engine';
+import { shipValue } from '../operations/engine';
 import { Bars, Donut, Hero, LinkButton, Meter, Panel, Stat, TodoList, greeting, type TodoItem } from '../ui/kit';
 import { SuiteSidebar, type SuiteNavGroup } from '../ui/SuiteSidebar';
 import { Crumb, useTopOnChange } from '../operations/parts';
+import { useSnapshot } from './snapshot';
 
-const LABEL: Record<ExecutivePage, string> = { overview: 'Business overview', analytics: 'Analytics' };
-
-/** One snapshot of the whole business, built from every module's live data. */
-const useSnapshot = () => {
-  const { hrEmployees, leaveRequests, activeTenant } = useApp();
-  const fin = useFinance();
-  const com = useCommercial();
-  const ops = useOperations();
-  const ctl = useControl();
-  const year = Number(TODAY.slice(0, 4));
-  const pl = profitAndLoss(fin.state, fin.entries, `${year}-01-01`, TODAY);
-  const cash = round2(cashPosition(fin.state, fin.entries).reduce((s, c) => s + c.balance, 0));
-  const ar = ageing(fin.state, 'INVOICE');
-  const ap = ageing(fin.state, 'BILL');
-  const book = com.state.orders.filter((o) => o.status === 'APPROVED' && !o.closed);
-  const pipe = pipelineStats(com.state);
-  const stockValue = round2(com.state.products.reduce((s, p) => s + p.stock * p.cost, 0));
-  const month = TODAY.slice(0, 7);
-  const output = ops.state.batches.filter((b) => b.status === 'COMPLETED' && b.date.slice(0, 7) === month).reduce((s, b) => s + b.output, 0);
-  const onWater = ops.state.shipments.filter((s) => s.stage === 'DEPARTED');
-  const staff = hrEmployees.filter((e) => e.orgId === activeTenant.id && e.status !== 'TERMINATED');
-  return {
-    fin,
-    com,
-    ops,
-    ctl,
-    pl,
-    cash,
-    ar,
-    ap,
-    book,
-    bookValue: round2(book.reduce((s, o) => s + com.orderValue(o), 0)),
-    pipe,
-    stockValue,
-    output,
-    onWater,
-    staff,
-    payroll: round2(staff.reduce((s, e) => s + (e.basicSalaryKes || 0), 0)),
-    leavePending: leaveRequests.filter((l) => l.orgId === activeTenant.id && l.status === 'PENDING_APPROVAL').length,
-    lowStock: com.state.products.filter((p) => p.kind !== 'SERVICE' && needsReorder(com.state, p)),
-    downAssets: ops.state.equipment.filter((e) => e.status === 'DOWN'),
-    openWo: ops.state.workOrders.filter((w) => !['COMPLETED', 'CANCELLED'].includes(w.status)),
-    fleetReady: ops.state.vehicles.filter((v) => v.status !== 'IN_WORKSHOP').length,
-    highRisks: ctl.state.risks.filter((r) => rating(riskScore(r)) === 'HIGH'),
-    slaRisk: ctl.state.tickets.filter((t) => t.status !== 'RESOLVED' && slaState(t).used > 0.75),
-    overdueFilings: ctl.state.obligations.filter((o) => o.status === 'DUE' && o.due < TODAY),
-    lateSupplies: com.state.purchaseOrders.filter((o) => poLate(o)),
-    vehicleAlerts: ops.state.vehicles.flatMap((v) => vehicleAlerts(v).map((a) => `${v.reg}: ${a}`))
-  };
-};
+const LABEL: Record<ExecutivePage, string> = { overview: 'Business overview', analytics: 'Analytics', mine: 'My dashboard', alerts: 'Alert centre', reports: 'Report builder', forecasts: 'Forecasts & recommendations', manufacturing: 'Manufacturing performance', dataquality: 'Data quality' };
 
 const ExecutiveOverview: React.FC = () => {
   const { setCurrentView } = useApp();
@@ -106,7 +59,8 @@ const ExecutiveOverview: React.FC = () => {
     ...s.highRisks.map((r) => ({ id: r.id, tone: 'warning' as const, icon: <ShieldAlert size={15} />, title: `High risk: ${r.title}`, detail: `Owner ${r.owner}`, onClick: go('quality', () => s.ctl.setQuality('risks', r.id)) })),
     ...s.lowStock.map((p) => ({ id: p.sku, tone: 'warning' as const, icon: <Boxes size={15} />, title: `${p.name} below reorder level`, detail: `${p.stock} ${p.unit} left`, onClick: go(p.kind === 'MATERIAL' ? 'procurement' : 'trading', () => (p.kind === 'MATERIAL' ? s.com.setProcurement('stock') : s.com.setTrading('products'))) })),
     ...s.lateSupplies.map((o) => ({ id: o.id, tone: 'info' as const, icon: <Truck size={15} />, title: `${o.number} is late from ${s.com.party(o.supplierId)?.name}`, detail: 'Chase the supplier', onClick: go('procurement', () => s.com.setProcurement('orders', o.id)) })),
-    ...s.slaRisk.map((t) => ({ id: t.id, tone: 'info' as const, icon: <MonitorCog size={15} />, title: `ICT ${t.priority}: ${t.title}`, detail: 'Close to or past its service level', onClick: go('ict', () => s.ctl.setIct('tickets', t.id)) }))
+    ...s.slaRisk.map((t) => ({ id: t.id, tone: 'info' as const, icon: <MonitorCog size={15} />, title: `ICT ${t.priority}: ${t.title}`, detail: 'Close to or past its service level', onClick: go('ict', () => s.ctl.setIct('tickets', t.id)) })),
+    ...s.ctl.state.emergencies.filter((e) => e.status !== 'CLOSED').map((e) => ({ id: e.id, tone: 'critical' as const, icon: <AlertTriangle size={15} />, title: `Emergency ${e.number}: ${e.type}`, detail: `${e.site} · class ${e.cls}`, onClick: go('quality', () => s.ctl.setQuality('emergencies', e.id)) }))
   ];
   return (
     <div className="sx-page">
@@ -119,6 +73,7 @@ const ExecutiveOverview: React.FC = () => {
           { label: 'Analytics', icon: <ChartNoAxesCombined size={16} />, onClick: () => setExecutive('analytics') }
         ]}
       />
+      <OverviewExport />
       <h3 className="sx-section-title">Money</h3>
       <div className="sx-stats">
         <Stat label="Cash in bank" value={kes(s.cash, { compact: true })} icon={<Landmark size={17} />} onClick={go('finance', () => s.fin.setPage('bank'))} />
@@ -297,7 +252,18 @@ export const ExecutiveSidebar: React.FC = () => {
       label: 'Business',
       items: [
         { id: 'overview', label: 'Business overview', icon: LayoutDashboard },
+        { id: 'mine', label: 'My dashboard', icon: UserRound },
+        { id: 'alerts', label: 'Alert centre', icon: BellRing },
         { id: 'analytics', label: 'Analytics', icon: ChartNoAxesCombined }
+      ]
+    },
+    {
+      label: 'Insight',
+      items: [
+        { id: 'manufacturing', label: 'Manufacturing KPIs', icon: Gauge },
+        { id: 'forecasts', label: 'Forecasts', icon: Lightbulb },
+        { id: 'reports', label: 'Report builder', icon: FileBarChart },
+        { id: 'dataquality', label: 'Data quality', icon: DatabaseZap }
       ]
     }
   ];
@@ -314,6 +280,12 @@ export const ExecutiveSuite: React.FC = () => {
     <div className="sx-suite" key={executive}>
       {executive === 'overview' && <ExecutiveOverview />}
       {executive === 'analytics' && <Analytics />}
+      {executive === 'mine' && <MyDashboardPage />}
+      {executive === 'alerts' && <AlertsPage />}
+      {executive === 'reports' && <ReportBuilderPage />}
+      {executive === 'forecasts' && <ForecastsPage />}
+      {executive === 'manufacturing' && <ManufacturingPage />}
+      {executive === 'dataquality' && <DataQualityPage />}
     </div>
   );
 };

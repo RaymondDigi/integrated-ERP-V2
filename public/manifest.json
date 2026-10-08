@@ -1,0 +1,14 @@
+{
+  "name": "Integrated ERP",
+  "short_name": "Integrated",
+  "description": "Kenya Tea ERP — finance, trading, operations, quality, ICT and people on any device.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f2a23",
+  "theme_color": "#153E33",
+  "icons": [
+    { "src": "/brand/integrated-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -70,6 +70,7 @@ import { FormsInputsView } from './views/FormsInputsView';
 import { ProfileView } from './views/ProfileView';
 import { LoginView } from './views/auth/LoginView';
 import { setDirectory, useSession } from './auth/session';
+import { canOpen } from './platform/rbac';
 
 export const App: React.FC = () => {
   const { currentView, setCurrentView, moduleTabs, hrEmployees, setIsLauncherOpen } = useApp();
@@ -95,6 +96,17 @@ export const App: React.FC = () => {
   const renderView = () => {
     // The self-service account only ever sees the employee portal
     if (session.role === 'employee') return <EssPortalView />;
+    // Module access is decided centrally by role (Roles & Access › Module access)
+    if (!canOpen(session.role, currentView))
+      return (
+        <div className="view-container" role="alert">
+          <h1 className="view-title">Access denied</h1>
+          <p className="view-subtitle">Your role ({session.role}) does not include this module. Ask an administrator to grant it in Roles &amp; Access.</p>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setCurrentView('apps')}>
+            Back to apps
+          </button>
+        </div>
+      );
     switch (currentView) {
       // DigiCraft Apps Landing Page
       case 'apps':

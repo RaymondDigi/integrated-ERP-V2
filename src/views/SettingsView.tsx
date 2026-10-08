@@ -6,6 +6,7 @@ import {
   Save,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { CustomFieldAdmin, PrefsPanel } from './PlatformPanels';
 
 export const SettingsView: React.FC = () => {
   const { addToast } = useApp();
@@ -39,6 +40,9 @@ export const SettingsView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      <PrefsPanel />
+      <CustomFieldAdmin />
 
       <div className="responsive-grid-equal">
         {/* Session Security Policy */}

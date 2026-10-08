@@ -3,6 +3,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { BackupStoragePanel, ErpHealthPanel } from '../suites/control/IctExtra';
 
 export const HealthView: React.FC = () => {
   const { systemHealth, addToast } = useApp();
@@ -76,6 +77,11 @@ export const HealthView: React.FC = () => {
           </div>
           <span className="pulse-subtext">Cycle resets in 22 days</span>
         </div>
+      </div>
+
+      <div className="sx-row" style={{ marginBottom: 16 }}>
+        <ErpHealthPanel />
+        <BackupStoragePanel />
       </div>
 
       {/* Microservice Mesh Table */}

@@ -4,6 +4,78 @@ import {
   Code
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useAuditTrail } from '../platform/audit';
+import { ExportCsvButton } from '../platform/Widgets';
+
+/** Every business record change written through the platform audit() service, from all suites. */
+const BusinessAuditTrail: React.FC = () => {
+  const trail = useAuditTrail();
+  const [q, setQ] = useState('');
+  const [mod, setMod] = useState('ALL');
+  const modules = [...new Set(trail.map((e) => e.module))].sort();
+  const rows = trail.filter((e) => (mod === 'ALL' || e.module === mod) && (!q || `${e.by} ${e.action} ${e.ref ?? ''} ${e.field ?? ''} ${e.note ?? ''}`.toLowerCase().includes(q.toLowerCase())));
+  return (
+    <div className="emc-table-card" style={{ marginBottom: 16 }}>
+      <div className="emc-table-toolbar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, flexWrap: 'wrap' }}>
+          <strong>Business record changes</strong>
+          <input type="text" className="table-search-input" placeholder="Search person, record, field…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} aria-label="Search business audit trail" />
+          <select className="table-select" value={mod} onChange={(e) => setMod(e.target.value)} aria-label="Module">
+            <option value="ALL">All modules</option>
+            {modules.map((m) => (
+              <option key={m}>{m}</option>
+            ))}
+          </select>
+        </div>
+        <ExportCsvButton name="business-audit-trail" header={['When', 'Module', 'By', 'Action', 'Record', 'Field', 'Before', 'After', 'Note']} rows={() => rows.map((e) => [e.at, e.module, e.by, e.action, e.ref ?? '', e.field ?? '', e.before ?? '', e.after ?? '', e.note ?? ''])} />
+      </div>
+      <div className="emc-table-container">
+        <table className="emc-table">
+          <thead>
+            <tr>
+              <th className="emc-th">When</th>
+              <th className="emc-th">Module</th>
+              <th className="emc-th">By</th>
+              <th className="emc-th">Action</th>
+              <th className="emc-th">Record</th>
+              <th className="emc-th">Change</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={6} style={{ textAlign: 'center', padding: 24, color: 'var(--text-tertiary)' }}>
+                  No business changes recorded yet in this session — approvals, edits and deletions in any module appear here.
+                </td>
+              </tr>
+            ) : (
+              rows.slice(0, 300).map((e) => (
+                <tr key={e.id} className="emc-tr">
+                  <td className="emc-td emc-td-mono">{e.at}</td>
+                  <td className="emc-td">
+                    <span className="badge badge-neutral">{e.module}</span>
+                  </td>
+                  <td className="emc-td">{e.by}</td>
+                  <td className="emc-td">{e.action}</td>
+                  <td className="emc-td emc-td-mono">{e.ref ?? '—'}</td>
+                  <td className="emc-td" style={{ whiteSpace: 'normal', maxWidth: 320 }}>
+                    {e.field ? (
+                      <>
+                        <b>{e.field}</b>: {e.before || '∅'} → {e.after || '∅'}
+                      </>
+                    ) : (
+                      e.note ?? ''
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
 
 export const AuditLogsView: React.FC = () => {
   const { auditEvents, setSelectedAuditEvent, addToast } = useApp();
@@ -68,6 +140,8 @@ export const AuditLogsView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      <BusinessAuditTrail />
 
       {/* Audit Table Card */}
       <div className="emc-table-card">

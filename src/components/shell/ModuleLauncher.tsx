@@ -27,6 +27,8 @@ import {
 import { useApp } from '../../context/AppContext';
 import { ERP_URL, LAUNCHER_GROUPS, type LauncherIcon, type LauncherModule } from '../../data/erpModules';
 import { BrandMark } from './BrandLogo';
+import { canOpen, useAccessMatrix } from '../../platform/rbac';
+import { useSession } from '../../auth/session';
 import { useHub, type ExecutivePage, type WorkflowsPage } from '../../suites/hub/store';
 
 const ICONS: Record<LauncherIcon, LucideIcon> = {
@@ -101,14 +103,18 @@ export const ModuleLauncher: React.FC = () => {
     };
   }, [isLauncherOpen, setIsLauncherOpen]);
 
+  // The menu is tailored to the signed-in role: modules the role cannot open are left out
+  const role = useSession()?.role;
+  const matrix = useAccessMatrix();
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return LAUNCHER_GROUPS;
     return LAUNCHER_GROUPS.map((g) => ({
       ...g,
-      modules: g.modules.filter((m) => `${m.name} ${m.description} ${g.name}`.toLowerCase().includes(q))
+      modules: g.modules.filter((m) => (!m.view || canOpen(role, m.view)) && (!q || `${m.name} ${m.description} ${g.name}`.toLowerCase().includes(q)))
     })).filter((g) => g.modules.length);
-  }, [query]);
+    // matrix is read through canOpen(); listed so the menu updates when access changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, role, matrix]);
 
   if (!isLauncherOpen) return null;
 

@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useState } from 'react';
 
-export type WorkflowsPage = 'inbox' | 'rules' | 'activity';
-export type ExecutivePage = 'overview' | 'analytics';
+export type WorkflowsPage = 'inbox' | 'rules' | 'activity' | 'intranet' | 'documents' | 'knowledge' | 'calendar' | 'surveys' | 'helpdesk';
+export type ExecutivePage = 'overview' | 'analytics' | 'mine' | 'alerts' | 'reports' | 'forecasts' | 'manufacturing' | 'dataquality';
 
 const Ctx = createContext<{
   workflows: WorkflowsPage;

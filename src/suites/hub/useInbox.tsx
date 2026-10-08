@@ -7,6 +7,10 @@ import { docValue, permissions, ROLE_LABEL as FIN_ROLE } from '../finance/engine
 import { approvalRights, poStage, reqTotal } from '../commercial/engine';
 import { woCost } from '../operations/engine';
 import { REQUEST_APPROVERS } from '../../context/essState';
+import { nextApprover, RULE_ROLES } from '../../platform/rules';
+import { useAccessRequests } from '../../platform/accessRequests';
+import { useAccess } from '../../platform/access';
+import { complaintEscalation } from '../control/engine';
 
 export interface InboxItem {
   id: string;
@@ -31,6 +35,8 @@ export const useInbox = () => {
   const com = useCommercial();
   const ops = useOperations();
   const ctl = useControl();
+  const accessReqs = useAccessRequests();
+  const access = useAccess();
   const items: InboxItem[] = [];
   const go = (view: NavigationTarget, nav: () => void) => () => {
     nav();
@@ -109,8 +115,32 @@ export const useInbox = () => {
   /* Quality and ICT */
   for (const c of ctl.state.capas.filter((x) => x.status === 'VERIFY'))
     items.push({ id: c.id, module: 'Quality', view: 'quality', number: c.number, title: `Verify corrective action — ${c.problem}`, since: c.due, waitingFor: 'QHSE Manager', canAct: ctl.actor.role === 'QHSE' && c.owner !== ctl.actor.name, actingAs: `${ctl.actor.name} (${ctl.actor.title})`, open: go('quality', () => ctl.setQuality('capa', c.id)) });
-  for (const c of ctl.state.changes.filter((x) => x.status === 'SUBMITTED'))
-    items.push({ id: c.id, module: 'ICT', view: 'ict', number: c.number, title: `Change — ${c.title}`, since: c.history[0]?.at.slice(0, 10) ?? '', waitingFor: 'ICT Manager (change board)', canAct: ctl.actor.role === 'ICT_MANAGER' && c.requestedBy !== ctl.actor.name, actingAs: `${ctl.actor.name} (${ctl.actor.title})`, approve: () => ctl.decideChange(c.id, true, ''), open: go('ict', () => ctl.setIct('changes', c.id)) });
+  const ctlAs = `${ctl.actor.name} (${ctl.actor.title})`;
+  const roleName = (r: string) => RULE_ROLES[r] ?? r;
+  for (const c of ctl.state.changes.filter((x) => x.status === 'SUBMITTED')) {
+    const step = nextApprover('ict.change', { LOW: 1, MEDIUM: 2, HIGH: 3 }[c.risk], c.approvals?.length ?? 0);
+    items.push({ id: c.id, module: 'ICT', view: 'ict', number: c.number, title: `Change — ${c.title}`, since: c.history[0]?.at.slice(0, 10) ?? '', waitingFor: `${roleName(step.role)} (change board)`, canAct: ctl.actor.role === step.role && c.requestedBy !== ctl.actor.name && !(c.approvals ?? []).some((a) => a.by === ctl.actor.name), actingAs: ctlAs, approve: () => ctl.decideChange(c.id, true, ''), open: go('ict', () => ctl.setIct('changes', c.id)) });
+  }
+  for (const r of ctl.state.risks.filter((x) => x.status === 'PROPOSED')) {
+    const step = nextApprover('qa.risk.emerging', r.likelihood * r.impact, r.approvals?.length ?? 0);
+    items.push({ id: r.id, module: 'Quality', view: 'quality', number: r.id.toUpperCase(), title: `Emerging risk — ${r.title}`, since: r.history?.[0]?.at.slice(0, 10) ?? '', waitingFor: roleName(step.role), canAct: ctl.actor.role === step.role && r.raisedBy !== ctl.actor.name, actingAs: ctlAs, open: go('quality', () => ctl.setQuality('risks', r.id)) });
+  }
+  for (const o of ctl.state.opportunities.filter((x) => x.status === 'SUBMITTED')) {
+    const step = nextApprover('qa.opportunity', o.estValue, o.approvals.length);
+    items.push({ id: o.id, module: 'Quality', view: 'quality', number: o.number, title: `Improvement opportunity — ${o.title}`, value: o.estValue, since: o.history[0]?.at.slice(0, 10) ?? '', waitingFor: roleName(step.role), canAct: ctl.actor.role === step.role && o.raisedBy !== ctl.actor.name, actingAs: ctlAs, open: go('quality', () => ctl.setQuality('opportunities', o.id)) });
+  }
+  for (const p of ctl.state.programmes.filter((x) => x.status === 'DRAFT' && x.areas.length > 0))
+    items.push({ id: p.id, module: 'Quality', view: 'quality', number: p.id.toUpperCase(), title: `Audit programme — ${p.title}`, since: p.history?.[0]?.at.slice(0, 10) ?? '', waitingFor: 'Company Secretary', canAct: ctl.actor.role === 'SECRETARY' && p.preparedBy !== ctl.actor.name, actingAs: ctlAs, open: go('quality', () => ctl.setQuality('programme', p.id)) });
+  for (const c of ctl.state.complaints.filter((x) => x.status !== 'RESOLVED' && complaintEscalation(x, ctl.state.complaints).level > (x.escalations?.length ?? 0)))
+    items.push({ id: `esc${c.id}`, module: 'Quality', view: 'quality', number: c.number, title: `Escalate complaint — ${complaintEscalation(c, ctl.state.complaints).reasons.join('; ')}`, since: c.date, waitingFor: complaintEscalation(c, ctl.state.complaints).to, canAct: ctl.actor.role === 'QHSE', actingAs: ctlAs, open: go('quality', () => ctl.setQuality('complaints', c.id)) });
+  for (const d of ctl.state.docs.filter((x) => x.status === 'IN_REVIEW')) {
+    const step = nextApprover('wf.document', 0, d.approvals.length);
+    items.push({ id: d.id, module: 'Documents', view: 'governance', number: d.number, title: `Approve document — ${d.title} v${d.versions.length}`, since: d.versions[d.versions.length - 1].at, waitingFor: roleName(step.role), canAct: ctl.actor.role === step.role && d.owner !== ctl.actor.name, actingAs: ctlAs, approve: () => ctl.decideDoc(d.id, true, ''), open: go('governance', () => ctl.setGovernance('documents', d.id)) });
+  }
+
+  /* Platform — role changes waiting for a second administrator */
+  for (const r of accessReqs.filter((x) => x.status === 'PENDING'))
+    items.push({ id: r.id, module: 'Platform', view: 'roles', number: r.id.toUpperCase(), title: `Role change — ${r.userName}: ${r.fromRole} → ${r.toRole}`, since: r.requestedAt.slice(0, 10), waitingFor: 'Another administrator', canAct: access.role === 'admin' && r.requestedBy !== access.name, actingAs: access.name, open: () => setCurrentView('roles') });
 
   /* People & payroll — leave waiting for a line manager */
   for (const l of leaveRequests.filter((x) => x.status === 'PENDING_APPROVAL' && x.orgId === activeTenant.id))

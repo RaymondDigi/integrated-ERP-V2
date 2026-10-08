@@ -35,6 +35,15 @@ import { IctCrumb } from '../../suites/control/Ict';
 import { GovernanceCrumb } from '../../suites/control/Governance';
 import { ApprovalsCrumb } from '../../suites/hub/Approvals';
 import { ExecutiveCrumb } from '../../suites/hub/Executive';
+import { AlertWatcher } from '../../suites/hub/Insights';
+import { prefs, setPrefsUser } from '../../platform/prefs';
+import type { NavigationTarget } from '../../context/AppContext';
+
+/** Internet Explorer and other browsers without modern JavaScript support are not supported. */
+const unsupportedBrowser = () => {
+  if (typeof navigator === 'undefined') return false;
+  return /MSIE |Trident\//.test(navigator.userAgent) || typeof window.fetch !== 'function' || typeof window.IntersectionObserver !== 'function';
+};
 
 export const Header: React.FC = () => {
   const session = useSession();
@@ -57,6 +66,22 @@ export const Header: React.FC = () => {
   } = useApp();
   // The signed-in person's photo from their employee record
   const myPhoto = session?.staffId ? hrEmployees.find((e) => e.staffId === session.staffId)?.photoUrl : undefined;
+
+  // Personal preferences follow the signed-in account; function keys open the screens chosen in Settings
+  useEffect(() => setPrefsUser(session?.email), [session?.email]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!/^F\d{1,2}$/.test(e.key) || e.ctrlKey || e.altKey || e.metaKey) return;
+      const hit = prefs().shortcuts.find((s) => s.key === e.key);
+      if (!hit) return;
+      e.preventDefault();
+      setIsLauncherOpen(false);
+      setCurrentView(hit.view as NavigationTarget);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [setCurrentView, setIsLauncherOpen]);
+  const [browserWarning, setBrowserWarning] = useState(unsupportedBrowser);
 
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [, setIsAppMenuOpen] = useState(false);
@@ -82,6 +107,15 @@ export const Header: React.FC = () => {
 
   return (
     <header className="app-header">
+      <AlertWatcher />
+      {browserWarning && (
+        <div role="alert" style={{ position: 'fixed', bottom: 12, left: 12, right: 12, zIndex: 9999, background: '#b5443a', color: '#fff', padding: '10px 14px', borderRadius: 6, display: 'flex', gap: 10, alignItems: 'center' }}>
+          <span style={{ flex: 1 }}>This browser is not supported. Use a current version of Microsoft Edge, Chrome, Firefox or Safari.</span>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setBrowserWarning(false)}>
+            Dismiss
+          </button>
+        </div>
+      )}
       <div className="header-left">
         {/* Mobile menu toggle */}
         <button

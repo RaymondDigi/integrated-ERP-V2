@@ -1,5 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { Inbox, Scale, History, CheckCircle2, ArrowUpRight, LayoutGrid, Clock3, UserCheck } from 'lucide-react';
+import { Inbox, Scale, History, CheckCircle2, ArrowUpRight, LayoutGrid, Clock3, UserCheck, Megaphone, FolderOpen, BookOpen, CalendarDays, MessageSquareHeart, Headset, Plus, Trash2 } from 'lucide-react';
+import { useApp } from '../../context/AppContext';
+import { useAccess } from '../../platform/access';
+import { removeRule, RULE_KEYS, RULE_ROLES, saveRule, useRules, type ApprovalRule } from '../../platform/rules';
+import { useAuditTrail } from '../../platform/audit';
+import { DocumentsPage } from '../control/GovernanceExtra';
+import { KnowledgePage } from '../control/IctExtra';
+import { CalendarBookingPage, HelpdeskPage, IntranetPage, SurveysPage } from './Workplace';
 import { useHub, type WorkflowsPage } from './store';
 import { useInbox } from './useInbox';
 import { useFinance } from '../finance/store';
@@ -7,12 +14,132 @@ import { useCommercial } from '../commercial/store';
 import { useOperations } from '../operations/store';
 import { useControl } from '../control/store';
 import { daysBetween, kes, TODAY } from '../finance/engine';
-import { Chips, DataTable, SearchBox, Stat, SuitePage, type Column } from '../ui/kit';
+import { Chips, DataTable, Field, SearchBox, Stat, SuitePage, type Column } from '../ui/kit';
 import { SuiteSidebar, type SuiteNavGroup } from '../ui/SuiteSidebar';
 import { Crumb, useTopOnChange } from '../operations/parts';
 import type { InboxItem } from './useInbox';
 
-const LABEL: Record<WorkflowsPage, string> = { inbox: 'Approval inbox', rules: 'Approval rules', activity: 'Activity across modules' };
+const LABEL: Record<WorkflowsPage, string> = { inbox: 'Approval inbox', rules: 'Approval rules', activity: 'Activity across modules', intranet: 'Intranet', documents: 'Document library', knowledge: 'Knowledge base', calendar: 'Calendar & booking', surveys: 'Surveys & feedback', helpdesk: 'IT helpdesk' };
+
+/** Configurable rules consulted by the Quality, ICT and document workflows at the moment of approval. */
+const RuleEditor: React.FC = () => {
+  const rules = useRules();
+  const access = useAccess();
+  const { addToast } = useApp();
+  const [f, setF] = useState<(Omit<ApprovalRule, 'id' | 'area' | 'document' | 'valueLabel'> & { id?: string }) | null>(null);
+  const admin = access.role === 'admin';
+  const run = (fn: () => { ok: true } | { ok: false; error: string }, msg: string) => {
+    if (!admin) return addToast({ type: 'error', title: 'Not allowed', message: access.readOnly ? 'This is a read-only account — you can view records but not change them' : 'Only an administrator changes approval rules' });
+    const r = fn();
+    if (!r.ok) return addToast({ type: 'error', title: 'Not saved', message: r.error });
+    addToast({ type: 'success', title: msg, message: 'Takes effect on the next approval' });
+    setF(null);
+  };
+  return (
+    <div className="sx-panel">
+      <div className="sx-panel-head">
+        <div>
+          <h2>Configurable rules</h2>
+          <p>Who approves, from what value or level, and whether a second approver is required. Stores read these when a document is approved. Administrators edit; every change is audited.</p>
+        </div>
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => setF({ key: 'ict.change', minValue: 0, approverRole: 'ICT_MANAGER', active: true })}>
+          <Plus size={14} /> Add rule
+        </button>
+      </div>
+      <div className="sx-panel-body">
+        <table className="sx-mini-table">
+          <thead>
+            <tr>
+              <th>Document</th>
+              <th>From</th>
+              <th>Approver</th>
+              <th className="sx-hide-sm">Second approver</th>
+              <th>Active</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {[...rules]
+              .sort((a, b) => a.key.localeCompare(b.key) || a.minValue - b.minValue)
+              .map((r) => (
+                <tr key={r.id}>
+                  <td>
+                    <span className="sx-tag sx-tag-strong">{r.area}</span> {r.document}
+                    <small className="sx-muted sx-block">{r.valueLabel}</small>
+                  </td>
+                  <td>≥ {r.minValue.toLocaleString()}</td>
+                  <td>{RULE_ROLES[r.approverRole] ?? r.approverRole}</td>
+                  <td className="sx-hide-sm">{r.secondRole ? RULE_ROLES[r.secondRole] : '—'}</td>
+                  <td>{r.active ? 'Yes' : 'No'}</td>
+                  <td>
+                    <div className="sx-actions">
+                      <button type="button" className="btn btn-secondary btn-xs" onClick={() => setF({ id: r.id, key: r.key, minValue: r.minValue, approverRole: r.approverRole, secondRole: r.secondRole, active: r.active })}>
+                        Edit
+                      </button>
+                      <button type="button" className="btn btn-ghost btn-xs" aria-label="Remove rule" onClick={() => run(() => removeRule(access.name, r.id), 'Rule removed')}>
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+        {f && (
+          <div className="sx-grid">
+            <Field label="Document">
+              <select className="form-control" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })}>
+                {Object.entries(RULE_KEYS).map(([k, v]) => (
+                  <option key={k} value={k}>
+                    {v.area} — {v.document}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label={RULE_KEYS[f.key]?.valueLabel ?? 'From value'}>
+              <input className="form-control" type="number" value={f.minValue} onChange={(e) => setF({ ...f, minValue: Number(e.target.value) })} />
+            </Field>
+            <Field label="Approver">
+              <select className="form-control" value={f.approverRole} onChange={(e) => setF({ ...f, approverRole: e.target.value })}>
+                {Object.entries(RULE_ROLES).map(([k, v]) => (
+                  <option key={k} value={k}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Second approver">
+              <select className="form-control" value={f.secondRole ?? ''} onChange={(e) => setF({ ...f, secondRole: e.target.value || undefined })}>
+                <option value="">— none —</option>
+                {Object.entries(RULE_ROLES).map(([k, v]) => (
+                  <option key={k} value={k}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Active">
+              <select className="form-control" value={f.active ? 'y' : 'n'} onChange={(e) => setF({ ...f, active: e.target.value === 'y' })}>
+                <option value="y">Yes</option>
+                <option value="n">No</option>
+              </select>
+            </Field>
+            <Field label=" ">
+              <div className="sx-actions">
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => run(() => saveRule(access.name, f), 'Rule saved')}>
+                  Save rule
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setF(null)}>
+                  Cancel
+                </button>
+              </div>
+            </Field>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const InboxPage: React.FC = () => {
   const items = useInbox();
@@ -104,6 +231,8 @@ const RULES: { area: string; document: string; rule: string; approver: string }[
 
 const RulesPage: React.FC = () => (
   <SuitePage eyebrow="Workflows" title="Approval rules" subtitle="The delegation of authority enforced across the hub.">
+    <RuleEditor />
+    <h4 className="sx-subhead">Rules built into each module</h4>
     <div className="sx-table-wrap">
       <div className="sx-table-scroll">
         <table className="sx-table">
@@ -140,6 +269,7 @@ const ActivityPage: React.FC = () => {
   const com = useCommercial();
   const ops = useOperations();
   const ctl = useControl();
+  const trail = useAuditTrail();
   const [q, setQ] = useState('');
   const all = useMemo(() => {
     const out: { at: string; by: string; action: string; module: string; ref: string; note?: string }[] = [];
@@ -155,8 +285,14 @@ const ActivityPage: React.FC = () => {
     ops.state.shipments.forEach((d) => add('Shipping', d.number, d.history));
     ctl.state.capas.forEach((d) => add('Quality', d.number, d.history));
     ctl.state.changes.forEach((d) => add('ICT', d.number, d.history));
+    ctl.state.tickets.forEach((d) => add('ICT', d.number, d.notes));
+    ctl.state.problems.forEach((d) => add('ICT', d.number, d.history));
+    ctl.state.audits.forEach((d) => add('Quality', d.number, d.history ?? []));
+    ctl.state.emergencies.forEach((d) => add('Quality', d.number, d.history));
+    ctl.state.docs.forEach((d) => add('Documents', d.number, d.history));
+    trail.forEach((e) => out.push({ at: e.at, by: e.by, action: e.field ? `${e.action} — ${e.field}: ${e.before ?? ''} → ${e.after ?? ''}` : e.action, module: e.module, ref: e.ref ?? '', note: e.note }));
     return out.filter((x) => x.by !== 'System').sort((a, b) => b.at.localeCompare(a.at));
-  }, [fin.state, com.state, ops.state, ctl.state]);
+  }, [fin.state, com.state, ops.state, ctl.state, trail]);
   const rows = all.filter((x) => !q || `${x.by} ${x.action} ${x.ref} ${x.module}`.toLowerCase().includes(q.toLowerCase())).slice(0, 200);
   type Row = (typeof all)[number];
   const columns: Column<Row>[] = [
@@ -189,6 +325,7 @@ const ActivityPage: React.FC = () => {
 export const ApprovalsSidebar: React.FC = () => {
   const { workflows, setWorkflows } = useHub();
   const items = useInbox();
+  const { state, me } = useControl();
   const groups: SuiteNavGroup<WorkflowsPage>[] = [
     {
       label: 'Workflows',
@@ -196,6 +333,17 @@ export const ApprovalsSidebar: React.FC = () => {
         { id: 'inbox', label: 'Approval inbox', icon: Inbox, badge: items.filter((i) => i.canAct).length },
         { id: 'rules', label: 'Approval rules', icon: Scale },
         { id: 'activity', label: 'Activity', icon: History }
+      ]
+    },
+    {
+      label: 'Collaborate',
+      items: [
+        { id: 'intranet', label: 'Intranet', icon: Megaphone, badge: state.announcements.filter((a) => a.status === 'PUBLISHED' && !a.reads.includes(me) && (!a.expires || a.expires >= TODAY)).length },
+        { id: 'documents', label: 'Document library', icon: FolderOpen },
+        { id: 'knowledge', label: 'Knowledge base', icon: BookOpen },
+        { id: 'calendar', label: 'Calendar & booking', icon: CalendarDays },
+        { id: 'surveys', label: 'Surveys & feedback', icon: MessageSquareHeart, badge: state.surveys.filter((s) => s.status === 'OPEN' && !s.responses.some((r) => r.by === me)).length },
+        { id: 'helpdesk', label: 'IT helpdesk', icon: Headset }
       ]
     }
   ];
@@ -213,6 +361,12 @@ export const ApprovalsSuite: React.FC = () => {
       {workflows === 'inbox' && <InboxPage />}
       {workflows === 'rules' && <RulesPage />}
       {workflows === 'activity' && <ActivityPage />}
+      {workflows === 'intranet' && <IntranetPage />}
+      {workflows === 'documents' && <DocumentsPage eyebrow="Workplace" />}
+      {workflows === 'knowledge' && <KnowledgePage eyebrow="Workplace" />}
+      {workflows === 'calendar' && <CalendarBookingPage />}
+      {workflows === 'surveys' && <SurveysPage />}
+      {workflows === 'helpdesk' && <HelpdeskPage />}
     </div>
   );
 };

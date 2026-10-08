@@ -4,7 +4,11 @@ import {
   Sparkles,
   Zap,
 } from 'lucide-react';
-import { useApp } from '../../context/AppContext';
+import { useApp, type NavigationTarget } from '../../context/AppContext';
+import { useSnapshot } from '../../suites/hub/snapshot';
+import { buildAlerts, dataQualityIssues, linearForecast } from '../../suites/hub/Insights';
+import { monthlySeries, kes, round2, TODAY } from '../../suites/finance/engine';
+import { slaState } from '../../suites/control/engine';
 
 export const AiAssistantDrawer: React.FC = () => {
   const {
@@ -13,8 +17,43 @@ export const AiAssistantDrawer: React.FC = () => {
     aiInsights,
     applyAiMitigation,
     dismissAiInsight,
-    setCurrentView
+    setCurrentView,
+    users
   } = useApp();
+  // Answers are computed from the live ERP records, not canned text
+  const snap = useSnapshot();
+  const answer = (q: string) => {
+    const t = q.toLowerCase();
+    const resp = (title: string, summary: string, evidence: string[], affected: string[], label: string, view: NavigationTarget, confidence = 100) => ({ title, summary, confidence, evidence: evidence.length ? evidence.slice(0, 8) : ['Nothing found'], affectedSystems: affected, recommendedAction: { label, actionKey: view } });
+    if (/forecast|revenue|predict|trend/.test(t)) {
+      const year = Number(TODAY.slice(0, 4));
+      const series = monthlySeries(snap.fin.state, snap.fin.entries, year).slice(0, Number(TODAY.slice(5, 7)));
+      const fc = linearForecast(series.map((m) => m.revenue), 3);
+      return resp('Revenue forecast', `Linear trend over ${series.length} months of ${year}: next three months ${fc.map((v) => kes(v, { compact: true })).join(', ')}.`, series.map((m) => `${m.label}: revenue ${kes(m.revenue, { compact: true })}, profit ${kes(m.profit, { compact: true })}`), ['Finance'], 'Open forecasts & recommendations', 'executive', 80);
+    }
+    if (/quality|inconsisten|duplicate|missing data|clean/.test(t)) {
+      const dq = dataQualityIssues(snap);
+      return resp('Data quality issues', `${dq.length} issues found across parties, products, documents, staff, assets and risks.`, dq.map((d) => `${d.check} — ${d.record}: ${d.problem}`), [...new Set(dq.map((d) => d.module))], 'Open data quality checks', 'executive');
+    }
+    if (/stock|reorder|inventory/.test(t))
+      return resp('Items below reorder level', `${snap.lowStock.length} items need reordering; stock at cost ${kes(snap.stockValue, { compact: true })}.`, snap.lowStock.map((p) => `${p.name}: ${p.stock} ${p.unit} (reorder at ${p.reorderLevel}, order ${p.reorderQty})`), ['Trading', 'Procurement'], 'Open procurement', 'procurement');
+    if (/risk|kri/.test(t))
+      return resp('High risks', `${snap.highRisks.length} risks rated high on the register.`, snap.highRisks.map((r) => `${r.title} — owner ${r.owner}`), ['Quality & risk'], 'Open the risk register', 'quality');
+    if (/ticket|ict|sla|helpdesk/.test(t)) {
+      const open = snap.ctl.state.tickets.filter((x) => x.status !== 'RESOLVED');
+      return resp('ICT service desk', `${open.length} open tickets, ${snap.slaRisk.length} close to or past their SLA.`, open.map((x) => `${x.number} ${x.priority} — ${x.title}${slaState(x).resolveBreached ? ' (breached)' : ''}`), ['ICT'], 'Open the service desk', 'ict');
+    }
+    if (/complain|customer/.test(t)) {
+      const open = snap.ctl.state.complaints.filter((c) => c.status !== 'RESOLVED');
+      return resp('Customer complaints', `${open.length} open complaints.`, open.map((c) => `${c.number} ${c.severity.toLowerCase()} ${c.category} — ${c.sku}`), ['Quality'], 'Open complaints', 'quality');
+    }
+    if (/mfa|user|privileg/.test(t)) {
+      const risky = users.filter((u) => u.mfa === 'Not Configured');
+      return resp('Accounts without MFA', `${risky.length} of ${users.length} accounts have no MFA configured.`, risky.map((u) => `${u.name} (${u.role}, ${u.email})`), ['Identity'], 'Review users', 'users');
+    }
+    const alerts = buildAlerts(snap, { needsReorder: snap.lowStock.length, arOverdue60: round2(snap.ar.totals[3] + snap.ar.totals[4]), equipmentDown: snap.downAssets.length });
+    return resp('What needs attention', `${alerts.filter((a) => a.level === 'critical').length} critical and ${alerts.filter((a) => a.level === 'warning').length} warning alerts across the business.`, alerts.map((a) => `${a.level === 'critical' ? 'CRITICAL' : 'Warning'} · ${a.module}: ${a.title}`), [...new Set(alerts.map((a) => a.module))], 'Open the alert centre', 'executive', 95);
+  };
 
   const [query, setQuery] = useState('');
   const [activeQueryResponse, setActiveQueryResponse] = useState<any | null>(null);
@@ -28,71 +67,8 @@ export const AiAssistantDrawer: React.FC = () => {
 
     setTimeout(() => {
       setIsAnalyzing(false);
-      if (q.toLowerCase().includes('workflow') || q.toLowerCase().includes('fail')) {
-        setActiveQueryResponse({
-          title: 'Root-Cause Analysis: Nightly Billing Workflow Failure',
-          summary: 'Snowflake warehouse warehouse_etl_xlarge encountered a 600s query cancellation on partition lock.',
-          confidence: 92.4,
-          evidence: [
-            'Query ID 01b4429c-0001-44fe-0000-00011867 timed out at 16:02:15 UTC',
-            'Lock contention against Snowflake CDC ingestion stream',
-            '17 parallel thread workers aborted'
-          ],
-          affectedSystems: ['Workflow Orchestration Engine', 'Snowflake DW', 'Billing Dispatcher'],
-          recommendedAction: {
-            label: 'Replay with Extended Timeout (1800s) & Warehouse Scale',
-            actionKey: 'WI-8940'
-          }
-        });
-      } else if (q.toLowerCase().includes('api') || q.toLowerCase().includes('traffic')) {
-        setActiveQueryResponse({
-          title: 'Investigation: +41% API Traffic Anomaly',
-          summary: 'Scraper daemon `srv_datadog_agent_prod` polling frequency increased from 60s to 500ms post deployment v2.4.1.',
-          confidence: 89.4,
-          evidence: [
-            '84,200 req/min vs 59,700 req/min baseline envelope',
-            'Origin IP: 54.236.192.42 (AWS us-east-1 Datadog collector)',
-            '94% requests targeted at `/v2/organizations/*/usage-meters`'
-          ],
-          affectedSystems: ['Core API Gateway', 'Aurora Read Replicas'],
-          recommendedAction: {
-            label: 'Apply Dynamic Token Rate-Limit Profile',
-            actionKey: 'WI-8938'
-          }
-        });
-      } else if (q.toLowerCase().includes('mfa') || q.toLowerCase().includes('user')) {
-        setActiveQueryResponse({
-          title: 'Compliance Audit: Privileged Accounts without MFA',
-          summary: 'Found 3 Super Admin accounts operating without mandatory multi-factor authentication enforcement.',
-          confidence: 100.0,
-          evidence: [
-            'marcus.vance@citadel.com (Super Admin, last active 2m ago)',
-            'helena.rostova@citadel.com (Super Admin, last active 45m ago)',
-            'devops-emergency@citadel.com (Break-glass account, exemption expired)'
-          ],
-          affectedSystems: ['IAM Core', 'Citadel Dynamics Tenant Boundary'],
-          recommendedAction: {
-            label: 'Force Immediate FIDO2 Enrollment on Super Admins',
-            actionKey: 'WI-8941'
-          }
-        });
-      } else {
-        setActiveQueryResponse({
-          title: `Telemetry Investigation: "${q}"`,
-          summary: 'Analyzed 1.8M system events from the preceding 4-hour operational window.',
-          confidence: 85.0,
-          evidence: [
-            'Telemetry stream nominal across 6 microservice clusters',
-            'Identified 2 critical work items awaiting triage in queue'
-          ],
-          affectedSystems: ['Production Cluster', 'Operational Mesh'],
-          recommendedAction: {
-            label: 'Review Mission Control Work Queue',
-            actionKey: 'nav_wq'
-          }
-        });
-      }
-    }, 450);
+      setActiveQueryResponse(answer(q));
+    }, 300);
   };
 
   return (
@@ -163,8 +139,10 @@ export const AiAssistantDrawer: React.FC = () => {
 
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
             {[
-              'Why did workflows fail?',
-              'API traffic anomaly cause',
+              'What needs attention today?',
+              'Revenue forecast',
+              'Data quality issues',
+              'Items to reorder',
               'Privileged users without MFA'
             ].map((preset, idx) => (
               <button
@@ -243,11 +221,7 @@ export const AiAssistantDrawer: React.FC = () => {
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={() => {
-                    if (activeQueryResponse.recommendedAction.actionKey === 'nav_wq') {
-                      setCurrentView('work-queue');
-                    } else {
-                      setCurrentView('work-queue');
-                    }
+                    setCurrentView(activeQueryResponse.recommendedAction.actionKey === 'nav_wq' ? 'work-queue' : (activeQueryResponse.recommendedAction.actionKey as NavigationTarget));
                     setIsAiDrawerOpen(false);
                   }}
                 >
