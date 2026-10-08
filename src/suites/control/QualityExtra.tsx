@@ -798,7 +798,7 @@ export const EmergenciesPage: React.FC = () => {
           onClose={() => setOpenId(null)}
           footer={
             <>
-              <PrintButton title={`Emergency ${open.number}`} html={() => reportHtml(open)} label="Emergency report" />
+              <PrintButton title={`Emergency ${open.number}`} html={() => reportHtml(open)} label="Emergency report" barcode={open.number} />
               <EmailButton module="Emergency" subject={`Emergency report ${open.number}`} body={() => `${open.type} at ${open.site}: ${open.description}`} refNo={open.number} />
             </>
           }

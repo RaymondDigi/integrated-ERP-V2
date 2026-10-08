@@ -165,7 +165,7 @@ const AuditDrawer: React.FC<{ a: Audit; onClose: () => void }> = ({ a, onClose }
       onClose={onClose}
       footer={
         <>
-          <PrintButton title={`Audit report ${a.number}`} html={() => auditReportHtml(a, state.capas)} label="Audit report" />
+          <PrintButton title={`Audit report ${a.number}`} html={() => auditReportHtml(a, state.capas)} label="Audit report" barcode={a.number} />
           <EmailButton module="Quality" subject={`Audit report ${a.number} — ${a.title}`} body={() => `${a.findings.length} findings. Status ${a.status}.`} refNo={a.number} />
           {a.status === 'PLANNED' && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => startAudit(a.id)}>

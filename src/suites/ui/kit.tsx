@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, Check, ChevronLeft, ChevronRight, ChevronsUpDown, Search, X } from 'lucide-react';
+import { savePrefs, usePrefs } from '../../platform/prefs';
 
 /* ------------------------------------------------------------------ */
 /* Page scaffolding                                                    */
@@ -181,10 +182,13 @@ export const DataTable = <T,>({
   pageSize = 12,
   footer,
   initialSort,
-  selected
+  selected,
+  layoutId
 }: {
   rows: T[];
   columns: Column<T>[];
+  /** When set, the user can hide columns; the choice is kept in their preferences under this id. */
+  layoutId?: string;
   rowKey: (row: T) => string;
   onRowClick?: (row: T) => void;
   empty?: React.ReactNode;
@@ -212,9 +216,30 @@ export const DataTable = <T,>({
     if (page > pages - 1) setPage(0);
   }, [pages, page]);
   const visible = sorted.slice(page * pageSize, page * pageSize + pageSize);
+  const userPrefs = usePrefs();
+  const hidden = layoutId ? userPrefs.hiddenColumns[layoutId] ?? [] : [];
+  const allColumns = columns;
+  columns = allColumns.filter((c) => !hidden.includes(c.key) || !c.header);
 
   return (
     <div className="sx-table-wrap">
+      {layoutId && (
+        <details className="sx-columns-chooser" style={{ padding: '4px 8px', fontSize: 12 }}>
+          <summary style={{ cursor: 'pointer' }}>Columns</summary>
+          {allColumns
+            .filter((c) => c.header)
+            .map((c) => (
+              <label key={c.key} style={{ marginRight: 12, display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={!hidden.includes(c.key)}
+                  onChange={(e) => savePrefs({ hiddenColumns: { ...userPrefs.hiddenColumns, [layoutId]: e.target.checked ? hidden.filter((k) => k !== c.key) : [...hidden, c.key] } })}
+                />
+                {c.header}
+              </label>
+            ))}
+        </details>
+      )}
       <div className="sx-table-scroll">
         <table className="sx-table">
           <thead>

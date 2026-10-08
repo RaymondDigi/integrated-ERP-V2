@@ -231,7 +231,7 @@ export const DocumentsPage: React.FC<{ eyebrow?: string }> = ({ eyebrow = 'Gover
         <Chips value={folder} onChange={setFolder} options={[{ value: 'ALL', label: 'All folders', count: state.docs.length }, ...DOC_FOLDERS.filter((x) => state.docs.some((d) => d.folder === x)).map((x) => ({ value: x, label: x, count: state.docs.filter((d) => d.folder === x).length }))]} />
         <SearchBox value={q} onChange={setQ} placeholder="Search documents" />
       </div>
-      <DataTable rows={rows} columns={columns} rowKey={(d) => d.id} onRowClick={(d) => setOpenId(d.id)} selected={openId} />
+      <DataTable rows={rows} columns={columns} rowKey={(d) => d.id} onRowClick={(d) => setOpenId(d.id)} selected={openId} layoutId="gov.documents" />
       {open && <DocDrawer d={open} onClose={() => setOpenId(null)} />}
       {adding && (
         <Modal

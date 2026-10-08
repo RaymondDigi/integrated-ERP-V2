@@ -150,7 +150,7 @@ const TicketsPage: React.FC = () => {
           ]}
         />
       </div>
-      <DataTable rows={rows} columns={columns} rowKey={(t) => t.id} onRowClick={(t) => setOpenId(t.id)} selected={openId} initialSort={{ key: 'sla', dir: 'asc' }} />
+      <DataTable rows={rows} columns={columns} rowKey={(t) => t.id} onRowClick={(t) => setOpenId(t.id)} selected={openId} initialSort={{ key: 'sla', dir: 'asc' }} layoutId="ict.tickets" />
       {open && <TicketDrawer t={open} onClose={() => setOpenId(null)} />}
       {adding && (
         <Modal
@@ -507,7 +507,7 @@ const AssetsPage: React.FC = () => {
         </>
       }
     >
-      <DataTable rows={state.assets} columns={columns} rowKey={(a) => a.id} onRowClick={(a) => setOpenId(a.id)} selected={openId} />
+      <DataTable rows={state.assets} columns={columns} rowKey={(a) => a.id} onRowClick={(a) => setOpenId(a.id)} selected={openId} layoutId="ict.assets" />
       {open && <AssetDrawer a={open} onClose={() => setOpenId(null)} onEdit={() => setForm({ asset: open })} />}
       {form && <AssetFormModal asset={form.asset} onClose={() => setForm(null)} />}
       <Panel title="Software licences" subtitle="Seats used and renewals">
