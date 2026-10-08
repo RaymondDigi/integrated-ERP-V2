@@ -659,6 +659,13 @@ export const ClosePage: React.FC = () => {
             : ''
   }));
   const doneCount = items.filter((i) => i.done).length;
+  /** Automatic close run: depreciation, bank auto-match and due reversals, then the close itself if every check passes. */
+  const autoClose = () => {
+    if (!state.depreciationRuns.some((r) => r.period === key)) f.runDepreciation(key);
+    for (const b of state.accounts.filter((a) => a.bank)) f.autoMatch(b.code);
+    f.runDueReversals();
+    closePeriod(key);
+  };
   const go = (k: string) => setPage(k === 'unposted' ? 'invoices' : k === 'bank' ? 'bank' : 'assets');
 
   return (
@@ -783,9 +790,14 @@ export const ClosePage: React.FC = () => {
           title="Close cockpit"
           subtitle="Every period with its status, owner and due date"
           action={
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => f.runDueReversals()}>
-              Run due reversals
-            </button>
+            <div className="sx-actions">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => f.runDueReversals()}>
+                Run due reversals
+              </button>
+              <button type="button" className="btn btn-primary btn-sm" onClick={autoClose} disabled={period.status === 'CLOSED' || future || actor.role === 'ACCOUNTANT'}>
+                Automatic close
+              </button>
+            </div>
           }
         >
           <table className="fx-table">
