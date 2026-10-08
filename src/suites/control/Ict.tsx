@@ -8,6 +8,7 @@ import { Chips, DataTable, DefList, Drawer, Field, Hero, LinkButton, Meter, Moda
 import { SuiteSidebar, type SuiteNavGroup } from '../ui/SuiteSidebar';
 import { Crumb, useTopOnChange } from '../operations/parts';
 import { CtlFooter, useCtlFocus } from './parts';
+import { LogisticsIntegrations } from './integrations/LogisticsIntegrations';
 
 const LABEL: Record<IctPage, string> = { overview: 'Overview', tickets: 'Tickets', assets: 'Assets & licences', changes: 'Changes' };
 const P_PILL: Record<string, string> = { P1: 'REJECTED', P2: 'OVERDUE', P3: 'SUBMITTED', P4: 'DRAFT' };
@@ -485,6 +486,7 @@ export const IntegrationsSuite: React.FC = () => {
             </section>
           ))}
         </div>
+        <LogisticsIntegrations />
       </div>
       {open && (
         <Drawer title={open.name} subtitle="Sync log" onClose={() => setOpenId(null)}>
