@@ -20,7 +20,11 @@ import {
   UserPlus,
   XCircle,
   RotateCcw,
-  Handshake
+  Handshake,
+  BadgeCheck,
+  FileSignature,
+  HeartHandshake,
+  Megaphone
 } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
 import { useCommercial, type BizDevPage } from '../store';
@@ -30,8 +34,23 @@ import type { Activity, Opportunity, Stage } from '../types';
 import { Bars, Chips, DataTable, DefList, Drawer, Field, FlowSteps, LinkButton, Modal, Panel, Pill, SearchBox, Stat, SuitePage, Timeline, type Column } from '../../ui/kit';
 import { SuiteSidebar, type SuiteNavGroup } from '../../ui/SuiteSidebar';
 import { ComActorSwitcher, PartySelect } from '../parts';
+import { OnboardingPage } from './Onboarding';
+import { ContractsPage } from './Contracts';
+import { CustomerExperiencePage } from './CustomerExperience';
+import { CampaignsPage } from './Campaigns';
+import { feedbackLate } from '../tradeEngine';
+import '../trading/trading.css';
 
-const LABEL: Record<BizDevPage, string> = { overview: 'Overview', pipeline: 'Pipeline', opportunities: 'Opportunities', activities: 'Activities' };
+const LABEL: Record<BizDevPage, string> = {
+  overview: 'Overview',
+  pipeline: 'Pipeline',
+  opportunities: 'Opportunities',
+  activities: 'Activities',
+  onboarding: 'Customer onboarding',
+  contracts: 'Contracts',
+  cx: 'Customer experience',
+  campaigns: 'Campaigns'
+};
 const STAGE_COLOR: Record<Stage, string> = { LEAD: '#b9d5c3', QUALIFIED: '#8fc2a6', PROPOSAL: '#5fa883', NEGOTIATION: '#237857', WON: '#153e33', LOST: '#c9573f' };
 const STAGE_PILL: Record<Stage, string> = { LEAD: 'DRAFT', QUALIFIED: 'OPEN', PROPOSAL: 'SUBMITTED', NEGOTIATION: 'APPROVED', WON: 'POSTED', LOST: 'REJECTED' };
 const ACT_ICON: Record<Activity['type'], React.ReactNode> = {
@@ -74,8 +93,8 @@ const BizDevOverview: React.FC = () => {
   type Item = { id: string; tone: string; icon: React.ReactNode; title: string; detail: string; onClick: () => void };
   const items: Item[] = [
     ...overdue.map((a) => {
-      const o = state.opportunities.find((x) => x.id === a.opportunityId)!;
-      return { id: a.id, tone: 'critical', icon: ACT_ICON[a.type], title: a.subject, detail: `${o.name} · ${daysBetween(a.due, TODAY)} days overdue`, onClick: () => go('pipeline', o.id) };
+      const o = state.opportunities.find((x) => x.id === a.opportunityId);
+      return { id: a.id, tone: 'critical', icon: ACT_ICON[a.type], title: a.subject, detail: `${o?.name ?? 'Customer follow-up'} · ${daysBetween(a.due, TODAY)} days overdue`, onClick: () => (o ? go('pipeline', o.id) : go('cx')) };
     }),
     ...closing.map((o) => ({ id: `c${o.id}`, tone: 'warning', icon: <Target size={15} />, title: `Close ${o.name}`, detail: `${kes(o.value, { compact: true })} · expected ${fmtDate(o.expectedClose)}`, onClick: () => go('pipeline', o.id) })),
     ...stale.map((o) => ({ id: `s${o.id}`, tone: 'info', icon: <Clock3 size={15} />, title: `${o.name} has gone quiet`, detail: `${daysInStage(o)} days in ${STAGE_LABEL[o.stage].toLowerCase()}`, onClick: () => go('pipeline', o.id) }))
@@ -637,15 +656,15 @@ const ActivitiesPage: React.FC = () => {
                 {g.list
                   .sort((a, b) => a.due.localeCompare(b.due))
                   .map((a) => {
-                    const o = state.opportunities.find((x) => x.id === a.opportunityId)!;
+                    const o = state.opportunities.find((x) => x.id === a.opportunityId);
                     return (
                       <li key={a.id} className={a.done ? 'done' : a.due < TODAY ? 'late' : ''}>
                         <span className="sx-act-icon">{ACT_ICON[a.type]}</span>
                         <div>
                           <b>{a.subject}</b>
                           <small>
-                            <button type="button" className="sx-link" onClick={() => setBizdev('pipeline', o.id)}>
-                              {o.name}
+                            <button type="button" className="sx-link" onClick={() => (o ? setBizdev('pipeline', o.id) : setBizdev('cx'))}>
+                              {o?.name ?? 'Customer follow-up'}
                             </button>{' '}
                             · {fmtDate(a.due)} · {a.owner}
                           </small>
@@ -681,6 +700,15 @@ export const BizDevSidebar: React.FC = () => {
         { id: 'pipeline', label: 'Pipeline board', icon: KanbanSquare, badge: state.opportunities.filter(isStale).length },
         { id: 'opportunities', label: 'Opportunities', icon: Target },
         { id: 'activities', label: 'Activities', icon: CalendarCheck, badge: state.activities.filter((a) => !a.done && a.due < TODAY).length, badgeTone: 'critical' }
+      ]
+    },
+    {
+      label: 'Customers',
+      items: [
+        { id: 'onboarding', label: 'Onboarding & KYC', icon: BadgeCheck, badge: state.applications.filter((a) => a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW').length, badgeTone: 'warning' },
+        { id: 'contracts', label: 'Contracts', icon: FileSignature, badge: state.contracts.filter((c) => c.status === 'REVIEW').length, badgeTone: 'warning' },
+        { id: 'cx', label: 'Customer experience', icon: HeartHandshake, badge: state.feedback.filter((f) => feedbackLate(f) && f.status !== 'CLOSED').length, badgeTone: 'critical' },
+        { id: 'campaigns', label: 'Campaigns', icon: Megaphone }
       ]
     }
   ];
@@ -732,6 +760,10 @@ export const BizDevSuite: React.FC = () => {
       {bizdev.page === 'pipeline' && <PipelinePage />}
       {bizdev.page === 'opportunities' && <OpportunitiesPage />}
       {bizdev.page === 'activities' && <ActivitiesPage />}
+      {bizdev.page === 'onboarding' && <OnboardingPage />}
+      {bizdev.page === 'contracts' && <ContractsPage />}
+      {bizdev.page === 'cx' && <CustomerExperiencePage />}
+      {bizdev.page === 'campaigns' && <CampaignsPage />}
     </div>
   );
 };

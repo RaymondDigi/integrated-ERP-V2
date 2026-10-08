@@ -14,7 +14,16 @@ import {
   AlertTriangle,
   CheckCircle2,
   RotateCcw,
-  ShoppingCart
+  ShoppingCart,
+  Tags,
+  Store,
+  FileStack,
+  Undo2,
+  Gavel,
+  FlaskConical,
+  BarChart3,
+  Globe,
+  Settings
 } from 'lucide-react';
 import { useCommercial, type TradingPage } from '../store';
 import { approvalRights, needsReorder, orderStage, totals } from '../engine';
@@ -24,6 +33,16 @@ import { SuiteSidebar, type SuiteNavGroup } from '../../ui/SuiteSidebar';
 import { ComActorSwitcher } from '../parts';
 import { QuotationsPage, OrdersPage } from './Sales';
 import { DeliveriesPage, ProductsPage, SalesCustomersPage } from './Fulfilment';
+import { PricingPage } from './Pricing';
+import { CounterPage } from './Counter';
+import { InvoicingPage } from './Invoicing';
+import { ReturnsPage } from './Returns';
+import { AuctionsPage } from './Auctions';
+import { ConfiguratorPage } from './Configurator';
+import { ReportsPage } from './Reports';
+import { PortalPage } from './Portal';
+import { SetupPage } from './Setup';
+import './trading.css';
 
 const LABEL: Record<TradingPage, string> = {
   overview: 'Overview',
@@ -31,7 +50,16 @@ const LABEL: Record<TradingPage, string> = {
   orders: 'Sales orders',
   deliveries: 'Deliveries',
   products: 'Products & price list',
-  customers: 'Customers'
+  customers: 'Customers',
+  pricing: 'Pricing',
+  pos: 'Counter sales',
+  invoicing: 'Invoice run',
+  returns: 'Returns & credits',
+  auctions: 'Auctions & tasting',
+  configurator: 'Blend configurator',
+  reports: 'Sales reports',
+  portal: 'Customer portal',
+  setup: 'Trading setup'
 };
 
 const greet = () => {
@@ -195,7 +223,17 @@ export const TradingSidebar: React.FC = () => {
       label: 'Sell',
       items: [
         { id: 'quotations', label: 'Quotations', icon: FileText, badge: state.quotations.filter((q) => q.status === 'SENT' && q.validUntil >= TODAY && daysBetween(TODAY, q.validUntil) <= 7).length },
-        { id: 'orders', label: 'Sales orders', icon: ShoppingBag, badge: approvals || state.orders.filter((o) => orderStage(o) === 'TO_INVOICE').length, badgeTone: approvals ? 'warning' : 'critical' }
+        { id: 'orders', label: 'Sales orders', icon: ShoppingBag, badge: approvals || state.orders.filter((o) => orderStage(o) === 'TO_INVOICE').length, badgeTone: approvals ? 'warning' : 'critical' },
+        { id: 'pricing', label: 'Pricing', icon: Tags, badge: state.priceLists.filter((p) => p.status === 'DRAFT').length, badgeTone: 'warning' },
+        { id: 'pos', label: 'Counter sales', icon: Store },
+        { id: 'invoicing', label: 'Invoice run', icon: FileStack }
+      ]
+    },
+    {
+      label: 'Tea',
+      items: [
+        { id: 'auctions', label: 'Auctions & tasting', icon: Gavel, badge: state.auctions.filter((a) => a.status === 'OPEN').length, badgeTone: 'neutral' },
+        { id: 'configurator', label: 'Blend configurator', icon: FlaskConical }
       ]
     },
     {
@@ -203,7 +241,16 @@ export const TradingSidebar: React.FC = () => {
       items: [
         { id: 'deliveries', label: 'Deliveries', icon: Truck, badge: state.orders.filter((o) => orderStage(o) === 'TO_DISPATCH').length, badgeTone: 'neutral' },
         { id: 'products', label: 'Products & price list', icon: Package, badge: state.products.filter((p) => p.kind === 'GOODS' && needsReorder(state, p)).length, badgeTone: 'critical' },
-        { id: 'customers', label: 'Customers', icon: Users }
+        { id: 'customers', label: 'Customers', icon: Users },
+        { id: 'returns', label: 'Returns & credits', icon: Undo2, badge: state.rmas.filter((r) => r.status === 'REQUESTED').length + state.claims.filter((c) => c.status === 'OPEN').length, badgeTone: 'warning' }
+      ]
+    },
+    {
+      label: 'Insight & channels',
+      items: [
+        { id: 'reports', label: 'Sales reports', icon: BarChart3 },
+        { id: 'portal', label: 'Customer portal', icon: Globe },
+        { id: 'setup', label: 'Trading setup', icon: Settings }
       ]
     }
   ];
@@ -257,6 +304,15 @@ export const TradingSuite: React.FC = () => {
       {trading.page === 'deliveries' && <DeliveriesPage />}
       {trading.page === 'products' && <ProductsPage mode="SELL" />}
       {trading.page === 'customers' && <SalesCustomersPage />}
+      {trading.page === 'pricing' && <PricingPage />}
+      {trading.page === 'pos' && <CounterPage />}
+      {trading.page === 'invoicing' && <InvoicingPage />}
+      {trading.page === 'returns' && <ReturnsPage />}
+      {trading.page === 'auctions' && <AuctionsPage />}
+      {trading.page === 'configurator' && <ConfiguratorPage />}
+      {trading.page === 'reports' && <ReportsPage />}
+      {trading.page === 'portal' && <PortalPage />}
+      {trading.page === 'setup' && <SetupPage />}
     </div>
   );
 };
