@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
+    "publish:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-windows.ps1",
     "docker:build": "docker build -t ui-app .",
     "docker:run": "docker run -d -p 8080:80 --name ui-app ui-app",
     "docker:stop": "docker stop ui-app && docker rm ui-app"
