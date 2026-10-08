@@ -2,13 +2,29 @@ import React, { createContext, useCallback, useContext, useRef, useState } from 
 import { useApp } from '../../context/AppContext';
 import { useFinance } from '../finance/store';
 import { useCommercial } from '../commercial/store';
+import { useAccess } from '../../platform/access';
 import { addDays, round2, TODAY, localStamp } from '../finance/engine';
 import { buildOperationsSeed, OPS_ACTORS } from './data';
 import { materialNeed, shipBlockers, SHIP_STAGES, stockAt, shipValue, woCost } from './engine';
 import type { Batch, OperationsState, OpsRole, QualityCheck, Shipment, StockMove, WorkOrder } from './types';
 
 export type WarehousingPage = 'overview' | 'stock' | 'transfers' | 'counts' | 'movements';
-export type ProductionPage = 'overview' | 'batches' | 'recipes' | 'quality';
+export type ProductionPage =
+  | 'overview'
+  | 'batches'
+  | 'recipes'
+  | 'quality'
+  // Blending & planning pages (src/suites/operations/production)
+  | 'lots'
+  | 'blendsheets'
+  | 'workorders'
+  | 'workcentres'
+  | 'routings'
+  | 'costing'
+  | 'schedule'
+  | 'planning'
+  | 'simulation'
+  | 'reports';
 export type ShippingPage = 'overview' | 'shipments' | 'documents';
 export type FleetPage = 'overview' | 'vehicles' | 'trips' | 'fuel';
 export type MaintenancePage = 'overview' | 'workorders' | 'preventive' | 'projects';
@@ -165,10 +181,17 @@ const useOperationsStore = () => {
   };
 
   /* ================= Production ================= */
+  const prodAccess = useAccess();
+  const prodReadOnly = () => (prodAccess.canWrite ? null : fail('This is a read-only account — production records cannot be changed'));
   const planBatch = (recipeId: string, qty: number, date: string, forOrder?: string): Result => {
+    const ro = prodReadOnly();
+    if (ro) return ro;
+    if (!is('OFFICER', 'MANAGER')) return fail('Batches are planned by the Operations Officer or Manager');
     const s = ref.current;
     if (!(qty > 0)) return fail('Enter the quantity to make');
-    const r = s.recipes.find((x) => x.id === recipeId)!;
+    const r = s.recipes.find((x) => x.id === recipeId);
+    if (!r) return fail('Choose the product to make');
+    if (!date || date < TODAY) return fail('The production date cannot be in the past');
     const { number, sequence } = next(s, 'BAT');
     const id = uid('bt');
     const b: Batch = { id, number, recipeId, plannedQty: qty, date, line: r.line, status: 'PLANNED', issued: [], output: 0, rejectedQty: 0, checks: [], history: [log('Planned')], forOrder };
@@ -180,22 +203,33 @@ const useOperationsStore = () => {
     commit({ ...s, batches: s.batches.map((x) => (x.id === id ? { ...x, ...patch, history: [...x.history, log(action, note)] } : x)) });
   };
   const releaseBatch = (id: string): Result => {
+    const ro = prodReadOnly();
+    if (ro) return ro;
     if (!is('MANAGER')) return fail('Batches are released by the Operations Manager');
     const b = ref.current.batches.find((x) => x.id === id)!;
+    if (b.status !== 'PLANNED') return fail('Only planned batches can be released');
     updateBatch(id, { status: 'RELEASED' }, 'Released to the floor');
     return done('Released', `${b.number} can start when materials are issued`);
   };
   /** Issue materials (stock goes down) and start the run. */
   const startBatch = (id: string): Result => {
     const s = ref.current;
+    const ro = prodReadOnly();
+    if (ro) return ro;
     if (!is('STOREKEEPER', 'OFFICER', 'MANAGER')) return fail('Stores or the Operations Officer issues materials');
     const b = s.batches.find((x) => x.id === id)!;
+    if (b.status !== 'RELEASED') return fail('Only released batches can start — the Operations Manager releases them first');
     const r = s.recipes.find((x) => x.id === b.recipeId)!;
     const need = materialNeed(r, b.plannedQty);
+    // Materials are issued from the factory store; a shortfall there must be transferred in first, not taken silently from the main warehouse
+    for (const n of need) {
+      const there = stockAt(s, products, n.sku, 'WH-FAC');
+      if (there < n.qty) return fail(`${pname(n.sku)}: only ${there} at the factory store, ${n.qty} needed — transfer it from the main warehouse first`);
+    }
     const res = commercial.adjustStock(need.map((n) => ({ sku: n.sku, delta: -n.qty })));
     if (!res.ok) return res;
     let placed = s.placed;
-    for (const n of need) placed = place(placed, n.sku, 'WH-FAC', -Math.min(n.qty, s.placed[n.sku]?.['WH-FAC'] ?? 0));
+    for (const n of need) placed = place(placed, n.sku, 'WH-FAC', -n.qty);
     commit({
       ...s,
       placed,
@@ -205,13 +239,21 @@ const useOperationsStore = () => {
     return done('Production started', `${need.length} materials issued from stock`);
   };
   const sendToQc = (id: string): Result => {
+    const ro = prodReadOnly();
+    if (ro) return ro;
+    if (!is('OFFICER', 'MANAGER')) return fail('The Operations Officer finishes the run');
+    const b = ref.current.batches.find((x) => x.id === id)!;
+    if (b.status !== 'IN_PROGRESS') return fail('Only running batches can be sent to quality');
     updateBatch(id, { status: 'QC' }, 'Run finished — sent to quality');
     return done('Sent to quality', 'Faith Akinyi (Quality Controller) records the results');
   };
   const recordQc = (id: string, checks: QualityCheck[], rejectedQty: number): Result => {
     const s = ref.current;
+    const ro = prodReadOnly();
+    if (ro) return ro;
     if (!is('QC')) return fail('Quality results are entered by the Quality Controller — switch to Faith Akinyi');
     const b = s.batches.find((x) => x.id === id)!;
+    if (b.status !== 'QC') return fail('Only batches waiting for quality can be checked');
     if (checks.some((c) => !c.result.trim())) return fail('Enter a result for every check');
     if (rejectedQty < 0 || rejectedQty > b.plannedQty) return fail('Rejected quantity is out of range');
     const pass = checks.every((c) => c.pass);
@@ -235,6 +277,9 @@ const useOperationsStore = () => {
     return done('Batch completed', `${output} × ${r.name} added to stock`);
   };
   const cancelBatch = (id: string): Result => {
+    const ro = prodReadOnly();
+    if (ro) return ro;
+    if (!is('OFFICER', 'MANAGER')) return fail('Batches are cancelled by the Operations Officer or Manager');
     const b = ref.current.batches.find((x) => x.id === id)!;
     if (!['PLANNED', 'RELEASED'].includes(b.status)) return fail('Materials are already issued — finish the run or record a QC failure');
     updateBatch(id, { status: 'CANCELLED' }, 'Cancelled');
