@@ -17,6 +17,7 @@ import { BizDevSuite } from './suites/commercial/bizdev/BizDev';
 import { OperationsProvider } from './suites/operations/store';
 import { ControlProvider } from './suites/control/store';
 import { HubProvider } from './suites/hub/store';
+import { ProcurementExtProvider } from './suites/commercial/procurement/ext/store';
 import { QualitySuite } from './suites/control/Quality';
 import { IctSuite, IntegrationsSuite } from './suites/control/Ict';
 import { GovernanceSuite, ImplementationSuite } from './suites/control/Governance';
@@ -207,6 +208,7 @@ export const App: React.FC = () => {
     <OperationsProvider>
     <ControlProvider>
     <HubProvider>
+    <ProcurementExtProvider>
     <div className="app-shell">
       <Header />
       <div className="app-body">
@@ -226,6 +228,7 @@ export const App: React.FC = () => {
       <ToastContainer />
       <ModuleLauncher />
     </div>
+    </ProcurementExtProvider>
     </HubProvider>
     </ControlProvider>
     </OperationsProvider>
