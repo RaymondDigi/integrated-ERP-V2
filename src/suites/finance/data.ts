@@ -19,6 +19,7 @@ import type {
 import { addDays, daysBetween, depreciationFor, docTotals, iso, ledger, periodLabel, periodOf, round2, TODAY, VAT_RATE } from './engine';
 import { WORKFORCE } from '../../data/workforce';
 import { monthRun } from '../../data/payrollEngine';
+import { emptyExtensions, extendSeed } from './ext/seed';
 
 export const ACTORS: Record<FinRole, Actor> = {
   ACCOUNTANT: { role: 'ACCOUNTANT', name: 'Grace Wanjiku', title: 'Accountant' },
@@ -484,7 +485,8 @@ export const buildSeed = (): FinanceState => {
     periods,
     budgets: [],
     budgetYear: year,
-    sequence: seq
+    sequence: seq,
+    ...emptyExtensions()
   };
 
   const runs: DepreciationRun[] = [];
@@ -549,8 +551,10 @@ export const buildSeed = (): FinanceState => {
   extra(2, 'Interest on current account', 'INT', 3_812);
   state.bankLines = lines.sort((a, b) => a.date.localeCompare(b.date));
 
-  state.sequence = { ...seq };
-  return state;
+  // Group companies, masters and the TOR extensions (numbers continue the same sequence)
+  const extended = extendSeed(state, { next, lid, david: { name: david.name, role: 'MANAGER' }, grace: { name: grace.name, role: 'ACCOUNTANT' }, amina: { name: amina.name, role: 'DIRECTOR' } });
+  extended.sequence = { ...seq };
+  return extended;
 };
 
 /** VAT on an amount (for forms). */

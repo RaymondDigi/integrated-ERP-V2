@@ -46,7 +46,22 @@ export const FINANCE_PAGE_LABEL: Record<FinancePage, string> = {
   budgets: 'Budgets',
   assets: 'Fixed assets',
   close: 'Month-end close',
-  reports: 'Reports'
+  reports: 'Reports',
+  memos: 'Credit & debit memos',
+  collections: 'Credit & collections',
+  paymentRuns: 'Payment runs',
+  recurring: 'Recurring & batches',
+  cashbook: 'Cash book',
+  treasury: 'Treasury',
+  forecast: 'Cash forecast',
+  costing: 'Cost accounting',
+  inventory: 'Inventory & production',
+  tax: 'Tax',
+  group: 'Group & consolidation',
+  staff: 'Staff loans & advances',
+  analysis: 'Report library',
+  writer: 'Report writer',
+  setup: 'Finance setup'
 };
 
 export const FinanceSidebar: React.FC = () => {
