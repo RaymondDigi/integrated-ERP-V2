@@ -756,8 +756,8 @@ export const makeTradeActions = (k: StoreKit) => {
   /* ================= Invoicing ================= */
   type GroupBy = 'ORDER' | 'PO' | 'CUSTOMER' | 'SHIP_TO';
   /** Raise Finance invoices for delivered-not-invoiced lines, grouped as asked and split by payment terms. */
-  const invoiceRun = (orderIds: string[], groupBy: GroupBy): Result => {
-    const err = deny(SELLERS, 'Invoices are raised by the commercial team');
+  const invoiceRun = (orderIds: string[], groupBy: GroupBy, counterSale = false): Result => {
+    const err = deny(counterSale ? null : SELLERS, 'Invoices are raised by the commercial team');
     if (err) return fail(err);
     const s = get();
     const orders = orderIds.map((i) => s.orders.find((o) => o.id === i)!).filter((o) => o && o.status === 'APPROVED');
@@ -944,7 +944,7 @@ export const makeTradeActions = (k: StoreKit) => {
     };
     const dn: Delivery = { id: uid('dn'), number: dnNo.number, orderId: so.id, date: TODAY, lines: so.lines.map((l) => ({ lineId: l.id, qty: l.qty })), vehicle: 'Customer collection', driver: sale.buyer || 'Walk-in', dispatchedBy: actor().name, status: 'DELIVERED', receivedBy: sale.buyer || 'Walk-in customer', deliveredAt: now() };
     commit({ ...s1, sequence: dnNo.sequence, orders: [so, ...s1.orders], deliveries: [dn, ...s1.deliveries], products: s1.products.map((p) => ({ ...p, stock: p.kind === 'GOODS' ? p.stock - lines.filter((l) => l.sku === p.sku).reduce((x, l) => x + l.qty, 0) : p.stock })) });
-    const inv = invoiceRun([so.id], 'ORDER');
+    const inv = invoiceRun([so.id], 'ORDER', true);
     if (!inv.ok) return inv;
     const pay = takePayment(so.id, sale.method, sale.phone, sale.card, t.total);
     if (!pay.ok) return pay;
@@ -1517,7 +1517,7 @@ export const makeTradeActions = (k: StoreKit) => {
     const prof = profileOf(s, customerId);
     const draft: SalesOrder = { id: '', number: '', customerId, date: TODAY, requiredBy: w.requiredBy, customerRef: w.customerRef, deliveryAddress: '', lines: lines.map((l) => ({ ...l, delivered: 0, invoiced: 0 })), invoices: [], notes: '', status: 'DRAFT', preparedBy: '', approvals: [], history: [], shipToId: w.shipToId, oneTimeShipTo: w.oneTimeShipTo };
     const charges = autoCharges(draft, s);
-    const r = k.saveOrder({ ...draft, id: undefined, notes: `Placed on the customer portal (${w.segment})`, channel: 'WEB', segment: w.segment, paymentMode: w.segment === 'B2C' ? 'CASH' : 'ACCOUNT', oneTimeName: w.buyerName || undefined, charges, priority: prof.priority, preparedBy: `${party(customerId)?.name} (portal)` });
+    const r = k.saveOrder({ customerId, date: TODAY, requiredBy: w.requiredBy, customerRef: w.customerRef, deliveryAddress: w.oneTimeShipTo ?? prof.shipTos.find((x) => x.id === w.shipToId)?.address ?? '', lines: draft.lines, shipToId: w.shipToId, oneTimeShipTo: w.oneTimeShipTo, notes: `Placed on the customer portal (${w.segment})`, channel: 'WEB', segment: w.segment, paymentMode: w.segment === 'B2C' ? 'CASH' : 'ACCOUNT', oneTimeName: w.buyerName || undefined, charges, priority: prof.priority, preparedBy: `${party(customerId)?.name} (portal)` });
     if (!r.ok || !r.id) return r;
     logPortal('ORDER', r.id);
     const sub = k.submitOrder(r.id);
