@@ -818,6 +818,12 @@ export const DocumentEditor: React.FC<{ kind: Kind; doc: FinDocument | null; onC
                     </option>
                   ))}
               </select>
+              <select className="form-control" value={l.plant ?? ''} onChange={(e) => setLine(l.id, { plant: e.target.value || undefined })} aria-label="Plant">
+                <option value="">Plant / division…</option>
+                {(state.companies.find((c) => c.id === state.activeCompany)?.plants ?? []).map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </select>
             </div>
           </div>
         ))}
