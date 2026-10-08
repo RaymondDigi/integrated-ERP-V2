@@ -40,6 +40,9 @@ export const PRODUCTS: Product[] = [
   { sku: 'PKG-LBL', name: 'Labels — roll of 5,000', kind: 'MATERIAL', category: 'Packaging', unit: 'rolls', price: 0, cost: 4_200, stock: 80, reorderLevel: 60, reorderQty: 120, vatable: true, account: '5000', preferredSupplier: 's12' },
   { sku: 'RAW-A', name: 'Raw material grade A (tonne)', kind: 'MATERIAL', category: 'Raw materials', unit: 'tonnes', price: 0, cost: 85_000, stock: 12, reorderLevel: 10, reorderQty: 20, vatable: false, account: '5000', preferredSupplier: 's11' },
   { sku: 'SPR-GEN', name: 'Generator service kit', kind: 'MATERIAL', category: 'Spares', unit: 'kits', price: 0, cost: 46_000, stock: 2, reorderLevel: 2, reorderQty: 4, vatable: true, account: '6400', preferredSupplier: 's8' },
+  { sku: 'SPR-BRK', name: 'Brake and clutch kit — Isuzu NPR', kind: 'MATERIAL', category: 'Spares', unit: 'kits', price: 0, cost: 38_500, stock: 1, reorderLevel: 1, reorderQty: 2, vatable: true, account: '6400', preferredSupplier: 's8' },
+  { sku: 'SPR-PEY', name: 'Photo-eye sensor (packing line)', kind: 'MATERIAL', category: 'Spares', unit: 'pcs', price: 0, cost: 12_800, stock: 0, reorderLevel: 1, reorderQty: 2, vatable: true, account: '6400', preferredSupplier: 's8' },
+  { sku: 'SPR-BLT', name: 'Drive belt set (blending drum)', kind: 'MATERIAL', category: 'Spares', unit: 'sets', price: 0, cost: 9_400, stock: 4, reorderLevel: 2, reorderQty: 4, vatable: true, account: '6400', preferredSupplier: 's8' },
   { sku: 'OFC-PPR', name: 'Office paper (box of 5 reams)', kind: 'MATERIAL', category: 'Office', unit: 'boxes', price: 0, cost: 2_800, stock: 30, reorderLevel: 20, reorderQty: 40, vatable: true, account: '6600', preferredSupplier: 's7' }
 ];
 

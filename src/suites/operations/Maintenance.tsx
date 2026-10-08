@@ -7,15 +7,22 @@ import type { WorkOrder } from './types';
 import { ApprovalPanel, Chips, DataTable, DefList, Drawer, Field, FlowSteps, Hero, LinkButton, Meter, Modal, Panel, Pill, Stat, SuitePage, TodoList, greeting, type Column, type FlowAction, type TodoItem } from '../ui/kit';
 import { SuiteSidebar, type SuiteNavGroup } from '../ui/SuiteSidebar';
 import { PartySelect } from '../commercial/parts';
-import { Crumb, OpsFooter, useFocus, useTopOnChange } from './parts';
+import { Crumb, useFocus, useTopOnChange } from './parts';
+import { TechFooter } from './technical';
+import { MAINT_EXT_LABEL, MaintExtPages, MAINT_EXT_GROUPS } from './maintenance/pages';
+import { WoExtPanel } from './maintenance/WoExtPanel';
+import { useMaintenanceExt } from './maintenance/store';
+import { equipmentHistory } from './maintenance/engine';
+import type { CalibrationResult } from './maintenance/types';
 
-const LABEL: Record<MaintenancePage, string> = { overview: 'Overview', workorders: 'Work orders', preventive: 'Preventive plan', projects: 'Projects' };
-const W_PILL: Record<WorkOrder['status'], string> = { REQUESTED: 'SUBMITTED', APPROVED: 'APPROVED', IN_PROGRESS: 'OPEN', COMPLETED: 'POSTED', CANCELLED: 'VOID' };
+const LABEL: Record<MaintenancePage, string> = { overview: 'Overview', workorders: 'Work orders', preventive: 'Preventive plan', projects: 'Projects', ...MAINT_EXT_LABEL };
+const W_PILL: Record<WorkOrder['status'], string> = { REQUESTED: 'SUBMITTED', APPROVED: 'APPROVED', IN_PROGRESS: 'OPEN', REVIEW: 'SUBMITTED', COMPLETED: 'POSTED', CANCELLED: 'VOID' };
 const PRI_PILL: Record<WorkOrder['priority'], [string, string]> = { URGENT: ['REJECTED', 'Urgent'], HIGH: ['OVERDUE', 'High'], NORMAL: ['DRAFT', 'Normal'] };
 const EQ_PILL: Record<string, [string, string]> = { RUNNING: ['POSTED', 'Running'], DOWN: ['REJECTED', 'Down'], SERVICE_DUE: ['SUBMITTED', 'Service due'] };
 
 const MOverview: React.FC = () => {
   const { state, actor, products, setMaintenance: go } = useOperations();
+  const mx = useMaintenanceExt();
   const eqName = (id: string) => state.equipment.find((e) => e.id === id)?.name ?? '';
   const open = state.workOrders.filter((w) => !['COMPLETED', 'CANCELLED'].includes(w.status));
   const down = state.equipment.filter((e) => e.status === 'DOWN');
@@ -27,7 +34,9 @@ const MOverview: React.FC = () => {
     ...open.filter((w) => w.status === 'REQUESTED').map((w) => ({ id: w.id, tone: (w.priority === 'URGENT' ? 'critical' : 'warning') as TodoItem['tone'], icon: <Wrench size={15} />, title: `Approve ${w.number}`, detail: `${w.title} · ${eqName(w.equipmentId)}`, onClick: () => go('workorders', w.id) })),
     ...down.map((e) => ({ id: e.id, tone: 'critical' as const, icon: <AlertTriangle size={15} />, title: `${e.name} is down`, detail: `${e.area} · ${e.criticality.toLowerCase()} criticality`, onClick: () => go('workorders') })),
     ...pmDue.map((p) => ({ id: p.id, tone: (pmState(p) === 'OVERDUE' ? 'critical' : 'warning') as TodoItem['tone'], icon: <CalendarClock size={15} />, title: `${p.task}`, detail: `${eqName(p.equipmentId)} · ${pmState(p) === 'OVERDUE' ? `${Math.abs(daysBetween(TODAY, nextDue(p)))} days overdue` : `due ${fmtDate(nextDue(p))}`}`, onClick: () => go('preventive') })),
-    ...state.workOrders.filter((w) => w.status === 'COMPLETED' && w.contractorCost && !w.billId).map((w) => ({ id: `b${w.id}`, tone: 'info' as const, icon: <Receipt size={15} />, title: `Bill contractor for ${w.number}`, detail: kes(w.contractorCost), onClick: () => go('workorders', w.id) }))
+    ...state.workOrders.filter((w) => w.status === 'REVIEW').map((w) => ({ id: `r${w.id}`, tone: 'warning' as const, icon: <CheckCircle2 size={15} />, title: `Sign off ${w.number}`, detail: `${w.title} · closed by ${w.completedBy ?? w.assignedTo}`, onClick: () => go('workorders', w.id) })),
+    ...mx.state.notifications.filter((n) => n.status === 'OPEN').map((n) => ({ id: n.id, tone: (n.priority === 'URGENT' ? 'critical' : 'warning') as TodoItem['tone'], icon: <AlertTriangle size={15} />, title: `${n.number}: ${eqName(n.equipmentId)}`, detail: `${n.source === 'SYSTEM' ? 'System' : n.raisedBy} · ${n.description}`, onClick: () => go('notifications', n.id) })),
+    ...state.workOrders.filter((w) => (w.status === 'COMPLETED' || w.status === 'REVIEW') && w.contractorCost && !w.billId && !w.warrantyClaim).map((w) => ({ id: `b${w.id}`, tone: 'info' as const, icon: <Receipt size={15} />, title: `Bill contractor for ${w.number}`, detail: kes(w.contractorCost), onClick: () => go('workorders', w.id) }))
   ];
   const overBudget = state.projects.filter((p) => p.spent > p.budget);
   return (
@@ -37,7 +46,7 @@ const MOverview: React.FC = () => {
         title="Maintenance & projects"
         text={`${open.length} open work orders · ${down.length} asset${down.length === 1 ? '' : 's'} down · ${pmDue.length} preventive task${pmDue.length === 1 ? '' : 's'} due`}
         actions={[
-          { label: 'Report a fault', icon: <Hammer size={16} />, onClick: () => go('workorders', 'new') },
+          { label: 'Report a fault', icon: <Hammer size={16} />, onClick: () => go('notifications', 'new') },
           { label: 'Preventive plan', icon: <CalendarClock size={16} />, onClick: () => go('preventive') },
           { label: 'Projects', icon: <FolderKanban size={16} />, onClick: () => go('projects') }
         ]}
@@ -52,10 +61,10 @@ const MOverview: React.FC = () => {
         <Panel title={<>Needs your attention {todo.length > 0 && <span className="sx-count">{todo.length}</span>}</>} subtitle="Approvals, breakdowns, preventive tasks and contractor bills">
           <TodoList items={todo} />
         </Panel>
-        <Panel title="Asset status" subtitle="Critical equipment and vehicles">
+        <Panel title="Asset status" subtitle="Critical equipment and vehicles" action={<LinkButton onClick={() => go('equipment')}>Equipment register</LinkButton>}>
           <ul className="sx-facts">
             {state.equipment.map((e) => (
-              <li key={e.id}>
+              <li key={e.id} title={`${equipmentHistory(state, products, e.id).breakdowns} breakdowns`}>
                 <span>{e.name}</span>
                 <Pill status={EQ_PILL[e.status][0]} label={EQ_PILL[e.status][1]} />
               </li>
@@ -111,7 +120,7 @@ const WorkOrdersPage: React.FC = () => {
     },
     { key: 'p', header: 'Priority', render: (w) => <Pill status={PRI_PILL[w.priority][0]} label={PRI_PILL[w.priority][1]} />, sort: (w) => ['URGENT', 'HIGH', 'NORMAL'].indexOf(w.priority), hideOnMobile: true },
     { key: 'd', header: 'Due', render: (w) => <span className={w.due < TODAY && w.status !== 'COMPLETED' ? 'sx-danger-text' : ''}>{fmtDate(w.due)}</span>, sort: (w) => w.due, hideOnMobile: true },
-    { key: 'c', header: 'Cost', render: (w) => (w.status === 'COMPLETED' ? kes(woCost(w, products), { compact: true }) : '—'), align: 'right', hideOnMobile: true },
+    { key: 'c', header: 'Cost', render: (w) => (w.status === 'COMPLETED' || w.status === 'REVIEW' ? kes(woCost(w, products), { compact: true }) : '—'), align: 'right', hideOnMobile: true },
     { key: 's', header: 'Status', render: (w) => <Pill status={W_PILL[w.status]} label={WO_LABEL[w.status]} />, sort: (w) => w.status }
   ];
   const open = state.workOrders.find((w) => w.id === openId);
@@ -153,22 +162,27 @@ const WorkOrdersPage: React.FC = () => {
 };
 
 const WorkOrderDrawer: React.FC<{ w: WorkOrder; onClose: () => void }> = ({ w, onClose }) => {
-  const { state, actor, products, pname, approveWorkOrder, startWorkOrder, billContractor, commercial } = useOperations();
+  const { state, actor, products, pname, approveWorkOrder, startWorkOrder, billContractor, commercial, reviewWorkOrder, cancelWorkOrder } = useOperations();
   const [completing, setCompleting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [reason, setReason] = useState('');
   const [inv, setInv] = useState('');
   const eq = state.equipment.find((e) => e.id === w.equipmentId)!;
-  const at = { REQUESTED: 0, APPROVED: 1, IN_PROGRESS: 2, COMPLETED: 4, CANCELLED: 0 }[w.status];
+  const at = { REQUESTED: 0, APPROVED: 1, IN_PROGRESS: 2, REVIEW: 3, COMPLETED: 5, CANCELLED: 0 }[w.status];
+  const costed = w.status === 'COMPLETED' || w.status === 'REVIEW';
   const actions: FlowAction[] = [];
   if (w.status === 'REQUESTED') actions.push({ label: 'Approve', icon: <CheckCircle2 size={14} />, onClick: () => approveWorkOrder(w.id), title: actor.role !== 'MANAGER' ? 'The Operations Manager approves work orders' : undefined });
   if (w.status === 'APPROVED') actions.push({ label: 'Start work', icon: <Play size={14} />, onClick: () => startWorkOrder(w.id) });
   if (w.status === 'IN_PROGRESS') actions.push({ label: 'Complete job', icon: <CheckCircle2 size={14} />, onClick: () => setCompleting(true) });
+  if (w.status === 'REVIEW') actions.push({ label: 'Sign off', icon: <CheckCircle2 size={14} />, onClick: () => reviewWorkOrder(w.id, true, ''), title: actor.role !== 'MANAGER' ? 'The Operations Manager signs off completed jobs' : undefined });
+  if (w.status === 'REQUESTED' || w.status === 'APPROVED') actions.push({ label: 'Cancel', icon: <Ban size={14} />, tone: 'secondary', onClick: () => setCancelling(true) });
   return (
     <>
       <Drawer wide title={w.number} subtitle={`${eq.name} · ${eq.area}`} badge={<Pill status={W_PILL[w.status]} label={WO_LABEL[w.status]} />} onClose={onClose}>
         <div className="sx-amount-hero">
           <div>
-            <span>{w.status === 'COMPLETED' ? 'Total cost' : 'Job'}</span>
-            <strong>{w.status === 'COMPLETED' ? kes(woCost(w, products)) : w.title}</strong>
+            <span>{costed ? 'Total cost' : 'Job'}</span>
+            <strong>{costed ? kes(woCost(w, products)) : w.title}</strong>
           </div>
           <div>
             <span>Due</span>
@@ -186,15 +200,20 @@ const WorkOrderDrawer: React.FC<{ w: WorkOrder; onClose: () => void }> = ({ w, o
           ]}
         />
         {w.notes && <p className="sx-note">{w.notes}</p>}
-        {w.status === 'COMPLETED' && (
+        {w.completionNotes && (
+          <p className="sx-note">
+            <CheckCircle2 size={13} /> Done: {w.completionNotes}
+          </p>
+        )}
+        {costed && (
           <table className="sx-mini-table">
             <tbody>
               <tr>
-                <td>Labour — {w.hours} h at {kes(LABOUR_RATE)}</td>
-                <td style={{ textAlign: 'right' }}>{(w.hours * LABOUR_RATE).toLocaleString()}</td>
+                <td>Labour — {w.hours} h at {kes(w.labourRate ?? LABOUR_RATE)}</td>
+                <td style={{ textAlign: 'right' }}>{(w.hours * (w.labourRate ?? LABOUR_RATE)).toLocaleString()}</td>
               </tr>
-              {w.parts.map((p) => (
-                <tr key={p.sku}>
+              {w.parts.map((p, i) => (
+                <tr key={`${p.sku}${i}`}>
                   <td>
                     {p.qty} × {pname(p.sku)}
                   </td>
@@ -210,12 +229,12 @@ const WorkOrderDrawer: React.FC<{ w: WorkOrder; onClose: () => void }> = ({ w, o
             </tbody>
           </table>
         )}
-        {w.status === 'COMPLETED' && w.contractorCost > 0 && (
-          <div className={`sx-callout ${w.billId ? 'success' : 'info'}`}>
+        {costed && w.contractorCost > 0 && (
+          <div className={`sx-callout ${w.billId || w.warrantyClaim ? 'success' : 'info'}`}>
             <Receipt size={16} />
             <div>
-              <b>{w.billId ? `Billed — ${w.billNumber}` : 'Contractor invoice'}</b>
-              {!w.billId && (
+              <b>{w.billId ? `Billed — ${w.billNumber}` : w.warrantyClaim ? `Warranty claim ${w.warrantyClaim} — nothing to pay` : 'Contractor invoice'}</b>
+              {!w.billId && !w.warrantyClaim && (
                 <div className="sx-inline-form">
                   <input className="form-control" value={inv} onChange={(e) => setInv(e.target.value)} placeholder="Contractor's invoice number" />
                   <button type="button" className="btn btn-primary btn-sm" onClick={() => billContractor(w.id, inv)}>
@@ -226,10 +245,26 @@ const WorkOrderDrawer: React.FC<{ w: WorkOrder; onClose: () => void }> = ({ w, o
             </div>
           </div>
         )}
+        <WoExtPanel w={w} />
+        {cancelling && (
+          <div className="sx-reject">
+            <textarea className="form-control" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is this job cancelled?" autoFocus />
+            <div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCancelling(false)}>
+                Keep the job
+              </button>
+              <button type="button" className="btn btn-danger btn-sm" onClick={() => cancelWorkOrder(w.id, reason).ok && setCancelling(false)}>
+                Cancel work order
+              </button>
+            </div>
+          </div>
+        )}
         <h4 className="sx-subhead">Progress</h4>
         <ApprovalPanel
-          steps={<FlowSteps steps={['Requested', 'Approved', 'In progress', 'Done']} at={at} off={w.status === 'CANCELLED'} />}
+          steps={<FlowSteps steps={['Requested', 'Approved', 'In progress', 'Sign-off', 'Done']} at={at} off={w.status === 'CANCELLED'} />}
           actions={actions}
+          canReject={w.status === 'REVIEW'}
+          onReject={(note) => reviewWorkOrder(w.id, false, note).ok}
           actorLine={
             <>
               You are acting as <b>{actor.name}</b> ({actor.title}).
@@ -244,15 +279,21 @@ const WorkOrderDrawer: React.FC<{ w: WorkOrder; onClose: () => void }> = ({ w, o
 };
 
 const CompleteModal: React.FC<{ w: WorkOrder; onClose: () => void }> = ({ w, onClose }) => {
-  const { products, completeWorkOrder } = useOperations();
+  const { state, products, completeWorkOrder } = useOperations();
+  const mx = useMaintenanceExt();
   const spares = products.filter((p) => p.kind === 'MATERIAL' && (p.category === 'Spares' || p.category === 'Office' || p.category === 'Packaging'));
-  const [hours, setHours] = useState(2);
-  const [parts, setParts] = useState<{ sku: string; qty: number }[]>([]);
+  const eq = state.equipment.find((e) => e.id === w.equipmentId);
+  // Spares default to what was planned, else the stocked items on the machine's bill of materials
+  const [hours, setHours] = useState(w.estHours ?? 2);
+  const [parts, setParts] = useState<{ sku: string; qty: number }[]>(() => (w.plannedParts?.length ? w.plannedParts.map((p) => ({ ...p })) : []));
   const [contractorId, setContractor] = useState(w.contractorId ?? '');
   const [contractorCost, setCost] = useState(0);
   const [downtimeHours, setDown] = useState(w.downtimeHours);
   const [notes, setNotes] = useState('');
-  const cost = round2(hours * LABOUR_RATE + parts.reduce((s, p) => s + p.qty * (products.find((x) => x.sku === p.sku)?.cost ?? 0), 0) + contractorCost);
+  const [cal, setCal] = useState<CalibrationResult>({ standard: eq?.calibration?.standard ?? '', asFound: '', asLeft: '', pass: true, certNo: '' });
+  const bomStock = (eq?.bom ?? []).filter((b) => b.stocked && b.sku);
+  const rate = w.labourRate ?? LABOUR_RATE;
+  const cost = round2(hours * rate + parts.reduce((s, p) => s + p.qty * (products.find((x) => x.sku === p.sku)?.cost ?? 0), 0) + contractorCost);
   return (
     <Modal
       size="lg"
@@ -265,7 +306,11 @@ const CompleteModal: React.FC<{ w: WorkOrder; onClose: () => void }> = ({ w, onC
             Job cost <b>{kes(cost)}</b>
           </span>
           <span className="sx-grow" />
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => completeWorkOrder(w.id, { hours, parts, contractorCost, contractorId: contractorId || undefined, downtimeHours, notes }).ok && onClose()}>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => completeWorkOrder(w.id, { hours, parts, contractorCost, contractorId: contractorId || undefined, downtimeHours, notes, calibration: w.kind === 'CALIBRATION' ? cal : undefined }).ok && onClose()}
+          >
             <CheckCircle2 size={14} /> Complete job
           </button>
         </>
@@ -290,6 +335,40 @@ const CompleteModal: React.FC<{ w: WorkOrder; onClose: () => void }> = ({ w, onC
           <textarea className="form-control" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
       </div>
+      {w.checklist?.some((c) => !c.done) && (
+        <div className="sx-callout warn">
+          <AlertTriangle size={16} />
+          <div>
+            <b>{w.checklist.filter((c) => !c.done).length} checklist steps are not ticked</b>
+            <span>Tick every step on the job card before closing.</span>
+          </div>
+        </div>
+      )}
+      {w.kind === 'CALIBRATION' && (
+        <>
+          <h4 className="sx-subhead">Calibration record · tolerance {eq?.calibration?.tolerance ?? '—'}</h4>
+          <div className="sx-grid">
+            <Field label="Reference standard" span={2} required>
+              <input className="form-control" value={cal.standard} onChange={(e) => setCal({ ...cal, standard: e.target.value })} />
+            </Field>
+            <Field label="Certificate no." span={2} required>
+              <input className="form-control" value={cal.certNo} onChange={(e) => setCal({ ...cal, certNo: e.target.value })} />
+            </Field>
+            <Field label="As found" required>
+              <input className="form-control" value={cal.asFound} onChange={(e) => setCal({ ...cal, asFound: e.target.value })} placeholder="25.08 kg" />
+            </Field>
+            <Field label="As left" required>
+              <input className="form-control" value={cal.asLeft} onChange={(e) => setCal({ ...cal, asLeft: e.target.value })} placeholder="25.01 kg" />
+            </Field>
+            <Field label="Result" span={2}>
+              <select className="form-control" value={cal.pass ? 'PASS' : 'FAIL'} onChange={(e) => setCal({ ...cal, pass: e.target.value === 'PASS' })}>
+                <option value="PASS">Pass — within tolerance</option>
+                <option value="FAIL">Fail — take out of service</option>
+              </select>
+            </Field>
+          </div>
+        </>
+      )}
       <h4 className="sx-subhead">Spares used</h4>
       {parts.map((p, i) => (
         <div key={i} className="sx-inline-form">
@@ -297,7 +376,7 @@ const CompleteModal: React.FC<{ w: WorkOrder; onClose: () => void }> = ({ w, onC
             <option value="">Choose…</option>
             {spares.map((s) => (
               <option key={s.sku} value={s.sku}>
-                {s.name} ({s.stock} in stock)
+                {s.name} ({mx.stockInSpares(s.sku)} in the spares store)
               </option>
             ))}
           </select>
@@ -310,13 +389,20 @@ const CompleteModal: React.FC<{ w: WorkOrder; onClose: () => void }> = ({ w, onC
       <button type="button" className="btn btn-ghost btn-sm" onClick={() => setParts([...parts, { sku: '', qty: 1 }])}>
         <Plus size={14} /> Add a spare part
       </button>
+      {bomStock.length > 0 && (
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setParts([...parts, ...bomStock.filter((b) => !parts.some((p) => p.sku === b.sku)).map((b) => ({ sku: b.sku!, qty: b.qty }))])}>
+          <Plus size={14} /> From the machine's BOM ({bomStock.length})
+        </button>
+      )}
     </Modal>
   );
 };
 
 const RaiseModal: React.FC<{ onClose: () => void; onSaved: (id: string) => void }> = ({ onClose, onSaved }) => {
   const { state, raiseWorkOrder } = useOperations();
-  const [f, setF] = useState({ equipmentId: '', title: '', kind: 'BREAKDOWN' as WorkOrder['kind'], priority: 'HIGH' as WorkOrder['priority'], due: addDays(TODAY, 2), notes: '' });
+  const mx = useMaintenanceExt();
+  const [f, setF] = useState({ equipmentId: '', title: '', kind: 'BREAKDOWN' as WorkOrder['kind'], priority: 'HIGH' as WorkOrder['priority'], due: addDays(TODAY, 2), notes: '', templateId: '' });
+  const eqType = state.equipment.find((e) => e.id === f.equipmentId)?.type;
   return (
     <Modal
       size="lg"
@@ -330,7 +416,7 @@ const RaiseModal: React.FC<{ onClose: () => void; onSaved: (id: string) => void 
             type="button"
             className="btn btn-primary btn-sm"
             onClick={() => {
-              const r = raiseWorkOrder(f);
+              const r = raiseWorkOrder({ ...f, templateId: f.templateId || undefined });
               if (r.ok && r.id) onSaved(r.id);
             }}
           >
@@ -352,7 +438,7 @@ const RaiseModal: React.FC<{ onClose: () => void; onSaved: (id: string) => void 
         </Field>
         <Field label="Type">
           <select className="form-control" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as WorkOrder['kind'] })}>
-            {['BREAKDOWN', 'PREVENTIVE', 'INSPECTION', 'IMPROVEMENT'].map((k) => (
+            {['BREAKDOWN', 'PREVENTIVE', 'INSPECTION', 'IMPROVEMENT', 'CALIBRATION', 'REFURBISH'].map((k) => (
               <option key={k} value={k}>
                 {k.charAt(0) + k.slice(1).toLowerCase()}
               </option>
@@ -371,6 +457,18 @@ const RaiseModal: React.FC<{ onClose: () => void; onSaved: (id: string) => void 
         </Field>
         <Field label="Due">
           <input className="form-control" type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} />
+        </Field>
+        <Field label="Job template (steps, hours, spares, permit)" span={4} hint={f.templateId ? `${mx.state.templates.find((t) => t.id === f.templateId)?.steps.length} steps copied onto the job card` : undefined}>
+          <select className="form-control" value={f.templateId} onChange={(e) => setF({ ...f, templateId: e.target.value, title: f.title || (mx.state.templates.find((t) => t.id === e.target.value)?.name ?? '') })}>
+            <option value="">No template</option>
+            {mx.state.templates
+              .filter((t) => !eqType || t.equipmentType === eqType)
+              .map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} — {t.estHours} h{t.requiresPermit ? ' · permit to work' : ''}
+                </option>
+              ))}
+          </select>
         </Field>
         <Field label="Notes" span={4}>
           <textarea className="form-control" rows={2} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
@@ -395,6 +493,7 @@ const PreventivePage: React.FC = () => {
               <tr>
                 <th>Task</th>
                 <th className="sx-hide-sm">Every</th>
+                <th className="sx-hide-sm">Downtime</th>
                 <th className="sx-hide-sm">Last done</th>
                 <th>Next due</th>
                 <th>Status</th>
@@ -415,7 +514,11 @@ const PreventivePage: React.FC = () => {
                         </small>
                       </div>
                     </td>
-                    <td className="sx-hide-sm">{p.everyDays} days</td>
+                    <td className="sx-hide-sm">
+                      {p.everyDays} days
+                      {p.everyMeter ? ` or ${p.everyMeter.toLocaleString()} ${state.equipment.find((e) => e.id === p.equipmentId)?.meter?.unit.toLowerCase() ?? ''}` : ''}
+                    </td>
+                    <td className="sx-hide-sm">{p.requiresDowntime ? <Pill status="SUBMITTED" label={`${p.downtimeHours} h stop`} /> : <span className="sx-muted">Runs</span>}</td>
                     <td className="sx-hide-sm">{fmtDate(p.lastDone)}</td>
                     <td className={st === 'OVERDUE' ? 'sx-danger-text' : ''}>{fmtDate(nextDue(p))}</td>
                     <td>{st === 'OVERDUE' ? <Pill status="REJECTED" label={`${Math.abs(daysBetween(TODAY, nextDue(p)))} d overdue`} /> : st === 'DUE' ? <Pill status="SUBMITTED" label="Due soon" /> : <Pill status="POSTED" label="On schedule" />}</td>
@@ -442,10 +545,19 @@ const PreventivePage: React.FC = () => {
 };
 
 const ProjectsPage: React.FC = () => {
-  const { state, toggleMilestone, recordSpend } = useOperations();
+  const { state, toggleMilestone, recordSpend, setMaintenance } = useOperations();
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   return (
-    <SuitePage eyebrow="Projects" title="Capital projects" subtitle="Budget against spend and milestone progress for each improvement project.">
+    <SuitePage
+      eyebrow="Projects"
+      title="Capital projects"
+      subtitle="Budget against spend and milestone progress for each improvement project."
+      actions={
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => setMaintenance('control')}>
+          <FolderKanban size={15} /> Project control
+        </button>
+      }
+    >
       <div className="sx-stats">
         <Stat label="Active projects" value={state.projects.filter((p) => p.status === 'ACTIVE').length} icon={<FolderKanban size={17} />} />
         <Stat label="Total budget" value={kes(state.projects.reduce((s, p) => s + p.budget, 0), { compact: true })} icon={<Receipt size={17} />} tone="blue" />
@@ -510,6 +622,7 @@ const ProjectsPage: React.FC = () => {
 
 export const MaintenanceSidebar: React.FC = () => {
   const { state, maintenance, setMaintenance } = useOperations();
+  const mx = useMaintenanceExt();
   const groups: SuiteNavGroup<MaintenancePage>[] = [
     { label: 'Maintenance', items: [{ id: 'overview', label: 'Overview', icon: LayoutDashboard }] },
     {
@@ -521,7 +634,13 @@ export const MaintenanceSidebar: React.FC = () => {
     },
     { label: 'Improve', items: [{ id: 'projects', label: 'Projects', icon: FolderKanban }] }
   ];
-  return <SuiteSidebar name="Maintenance & Projects" tagline="Fix · prevent · improve" icon={Wrench} groups={groups} active={maintenance.page} onSelect={(p) => setMaintenance(p)} footer={<OpsFooter />} />;
+  // Pages added by the maintenance extension slot into these groups
+  for (const g of MAINT_EXT_GROUPS(state, mx.state)) {
+    const at = groups.find((x) => x.label === g.label);
+    if (at) at.items.push(...g.items);
+    else groups.push(g);
+  }
+  return <SuiteSidebar name="Maintenance & Projects" tagline="Fix · prevent · improve" icon={Wrench} groups={groups} active={maintenance.page} onSelect={(p) => setMaintenance(p)} footer={<TechFooter />} />;
 };
 export const MaintenanceCrumb: React.FC = () => {
   const { maintenance, setMaintenance } = useOperations();
@@ -536,6 +655,7 @@ export const MaintenanceSuite: React.FC = () => {
       {maintenance.page === 'workorders' && <WorkOrdersPage />}
       {maintenance.page === 'preventive' && <PreventivePage />}
       {maintenance.page === 'projects' && <ProjectsPage />}
+      <MaintExtPages page={maintenance.page} />
     </div>
   );
 };

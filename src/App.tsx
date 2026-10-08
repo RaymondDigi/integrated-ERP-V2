@@ -16,6 +16,7 @@ import { ProcurementSuite } from './suites/commercial/procurement/ProcurementSui
 import { BizDevSuite } from './suites/commercial/bizdev/BizDev';
 import { OperationsProvider } from './suites/operations/store';
 import { BlendingProvider } from './suites/operations/production/store';
+import { TechnicalProviders } from './suites/operations/technical';
 import { ControlProvider } from './suites/control/store';
 import { HubProvider } from './suites/hub/store';
 import { QualitySuite } from './suites/control/Quality';
@@ -207,6 +208,7 @@ export const App: React.FC = () => {
     <CommercialProvider>
     <OperationsProvider>
     <BlendingProvider>
+    <TechnicalProviders>
     <ControlProvider>
     <HubProvider>
     <div className="app-shell">
@@ -230,6 +232,7 @@ export const App: React.FC = () => {
     </div>
     </HubProvider>
     </ControlProvider>
+    </TechnicalProviders>
     </BlendingProvider>
     </OperationsProvider>
     </CommercialProvider>

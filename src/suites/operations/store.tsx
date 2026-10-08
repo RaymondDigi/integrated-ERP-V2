@@ -5,8 +5,15 @@ import { useCommercial } from '../commercial/store';
 import { useAccess } from '../../platform/access';
 import { addDays, round2, TODAY, localStamp } from '../finance/engine';
 import { buildOperationsSeed, OPS_ACTORS } from './data';
-import { materialNeed, shipBlockers, SHIP_STAGES, stockAt, shipValue, woCost } from './engine';
+import { LABOUR_RATE, materialNeed, shipBlockers, SHIP_STAGES, stockAt, shipValue, woCost } from './engine';
 import type { Batch, OperationsState, OpsRole, QualityCheck, Shipment, StockMove, WorkOrder } from './types';
+import { useAccess } from '../../platform/access';
+import { notify } from '../../platform/outbox';
+import { audit } from '../../platform/audit';
+import { opsHooks } from './hooks';
+import { completionBlockers, isOpenWo, LINE_HOURS, lineOutage, SPARES_STORE, woAvailability } from './maintenance/engine';
+import type { CalibrationResult, MaintExtPage, ReplacedPart } from './maintenance/types';
+import type { FleetExtPage } from './fleet/types';
 
 export type WarehousingPage = 'overview' | 'stock' | 'transfers' | 'counts' | 'movements';
 export type ProductionPage =
@@ -26,8 +33,8 @@ export type ProductionPage =
   | 'simulation'
   | 'reports';
 export type ShippingPage = 'overview' | 'shipments' | 'documents';
-export type FleetPage = 'overview' | 'vehicles' | 'trips' | 'fuel';
-export type MaintenancePage = 'overview' | 'workorders' | 'preventive' | 'projects';
+export type FleetPage = 'overview' | 'vehicles' | 'trips' | 'fuel' | FleetExtPage;
+export type MaintenancePage = 'overview' | 'workorders' | 'preventive' | 'projects' | MaintExtPage;
 type Nav<P> = { page: P; focus: string | null };
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -192,6 +199,8 @@ const useOperationsStore = () => {
     const r = s.recipes.find((x) => x.id === recipeId);
     if (!r) return fail('Choose the product to make');
     if (!date || date < TODAY) return fail('The production date cannot be in the past');
+    const outage = lineOutage(s, r.line, date);
+    if (outage.hours && LINE_HOURS - outage.hours < r.hours) return fail(`${r.line} is down for planned maintenance on ${date} (${outage.wos.map((w) => w.number).join(', ')}, ${outage.hours} h) — choose another date`);
     const { number, sequence } = next(s, 'BAT');
     const id = uid('bt');
     const b: Batch = { id, number, recipeId, plannedQty: qty, date, line: r.line, status: 'PLANNED', issued: [], output: 0, rejectedQty: 0, checks: [], history: [log('Planned')], forOrder };
@@ -353,34 +362,60 @@ const useOperationsStore = () => {
   };
 
   /* ================= Fleet ================= */
-  const startTrip = (vehicleId: string, purpose: string, route: string, driver: string): Result => {
+  // Signed-in account: viewers are read only (technical and transport actions)
+  const techAccess = useAccess();
+  const { workPermits } = useApp();
+  const readOnly = () => (techAccess.canWrite ? null : fail('This is a read-only account — sign in as a member or manager to make changes'));
+  const TRANSPORT_ROLES: OpsRole[] = ['OFFICER', 'STOREKEEPER', 'MANAGER', 'TRANSPORT_MANAGER', 'DRIVER'];
+
+  /** Deliveries and consolidation runs go without a request; any other use of a vehicle needs an approved vehicle request. */
+  const startTrip = (vehicleId: string, purpose: string, route: string, driver: string, opts: { loadKg?: number; requestId?: string; planId?: string; kind?: 'DELIVERY' | 'REQUEST' | 'CONSOLIDATION' } = {}): Result => {
     const s = ref.current;
-    const v = s.vehicles.find((x) => x.id === vehicleId)!;
+    const ro = readOnly();
+    if (ro) return ro;
+    if (!is(...TRANSPORT_ROLES)) return fail('Trips are dispatched by Transport or Stores');
+    const v = s.vehicles.find((x) => x.id === vehicleId);
+    if (!v) return fail('Choose a vehicle');
     if (v.status !== 'AVAILABLE') return fail(`${v.reg} is ${v.status === 'ON_TRIP' ? 'already on a trip' : 'in the workshop'}`);
     if (!purpose.trim() || !route.trim()) return fail('Enter the purpose and route');
+    if (opts.loadKg !== undefined && (opts.loadKg < 0 || opts.loadKg > v.capacityKg)) return fail(`${v.reg} carries at most ${v.capacityKg.toLocaleString()} kg — ${opts.loadKg.toLocaleString()} kg is over capacity`);
+    const kind = opts.kind ?? 'REQUEST';
+    if (kind === 'REQUEST') {
+      if (!opts.requestId) return fail('Administrative and other non-delivery trips need an approved vehicle request');
+      const why = opsHooks.tripRequest?.(opts.requestId, vehicleId);
+      if (why) return fail(why);
+    }
     const { number, sequence } = next(s, 'TRP');
+    const id = uid('tp');
     commit({
       ...s,
       sequence,
       vehicles: s.vehicles.map((x) => (x.id === vehicleId ? { ...x, status: 'ON_TRIP' } : x)),
-      trips: [{ id: uid('tp'), number, vehicleId, driver: driver || v.driver, date: TODAY, purpose, route, startKm: v.odometer, status: 'ON_ROAD' }, ...s.trips]
+      trips: [{ id, number, vehicleId, driver: driver || v.driver, date: TODAY, purpose, route, startKm: v.odometer, status: 'ON_ROAD', loadKg: opts.loadKg, planId: opts.planId, requestId: opts.requestId }, ...s.trips]
     });
-    return done('Trip started', `${v.reg} — ${route}`);
+    return done('Trip started', `${v.reg} — ${route}`, id);
   };
   const endTrip = (id: string, endKm: number): Result => {
     const s = ref.current;
+    const ro = readOnly();
+    if (ro) return ro;
+    if (!is(...TRANSPORT_ROLES)) return fail('Trips are closed by Transport, Stores or the driver');
     const t = s.trips.find((x) => x.id === id)!;
+    if (t.status !== 'ON_ROAD') return fail('Only trips on the road can be closed');
     if (!(endKm > t.startKm)) return fail(`Closing odometer must be above ${t.startKm.toLocaleString()} km`);
     if (endKm - t.startKm > 2_000) return fail('That is more than 2,000 km for one trip — check the reading');
     commit({
       ...s,
       trips: s.trips.map((x) => (x.id === id ? { ...x, endKm, status: 'DONE' } : x)),
-      vehicles: s.vehicles.map((v) => (v.id === t.vehicleId ? { ...v, odometer: endKm, status: v.status === 'IN_WORKSHOP' ? v.status : 'AVAILABLE' } : v))
+      vehicles: s.vehicles.map((v) => (v.id === t.vehicleId ? { ...v, odometer: Math.max(v.odometer, endKm), status: v.status === 'IN_WORKSHOP' ? v.status : 'AVAILABLE' } : v))
     });
     return done('Trip closed', `${(endKm - t.startKm).toLocaleString()} km`);
   };
   const logFuel = (vehicleId: string, litres: number, cost: number, odometer: number, station: string): Result => {
     const s = ref.current;
+    const ro = readOnly();
+    if (ro) return ro;
+    if (!is(...TRANSPORT_ROLES)) return fail('Fuel is logged by Transport or the driver');
     const v = s.vehicles.find((x) => x.id === vehicleId)!;
     const last = s.fuel.filter((f) => f.vehicleId === vehicleId).sort((a, b) => b.odometer - a.odometer)[0];
     if (!(litres > 0) || !(cost > 0)) return fail('Enter the litres and cost');
@@ -392,13 +427,25 @@ const useOperationsStore = () => {
   };
 
   /* ================= Maintenance ================= */
-  const raiseWorkOrder = (w: Pick<WorkOrder, 'equipmentId' | 'title' | 'kind' | 'priority' | 'due' | 'notes'> & { scheduleId?: string }): Result => {
+  type RaiseInput = Pick<WorkOrder, 'equipmentId' | 'title' | 'kind' | 'priority' | 'due' | 'notes'> &
+    Partial<Pick<WorkOrder, 'scheduleId' | 'templateId' | 'checklist' | 'permitRequired' | 'estHours' | 'plannedParts' | 'plannedDowntimeHours' | 'notificationId' | 'projectId' | 'costCentre' | 'rotableId'>>;
+  const raiseWorkOrder = (w: RaiseInput): Result => {
     const s = ref.current;
+    const ro = readOnly();
+    if (ro) return ro;
     if (!w.equipmentId || !w.title.trim()) return fail('Choose the equipment and describe the work');
     const { number, sequence } = next(s, 'WO');
     const urgent = w.priority === 'URGENT' && w.kind === 'BREAKDOWN';
+    const eq = s.equipment.find((e) => e.id === w.equipmentId);
+    const tpl = w.templateId ? opsHooks.fromTemplate?.(w.templateId) : null;
+    const underWarranty = !!eq?.warranty && eq.warranty.until >= TODAY;
     const rec: WorkOrder = {
+      ...tpl,
       ...w,
+      checklist: w.checklist ?? tpl?.checklist,
+      permitRequired: w.permitRequired ?? tpl?.permitRequired ?? false,
+      costCentre: w.costCentre ?? eq?.costCentre,
+      underWarranty,
       id: uid('wo'),
       number,
       requestedBy: actor.name,
@@ -409,9 +456,29 @@ const useOperationsStore = () => {
       parts: [],
       contractorCost: 0,
       downtimeHours: 0,
-      history: [log('Requested'), ...(urgent ? [log('Approved automatically — urgent breakdown')] : [])]
+      workLog: [],
+      history: [
+        log('Requested'),
+        ...(underWarranty ? [log('Equipment under warranty', `Until ${eq?.warranty?.until} — claim against the supplier instead of paying a bill`)] : []),
+        ...(urgent ? [log('Approved automatically — urgent breakdown')] : [])
+      ]
     };
-    commit({ ...s, sequence, workOrders: [rec, ...s.workOrders], equipment: urgent ? s.equipment.map((e) => (e.id === w.equipmentId ? { ...e, status: 'DOWN' } : e)) : s.equipment });
+    commit({
+      ...s,
+      sequence,
+      workOrders: [rec, ...s.workOrders],
+      equipment: urgent ? s.equipment.map((e) => (e.id === w.equipmentId ? { ...e, status: 'DOWN' } : e)) : s.equipment,
+      // A vehicle with an urgent breakdown goes off the road
+      vehicles: urgent && eq?.vehicleId ? s.vehicles.map((v) => (v.id === eq.vehicleId && v.status === 'AVAILABLE' ? { ...v, status: 'IN_WORKSHOP' } : v)) : s.vehicles
+    });
+    notify({
+      module: 'Maintenance',
+      to: urgent ? OPS_ACTORS.TECHNICIAN.name : OPS_ACTORS.MANAGER.name,
+      subject: urgent ? `Urgent breakdown ${number}: ${w.title}` : `Work order ${number} needs approval`,
+      body: `${eq?.name ?? ''} · ${w.title}`,
+      ref: number,
+      level: urgent ? 'critical' : 'info'
+    });
     return done('Work order raised', urgent ? `${number} — urgent, sent straight to the technician` : `${number} — waiting for approval`, rec.id);
   };
   const updateWo = (id: string, patch: Partial<WorkOrder>, action: string, note?: string) => {
@@ -419,47 +486,221 @@ const useOperationsStore = () => {
     commit({ ...s, workOrders: s.workOrders.map((x) => (x.id === id ? { ...x, ...patch, history: [...x.history, log(action, note)] } : x)) });
   };
   const approveWorkOrder = (id: string): Result => {
+    const ro = readOnly();
+    if (ro) return ro;
     if (!is('MANAGER')) return fail('Work orders are approved by the Operations Manager');
-    updateWo(id, { status: 'APPROVED' }, 'Approved and scheduled');
+    const w = ref.current.workOrders.find((x) => x.id === id)!;
+    if (w.status !== 'REQUESTED') return fail(`${w.number} is not waiting for approval`);
+    const short = woAvailability(ref.current, products, w).filter((x) => x.short > 0);
+    updateWo(id, { status: 'APPROVED' }, 'Approved and scheduled', short.length ? `Spares short: ${short.map((x) => `${pname(x.sku)} (${x.short})`).join(', ')}` : undefined);
+    if (short.length) addToast({ type: 'warning', title: 'Spares not all in stock', message: `${short.map((x) => `${pname(x.sku)}: short ${x.short}`).join(', ')} — raise a purchase requisition from the work order` });
+    notify({ module: 'Maintenance', to: w.assignedTo, subject: `Work order ${w.number} approved`, body: w.title, ref: w.number });
     return done('Approved', 'Scheduled for the technician');
   };
+  /** Work needing a permit (hot work, confined space, electrical) cannot start until the linked OSH permit is active. */
+  const permitProblem = (w: WorkOrder) => {
+    if (!w.permitRequired) return null;
+    if (!w.permitNo) return 'This job needs a permit to work — link an active OSH permit first';
+    const p = workPermits.find((x) => x.number === w.permitNo);
+    if (!p) return `Permit ${w.permitNo} was not found in OSH`;
+    if (p.status !== 'ACTIVE') return `Permit ${w.permitNo} is ${p.status.toLowerCase()} — it must be active before work starts`;
+    return null;
+  };
   const startWorkOrder = (id: string): Result => {
+    const ro = readOnly();
+    if (ro) return ro;
     if (!is('TECHNICIAN', 'MANAGER')) return fail('The technician starts the job — switch to Kevin Ouma');
     const s = ref.current;
     const w = s.workOrders.find((x) => x.id === id)!;
+    if (w.status !== 'APPROVED') return fail(w.status === 'REQUESTED' ? `${w.number} must be approved first` : `${w.number} is already ${w.status.toLowerCase().replace('_', ' ')}`);
+    const permit = permitProblem(w);
+    if (permit) return fail(permit);
+    const eq = s.equipment.find((e) => e.id === w.equipmentId);
+    const started: WorkOrder = { ...w, status: 'IN_PROGRESS', history: [...w.history, log('Work started', w.permitNo ? `Under permit ${w.permitNo}` : undefined)] };
     commit({
       ...s,
-      workOrders: s.workOrders.map((x) => (x.id === id ? { ...x, status: 'IN_PROGRESS', history: [...x.history, log('Work started')] } : x)),
-      equipment: s.equipment.map((e) => (e.id === w.equipmentId && w.kind !== 'INSPECTION' ? { ...e, status: 'DOWN' } : e))
+      workOrders: s.workOrders.map((x) => (x.id === id ? started : x)),
+      equipment: s.equipment.map((e) => (e.id === w.equipmentId && w.kind !== 'INSPECTION' ? { ...e, status: 'DOWN' } : e)),
+      vehicles: eq?.vehicleId && w.kind !== 'INSPECTION' ? s.vehicles.map((v) => (v.id === eq.vehicleId && v.status === 'AVAILABLE' ? { ...v, status: 'IN_WORKSHOP' } : v)) : s.vehicles
     });
+    opsHooks.woEvent?.('started', started);
     return done('Work started', w.number);
   };
-  /** Close the job: spares leave stock, the equipment returns to service, preventive dates move on. */
-  const completeWorkOrder = (id: string, c: { hours: number; parts: { sku: string; qty: number }[]; contractorCost: number; contractorId?: string; downtimeHours: number; notes: string }): Result => {
+  /**
+   * The technician closes the job: spares leave the spares store, the equipment returns to service, preventive dates
+   * move on and the cost goes to Finance as a journal. The job then waits for the supervisor's sign-off. Hours, spares
+   * and contractor cost add to anything already booked (a job sent back for rework keeps its earlier costs).
+   */
+  const completeWorkOrder = (
+    id: string,
+    c: { hours: number; parts: { sku: string; qty: number }[]; contractorCost: number; contractorId?: string; downtimeHours: number; notes: string; calibration?: CalibrationResult; replacedParts?: ReplacedPart[] }
+  ): Result => {
     const s = ref.current;
+    const ro = readOnly();
+    if (ro) return ro;
     if (!is('TECHNICIAN', 'MANAGER')) return fail('The technician closes the job — switch to Kevin Ouma');
-    if (!c.notes.trim()) return fail('Describe what was done');
     const w = s.workOrders.find((x) => x.id === id)!;
+    if (w.status !== 'IN_PROGRESS') return fail(`${w.number} is not in progress`);
+    if (!c.notes.trim()) return fail('Describe what was done');
+    if (c.hours < 0 || c.contractorCost < 0 || c.downtimeHours < 0) return fail('Hours and costs cannot be negative');
     const parts = c.parts.filter((p) => p.sku && p.qty > 0);
+    const blockers = completionBlockers(w, { ...c, parts }, products, !!c.calibration);
+    if (blockers.length) return fail(`Before closing, record ${blockers.join('; ')}`);
+    if (c.calibration && (!c.calibration.standard.trim() || !c.calibration.asFound.trim() || !c.calibration.asLeft.trim() || !c.calibration.certNo.trim())) return fail('Complete the calibration record');
+    for (const p of parts) {
+      const have = stockAt(s, products, p.sku, SPARES_STORE);
+      if (have < p.qty) return fail(`${pname(p.sku)}: only ${have} in the spares store (${SPARES_STORE}) — raise a requisition`);
+    }
     if (parts.length) {
       const res = commercial.adjustStock(parts.map((p) => ({ sku: p.sku, delta: -p.qty })));
       if (!res.ok) return res;
     }
     const eq = s.equipment.find((e) => e.id === w.equipmentId);
+    const failedCal = !!c.calibration && !c.calibration.pass;
+    const merged: WorkOrder = {
+      ...w,
+      hours: round2(w.hours + c.hours),
+      parts: [...w.parts, ...parts],
+      contractorCost: round2(w.contractorCost + c.contractorCost),
+      contractorId: c.contractorId ?? w.contractorId,
+      downtimeHours: c.downtimeHours,
+      completionNotes: c.notes,
+      completedBy: actor.name,
+      calibrationResult: c.calibration ?? w.calibrationResult,
+      replacedParts: [...(w.replacedParts ?? []), ...(c.replacedParts ?? [])],
+      status: 'REVIEW',
+      history: [...w.history, log('Completed', c.notes), log('Waiting for supervisor sign-off')]
+    };
+    // Cost to Finance: spares out of inventory and labour charged to repairs, by cost centre (approved in Finance)
+    const partsCost = round2(parts.reduce((x, p) => x + p.qty * (products.find((y) => y.sku === p.sku)?.cost ?? 0), 0));
+    const labourCost = round2(c.hours * (w.labourRate ?? LABOUR_RATE));
+    const dept = w.costCentre ?? eq?.costCentre ?? 'Operations';
+    let journalNumber = w.journalNumber;
+    if (partsCost + labourCost > 0) {
+      const lines = [
+        ...(partsCost
+          ? [
+              { id: uid('l'), account: '6400', description: `Spares — ${w.number}`, debit: partsCost, credit: 0, department: dept },
+              { id: uid('l'), account: '1200', description: `Spares issued — ${w.number}`, debit: 0, credit: partsCost, department: dept }
+            ]
+          : []),
+        ...(labourCost
+          ? [
+              { id: uid('l'), account: '6400', description: `Labour ${c.hours} h — ${w.number}`, debit: labourCost, credit: 0, department: dept },
+              { id: uid('l'), account: '6000', description: `Labour absorbed — ${w.number}`, debit: 0, credit: labourCost, department: dept }
+            ]
+          : [])
+      ];
+      const j = finance.saveJournal({ date: TODAY, memo: `Maintenance cost ${w.number} — ${w.title} (${dept})`, lines });
+      if (j.ok && j.id) {
+        finance.transition('journals', j.id, 'submit');
+        journalNumber = finance.snapshot().journals.find((x) => x.id === j.id)?.number;
+      }
+    }
+    const closed = { ...merged, journalNumber, history: journalNumber && journalNumber !== w.journalNumber ? [...merged.history, log(`Cost journal ${journalNumber} sent to Finance for approval`)] : merged.history };
     commit({
       ...s,
-      moves: [...parts.map((p) => move({ sku: p.sku, qty: -p.qty, from: 'WH-NBO', kind: 'MAINTENANCE_ISSUE', ref: w.number })), ...s.moves],
-      workOrders: s.workOrders.map((x) => (x.id === id ? { ...x, ...c, parts, status: 'COMPLETED', history: [...x.history, log('Completed', c.notes)] } : x)),
-      equipment: s.equipment.map((e) => (e.id === w.equipmentId ? { ...e, status: 'RUNNING' } : e)),
-      schedules: s.schedules.map((p) => (p.id === w.scheduleId ? { ...p, lastDone: TODAY } : p)),
-      vehicles: s.vehicles.map((v) => (v.id === eq?.vehicleId ? { ...v, status: 'AVAILABLE', lastServiceKm: v.odometer } : v))
+      moves: [...parts.map((p) => move({ sku: p.sku, qty: -p.qty, from: SPARES_STORE, kind: 'MAINTENANCE_ISSUE', ref: w.number })), ...s.moves],
+      workOrders: s.workOrders.map((x) => (x.id === id ? closed : x)),
+      equipment: s.equipment.map((e) =>
+        e.id === w.equipmentId
+          ? { ...e, status: failedCal ? 'DOWN' : 'RUNNING', calibration: c.calibration && e.calibration ? { ...e.calibration, lastCalibrated: c.calibration.pass ? TODAY : e.calibration.lastCalibrated } : e.calibration }
+          : e
+      ),
+      schedules: s.schedules.map((p) => (p.id === w.scheduleId ? { ...p, lastDone: TODAY, lastMeter: eq?.meter ? eq.meter.reading : p.lastMeter } : p)),
+      vehicles: s.vehicles.map((v) => (v.id === eq?.vehicleId ? { ...v, status: v.status === 'ON_TRIP' ? v.status : 'AVAILABLE', lastServiceKm: v.odometer } : v))
     });
-    return done('Work order completed', `${w.number} · cost ${woCost({ ...w, ...c, parts }, products).toLocaleString()} KES`);
+    opsHooks.woEvent?.('completed', closed);
+    notify({ module: 'Maintenance', to: OPS_ACTORS.MANAGER.name, subject: `${w.number} completed — please sign off`, body: c.notes, ref: w.number });
+    if (failedCal) addToast({ type: 'warning', title: 'Calibration failed', message: `${eq?.name} is out of tolerance and has been taken out of service` });
+    return done('Work order completed', `${w.number} · cost ${woCost(closed, products).toLocaleString()} KES · waiting for sign-off`);
+  };
+  /** Supervisor sign-off of a completed job: accept it, or send it back to the technician. */
+  const reviewWorkOrder = (id: string, accept: boolean, note: string): Result => {
+    const ro = readOnly();
+    if (ro) return ro;
+    if (!is('MANAGER')) return fail('Completed jobs are signed off by the Operations Manager');
+    const w = ref.current.workOrders.find((x) => x.id === id)!;
+    if (w.status !== 'REVIEW') return fail(`${w.number} is not waiting for sign-off`);
+    if (w.completedBy === actor.name) return fail('You closed this job, so someone else must sign it off');
+    if (!accept && !note.trim()) return fail('Say what still needs doing');
+    updateWo(id, { status: accept ? 'COMPLETED' : 'IN_PROGRESS', reviewedBy: accept ? actor.name : undefined }, accept ? 'Signed off' : 'Sent back for rework', note || undefined);
+    const after = ref.current.workOrders.find((x) => x.id === id)!;
+    opsHooks.woEvent?.(accept ? 'accepted' : 'reworked', after);
+    audit({ module: 'Maintenance', by: actor.name, action: accept ? 'Work order signed off' : 'Work order sent back', ref: w.number, note: note || undefined });
+    if (!accept) notify({ module: 'Maintenance', to: w.assignedTo, subject: `${w.number} sent back for rework`, body: note, ref: w.number, level: 'warning' });
+    return done(accept ? 'Signed off' : 'Sent back', w.number);
+  };
+  const cancelWorkOrder = (id: string, reason: string): Result => {
+    const ro = readOnly();
+    if (ro) return ro;
+    const s = ref.current;
+    const w = s.workOrders.find((x) => x.id === id)!;
+    if (!['REQUESTED', 'APPROVED'].includes(w.status)) return fail('Only jobs that have not started can be cancelled');
+    if (!is('MANAGER') && w.requestedBy !== actor.name) return fail('Only the requester or the Operations Manager can cancel a work order');
+    if (!reason.trim()) return fail('Give a reason for cancelling');
+    const otherOpen = s.workOrders.some((x) => x.id !== id && x.equipmentId === w.equipmentId && (x.status === 'IN_PROGRESS' || (x.status === 'APPROVED' && x.priority === 'URGENT')));
+    const eq = s.equipment.find((e) => e.id === w.equipmentId);
+    commit({
+      ...s,
+      workOrders: s.workOrders.map((x) => (x.id === id ? { ...x, status: 'CANCELLED', history: [...x.history, log('Cancelled', reason)] } : x)),
+      equipment: s.equipment.map((e) => (e.id === w.equipmentId && e.status === 'DOWN' && !otherOpen ? { ...e, status: 'RUNNING' } : e)),
+      vehicles: s.vehicles.map((v) => (v.id === eq?.vehicleId && v.status === 'IN_WORKSHOP' && !otherOpen ? { ...v, status: 'AVAILABLE' } : v))
+    });
+    opsHooks.woEvent?.('cancelled', w);
+    return done('Work order cancelled', w.number);
+  };
+  /** Running work log: anyone on the job can add a note until it is closed. */
+  const addWorkNote = (id: string, text: string): Result => {
+    const ro = readOnly();
+    if (ro) return ro;
+    const s = ref.current;
+    const w = s.workOrders.find((x) => x.id === id)!;
+    if (w.status === 'COMPLETED' || w.status === 'CANCELLED') return fail('The job is closed');
+    if (!text.trim()) return fail('Write the note first');
+    commit({ ...s, workOrders: s.workOrders.map((x) => (x.id === id ? { ...x, workLog: [...(x.workLog ?? []), { at: now(), by: actor.name, text: text.trim() }] } : x)) });
+    return { ok: true };
+  };
+  const toggleStep = (id: string, index: number): Result => {
+    const ro = readOnly();
+    if (ro) return ro;
+    const s = ref.current;
+    const w = s.workOrders.find((x) => x.id === id)!;
+    if (w.status !== 'IN_PROGRESS') return fail('Tick steps off while the job is in progress');
+    if (!is('TECHNICIAN', 'MANAGER')) return fail('The technician ticks off the steps — switch to Kevin Ouma');
+    commit({ ...s, workOrders: s.workOrders.map((x) => (x.id === id ? { ...x, checklist: x.checklist?.map((st, i) => (i === index ? { ...st, done: !st.done, by: actor.name, at: now() } : st)) } : x)) });
+    return { ok: true };
+  };
+  /** The planner assigns the technician, date, hours, planned downtime, spares and permit. */
+  const planWorkOrder = (
+    id: string,
+    p: Partial<Pick<WorkOrder, 'technicianId' | 'assignedTo' | 'labourRate' | 'plannedStart' | 'estHours' | 'plannedDowntimeHours' | 'plannedParts' | 'permitRequired' | 'permitNo' | 'costCentre' | 'requisitions' | 'projectId' | 'warrantyClaim'>>,
+    action = 'Planning updated',
+    note?: string
+  ): Result => {
+    const ro = readOnly();
+    if (ro) return ro;
+    const w = ref.current.workOrders.find((x) => x.id === id)!;
+    if (w.status === 'COMPLETED' || w.status === 'CANCELLED') return fail('The job is closed');
+    if (p.estHours !== undefined && p.estHours < 0) return fail('Hours cannot be negative');
+    if (p.plannedDowntimeHours !== undefined && (p.plannedDowntimeHours < 0 || p.plannedDowntimeHours > 24)) return fail('Planned downtime is between 0 and 24 hours');
+    if (p.permitNo) {
+      const permit = workPermits.find((x) => x.number === p.permitNo);
+      if (!permit) return fail(`Permit ${p.permitNo} was not found in OSH`);
+      if (permit.status === 'CLOSED' || permit.status === 'REJECTED') return fail(`Permit ${p.permitNo} is ${permit.status.toLowerCase()}`);
+    }
+    if ((p.technicianId !== undefined || p.plannedStart !== undefined) && !is('MANAGER', 'OFFICER', 'TECHNICIAN')) return fail('Jobs are scheduled by the Operations Manager or Officer');
+    updateWo(id, p, action, note);
+    return { ok: true };
   };
   const billContractor = (id: string, invoiceNo: string): Result => {
+    const ro = readOnly();
+    if (ro) return ro;
     const w = ref.current.workOrders.find((x) => x.id === id)!;
+    if (w.status !== 'COMPLETED' && w.status !== 'REVIEW') return fail('Bill the contractor once the job is complete');
     if (!w.contractorId || !w.contractorCost) return fail('No contractor cost on this job');
     if (w.billId) return fail('Already billed');
+    if (w.warrantyClaim) return fail(`Covered by warranty claim ${w.warrantyClaim} — no bill is payable`);
     if (!invoiceNo.trim()) return fail("Enter the contractor's invoice number");
     const sup = finance.snapshot().parties.find((p) => p.id === w.contractorId);
     const r = finance.saveDocument(
@@ -469,7 +710,7 @@ const useOperationsStore = () => {
         date: TODAY,
         dueDate: addDays(TODAY, sup?.terms ?? 30),
         reference: invoiceNo,
-        department: 'Operations',
+        department: w.costCentre ?? 'Operations',
         notes: `Work order ${w.number}`,
         lines: [{ id: uid('l'), description: `${w.title} (${w.number})`, account: '6400', qty: 1, price: w.contractorCost, vat: true }]
       },
@@ -481,18 +722,29 @@ const useOperationsStore = () => {
     return done('Bill raised in Finance', bill.number);
   };
   const scheduleNow = (scheduleId: string): Result => {
+    const ro = readOnly();
+    if (ro) return ro;
+    if (!is('OFFICER', 'MANAGER', 'TECHNICIAN')) return fail('Preventive jobs are raised by the Operations Officer, Manager or technician');
     const p = ref.current.schedules.find((x) => x.id === scheduleId)!;
-    if (ref.current.workOrders.some((w) => w.scheduleId === scheduleId && w.status !== 'COMPLETED' && w.status !== 'CANCELLED')) return fail('A work order for this task is already open');
-    return raiseWorkOrder({ equipmentId: p.equipmentId, title: p.task, kind: 'PREVENTIVE', priority: 'NORMAL', due: TODAY, notes: 'From the preventive maintenance plan', scheduleId });
+    if (ref.current.workOrders.some((w) => w.scheduleId === scheduleId && isOpenWo(w))) return fail('A work order for this task is already open');
+    return raiseWorkOrder({ equipmentId: p.equipmentId, title: p.task, kind: 'PREVENTIVE', priority: 'NORMAL', due: TODAY, notes: 'From the preventive maintenance plan', scheduleId, templateId: p.templateId, plannedDowntimeHours: p.requiresDowntime ? p.downtimeHours : undefined });
   };
-  const toggleMilestone = (projectId: string, index: number) => {
+  const toggleMilestone = (projectId: string, index: number): Result => {
+    const ro = readOnly();
+    if (ro) return ro;
+    if (!is('OFFICER', 'MANAGER')) return fail('Milestones are updated by the project owner or the Operations Manager');
     const s = ref.current;
     commit({ ...s, projects: s.projects.map((p) => (p.id === projectId ? { ...p, milestones: p.milestones.map((m, i) => (i === index ? { ...m, done: !m.done } : m)) } : p)) });
+    return { ok: true };
   };
   const recordSpend = (projectId: string, amount: number): Result => {
+    const ro = readOnly();
+    if (ro) return ro;
+    if (!is('OFFICER', 'MANAGER')) return fail('Project spend is recorded by the project owner or the Operations Manager');
     if (!(amount > 0)) return fail('Enter an amount');
     const s = ref.current;
     const p = s.projects.find((x) => x.id === projectId)!;
+    if (p.status === 'DONE') return fail('The project is closed');
     commit({ ...s, projects: s.projects.map((x) => (x.id === projectId ? { ...x, spent: round2(x.spent + amount) } : x)) });
     if (p.spent + amount > p.budget) addToast({ type: 'warning', title: 'Over budget', message: `${p.name} is now over its budget` });
     return done('Spend recorded', `${p.name}: +${amount.toLocaleString()} KES`);
@@ -565,6 +817,15 @@ const useOperationsStore = () => {
     scheduleNow,
     toggleMilestone,
     recordSpend,
+    cancelWorkOrder,
+    reviewWorkOrder,
+    addWorkNote,
+    toggleStep,
+    planWorkOrder,
+    /** Latest state, including changes made earlier in the same event (for the extension stores). */
+    snapshot: () => ref.current,
+    /** Applies a change to the operations state (used by the maintenance, fleet and container extension stores). */
+    mutate: (fn: (s: OperationsState) => OperationsState) => commit(fn(ref.current)),
     reset
   };
 };

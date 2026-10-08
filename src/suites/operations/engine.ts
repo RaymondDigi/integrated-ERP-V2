@@ -7,7 +7,9 @@ export const ROLE_LABEL: Record<OpsRole, string> = {
   STOREKEEPER: 'Stores & Dispatch',
   TECHNICIAN: 'Maintenance Technician',
   QC: 'Quality Controller',
-  MANAGER: 'Operations Manager'
+  MANAGER: 'Operations Manager',
+  DRIVER: 'Driver',
+  TRANSPORT_MANAGER: 'Transport Manager'
 };
 
 /* ------------------------------------------------------------------ */
@@ -123,11 +125,12 @@ export const WO_LABEL: Record<WorkOrder['status'], string> = {
   REQUESTED: 'Requested',
   APPROVED: 'Scheduled',
   IN_PROGRESS: 'In progress',
+  REVIEW: 'Awaiting sign-off',
   COMPLETED: 'Completed',
   CANCELLED: 'Cancelled'
 };
 export const woCost = (w: WorkOrder, products: Product[]) =>
-  round2(w.hours * LABOUR_RATE + w.parts.reduce((x, p) => x + p.qty * (products.find((y) => y.sku === p.sku)?.cost ?? 0), 0) + w.contractorCost);
+  round2(w.hours * (w.labourRate ?? LABOUR_RATE) + w.parts.reduce((x, p) => x + p.qty * (products.find((y) => y.sku === p.sku)?.cost ?? 0), 0) + w.contractorCost);
 export const nextDue = (p: PmSchedule) => addDays(p.lastDone, p.everyDays);
 export const pmState = (p: PmSchedule) => {
   const d = daysBetween(TODAY, nextDue(p));

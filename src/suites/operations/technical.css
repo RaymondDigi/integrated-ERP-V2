@@ -1,0 +1,16 @@
+/* Maintenance, projects, transport and container screens */
+.sx-filters { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 12px; }
+.sx-woext { display: flex; flex-direction: column; gap: 6px; }
+.sx-wrap { flex-wrap: wrap; }
+.sx-gantt { display: flex; flex-direction: column; gap: 6px; }
+.sx-gantt-row { display: grid; grid-template-columns: minmax(120px, 220px) 1fr 80px; gap: 10px; align-items: center; }
+.sx-gantt-name { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sx-gantt-track { position: relative; height: 16px; background: var(--bg-surface-subtle); border-radius: 4px; }
+.sx-gantt-bar { position: absolute; top: 2px; bottom: 2px; background: var(--brand-subtle); border: 1px solid var(--brand-border); border-radius: 3px; overflow: hidden; }
+.sx-gantt-bar.critical { background: var(--status-critical-bg); border-color: var(--status-critical-border); }
+.sx-gantt-bar > span { display: block; height: 100%; background: var(--brand-primary); opacity: 0.55; }
+.sx-gantt-bar.critical > span { background: var(--status-critical-text); }
+.sx-track-map { width: 100%; height: auto; max-height: 360px; color: var(--text-secondary); }
+@media (max-width: 640px) {
+  .sx-gantt-row { grid-template-columns: 1fr; gap: 2px; }
+}

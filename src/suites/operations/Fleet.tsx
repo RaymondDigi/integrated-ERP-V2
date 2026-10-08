@@ -7,9 +7,14 @@ import { addDays, fmtDate, kes, round2, TODAY } from '../finance/engine';
 import type { Trip, Vehicle } from './types';
 import { DataTable, DefList, Drawer, Field, Hero, LinkButton, Meter, Modal, Panel, Pill, Stat, SuitePage, TodoList, greeting, type Column, type TodoItem } from '../ui/kit';
 import { SuiteSidebar, type SuiteNavGroup } from '../ui/SuiteSidebar';
-import { Crumb, OpsFooter, useFocus, useTopOnChange } from './parts';
+import { Crumb, useFocus, useTopOnChange } from './parts';
+import { TechFooter } from './technical';
+import { FLEET_EXT_LABEL, FLEET_EXT_GROUPS, FleetExtPages } from './fleet/pages';
+import { useFleetExt } from './fleet/store';
+import { useContainers } from './containers/store';
+import { policyDays } from './fleet/engine';
 
-const LABEL: Record<FleetPage, string> = { overview: 'Overview', vehicles: 'Vehicles', trips: 'Trips', fuel: 'Fuel' };
+const LABEL: Record<FleetPage, string> = { overview: 'Overview', vehicles: 'Vehicles', trips: 'Trips', fuel: 'Fuel', ...FLEET_EXT_LABEL };
 const V_PILL: Record<Vehicle['status'], [string, string]> = { AVAILABLE: ['POSTED', 'Available'], ON_TRIP: ['OPEN', 'On a trip'], IN_WORKSHOP: ['OVERDUE', 'In workshop'] };
 
 /** Book a service: raises a preventive work order in Maintenance. */
@@ -128,6 +133,9 @@ const VehiclesPage: React.FC = () => {
 
 const VehicleDrawer: React.FC<{ v: Vehicle; onClose: () => void }> = ({ v, onClose }) => {
   const { state } = useOperations();
+  const fx = useFleetExt();
+  const policies = fx.state.policies.filter((p) => p.vehicleId === v.id && p.status === 'ACTIVE');
+  const pos = fx.state.positions[v.id];
   const book = useBookService();
   const e = fuelEfficiency(state, v.id);
   const trips = state.trips.filter((t) => t.vehicleId === v.id).slice(0, 6);
@@ -174,6 +182,23 @@ const VehicleDrawer: React.FC<{ v: Vehicle; onClose: () => void }> = ({ v, onClo
           ['Last fill-up', e.last ? `${e.last} km/l` : '—']
         ]}
       />
+      {v.ownership === 'HIRED' && <p className="sx-note">Hired truck — {fx.state.carriers.find((c) => c.id === v.carrierId)?.name}</p>}
+      {policies.length > 0 && (
+        <>
+          <h4 className="sx-subhead">Insurance</h4>
+          <ul className="sx-facts">
+            {policies.map((p) => (
+              <li key={p.id}>
+                <span>
+                  {p.insurer} · {p.policyNo} · {p.cover.replace(/_/g, ' ').toLowerCase()}
+                </span>
+                <b className={policyDays(p) <= 30 ? 'sx-danger-text' : ''}>to {fmtDate(p.expiry)}</b>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {pos && <p className="sx-muted">Last position (simulated telematics): near {pos.place}, {pos.speed} km/h, fuel {pos.fuelPct}%</p>}
       <h4 className="sx-subhead">Service interval</h4>
       <div className="sx-meter-cell">
         <Meter value={(v.odometer - v.lastServiceKm) / v.serviceEveryKm} tone={kmToService(v) <= 0 ? 'red' : kmToService(v) <= 800 ? 'gold' : 'green'} />
@@ -278,11 +303,16 @@ const TripsPage: React.FC = () => {
 
 const StartTrip: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const { state, startTrip } = useOperations();
+  const fx = useFleetExt();
   const avail = state.vehicles.filter((v) => v.status === 'AVAILABLE');
   const [vehicleId, setVehicle] = useState(avail[0]?.id ?? '');
   const [purpose, setPurpose] = useState('');
   const [route, setRoute] = useState('');
   const [driver, setDriver] = useState('');
+  const [kind, setKind] = useState<'DELIVERY' | 'REQUEST'>('DELIVERY');
+  const [requestId, setRequestId] = useState('');
+  const [loadKg, setLoadKg] = useState('');
+  const approved = fx.state.requests.filter((r) => r.status === 'APPROVED');
   return (
     <Modal
       size="md"
@@ -291,13 +321,43 @@ const StartTrip: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       footer={
         <>
           <span className="sx-grow" />
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => startTrip(vehicleId, purpose, route, driver).ok && onClose()}>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => startTrip(vehicleId, purpose, route, driver, { kind, requestId: kind === 'REQUEST' ? requestId : undefined, loadKg: loadKg ? Number(loadKg) : undefined }).ok && onClose()}>
             <Play size={14} /> Start
           </button>
         </>
       }
     >
       <div className="sx-grid sx-grid-2">
+        <Field label="Trip type" span={2} hint={kind === 'REQUEST' ? 'Administrative and other trips go against an approved vehicle request' : undefined}>
+          <select className="form-control" value={kind} onChange={(e) => setKind(e.target.value as 'DELIVERY' | 'REQUEST')} aria-label="Trip type">
+            <option value="DELIVERY">Customer delivery</option>
+            <option value="REQUEST">Against a vehicle request</option>
+          </select>
+        </Field>
+        {kind === 'REQUEST' && (
+          <Field label="Approved request" required span={2}>
+            <select
+              className="form-control"
+              value={requestId}
+              onChange={(e) => {
+                const r = approved.find((x) => x.id === e.target.value);
+                setRequestId(e.target.value);
+                if (r) {
+                  setPurpose(`${r.number}: ${r.purpose}`);
+                  setRoute(r.route);
+                }
+              }}
+              aria-label="Approved request"
+            >
+              <option value="">Choose…</option>
+              {approved.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.number} — {r.purpose} ({r.requestedBy})
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Vehicle" span={2}>
           <select className="form-control" value={vehicleId} onChange={(e) => setVehicle(e.target.value)}>
             {state.vehicles.map((v) => (
@@ -315,6 +375,9 @@ const StartTrip: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         </Field>
         <Field label="Driver">
           <input className="form-control" value={driver} onChange={(e) => setDriver(e.target.value)} placeholder={state.vehicles.find((v) => v.id === vehicleId)?.driver} />
+        </Field>
+        <Field label="Load (kg)" hint={`Capacity ${state.vehicles.find((v) => v.id === vehicleId)?.capacityKg.toLocaleString()} kg`}>
+          <input className="form-control" type="number" min="0" value={loadKg} onChange={(e) => setLoadKg(e.target.value)} aria-label="Load kg" />
         </Field>
       </div>
     </Modal>
@@ -409,6 +472,8 @@ const FuelPage: React.FC = () => {
 
 export const FleetSidebar: React.FC = () => {
   const { state, fleet, setFleet } = useOperations();
+  const fx = useFleetExt();
+  const cx = useContainers();
   const groups: SuiteNavGroup<FleetPage>[] = [
     { label: 'Fleet', items: [{ id: 'overview', label: 'Overview', icon: LayoutDashboard }] },
     {
@@ -420,7 +485,13 @@ export const FleetSidebar: React.FC = () => {
       ]
     }
   ];
-  return <SuiteSidebar name="Transport & Fleet" tagline="Vehicles · trips · fuel" icon={Truck} groups={groups} active={fleet.page} onSelect={(p) => setFleet(p)} footer={<OpsFooter />} />;
+  // Pages added by the transport, compliance and container extension slot into these groups
+  for (const g of FLEET_EXT_GROUPS(state, fx.state, cx.state)) {
+    const at = groups.find((x) => x.label === g.label);
+    if (at) at.items.push(...g.items);
+    else groups.push(g);
+  }
+  return <SuiteSidebar name="Transport & Fleet" tagline="Vehicles · trips · tea runs · containers" icon={Truck} groups={groups} active={fleet.page} onSelect={(p) => setFleet(p)} footer={<TechFooter />} />;
 };
 export const FleetCrumb: React.FC = () => {
   const { fleet, setFleet } = useOperations();
@@ -435,6 +506,7 @@ export const FleetSuite: React.FC = () => {
       {fleet.page === 'vehicles' && <VehiclesPage />}
       {fleet.page === 'trips' && <TripsPage />}
       {fleet.page === 'fuel' && <FuelPage />}
+      <FleetExtPages page={fleet.page} />
     </div>
   );
 };
