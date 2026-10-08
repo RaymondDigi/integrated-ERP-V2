@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Landmark, CalendarDays, FileText, BadgeCheck, CheckCircle2, AlertTriangle, Send, RefreshCw, Layers, Circle, Rocket } from 'lucide-react';
+import { LayoutDashboard, Landmark, CalendarDays, FileText, BadgeCheck, CheckCircle2, AlertTriangle, Send, RefreshCw, Layers, Circle, Rocket, FolderOpen } from 'lucide-react';
+import { DocumentsPage, PermitDrawer, PermitFormModal, PermitToolbar, TestCasesPanel } from './GovernanceExtra';
+import { Attachments, ExportCsvButton } from '../../platform/Widgets';
 import { useControl, type GovernancePage } from './store';
 import { permitState } from './engine';
-import { daysBetween, fmtDate, TODAY } from '../finance/engine';
+import { daysBetween, fmtDate, kes, TODAY } from '../finance/engine';
 import type { Obligation, Permit, Policy } from './types';
-import { Chips, DataTable, Field, Hero, LinkButton, Meter, Panel, Pill, Stat, SuitePage, TodoList, greeting, type Column, type TodoItem } from '../ui/kit';
+import { Chips, DataTable, DefList, Drawer, Field, Hero, LinkButton, Meter, Panel, Pill, Stat, SuitePage, Timeline, TodoList, greeting, type Column, type TodoItem } from '../ui/kit';
 import { SuiteSidebar, type SuiteNavGroup } from '../ui/SuiteSidebar';
 import { Crumb, useTopOnChange } from '../operations/parts';
 import { CtlFooter } from './parts';
 
-const LABEL: Record<GovernancePage, string> = { overview: 'Overview', calendar: 'Compliance calendar', policies: 'Policies', permits: 'Licences & permits' };
+const LABEL: Record<GovernancePage, string> = { overview: 'Overview', calendar: 'Compliance calendar', policies: 'Policies', permits: 'Licences & permits', documents: 'Document library' };
 const due = (o: Obligation) => (o.status === 'FILED' ? 'FILED' : o.due < TODAY ? 'OVERDUE' : daysBetween(TODAY, o.due) <= 7 ? 'SOON' : 'UPCOMING');
 const DUE_PILL: Record<string, [string, string]> = { FILED: ['POSTED', 'Filed'], OVERDUE: ['REJECTED', 'Overdue'], SOON: ['SUBMITTED', 'Due this week'], UPCOMING: ['DRAFT', 'Upcoming'] };
 
@@ -18,7 +20,7 @@ const GOverview: React.FC = () => {
   const open = state.obligations.filter((o) => o.status === 'DUE');
   const overdue = open.filter((o) => o.due < TODAY);
   const ack = state.policies.reduce((s, p) => s + p.acknowledged, 0) / Math.max(1, state.policies.reduce((s, p) => s + p.staff, 0));
-  const permitIssues = state.permits.filter((p) => permitState(p) !== 'VALID');
+  const permitIssues = state.permits.filter((p) => !p.retired && permitState(p) !== 'VALID');
   const todo: TodoItem[] = [
     ...overdue.map((o) => ({ id: o.id, tone: 'critical' as const, icon: <CalendarDays size={15} />, title: `${o.name} is overdue`, detail: `${o.authority} · was due ${fmtDate(o.due)}`, onClick: () => go('calendar') })),
     ...open.filter((o) => due(o) === 'SOON').map((o) => ({ id: o.id, tone: 'warning' as const, icon: <CalendarDays size={15} />, title: o.name, detail: `${o.authority} · due ${fmtDate(o.due)} · ${o.owner}`, onClick: () => go('calendar') })),
@@ -109,7 +111,12 @@ const CalendarPage: React.FC = () => {
     }
   ];
   return (
-    <SuitePage eyebrow="Compliance" title="Compliance calendar" subtitle="Statutory returns and payments. Filing one adds the next period to the calendar automatically.">
+    <SuitePage
+      eyebrow="Compliance"
+      title="Compliance calendar"
+      subtitle="Statutory returns and payments. Filing one adds the next period to the calendar automatically."
+      actions={<ExportCsvButton name="compliance-calendar" header={['Obligation', 'Authority', 'Frequency', 'Owner', 'Due', 'Status', 'Reference', 'Filed on']} rows={() => rows.map((o) => [o.name, o.authority, o.frequency, o.owner, o.due, o.status, o.ref ?? '', o.filedOn ?? ''])} />}
+    >
       <div className="sx-toolbar">
         <Chips
           value={filter}
@@ -127,7 +134,9 @@ const CalendarPage: React.FC = () => {
 };
 
 const PoliciesPage: React.FC = () => {
-  const { state, remindPolicy } = useControl();
+  const { state, remindPolicy, me, readOnly } = useControl();
+  const [openId, setOpenId] = useState<string | null>(null);
+  const open = state.policies.find((p) => p.id === openId);
   const columns: Column<Policy>[] = [
     {
       key: 't',
@@ -162,7 +171,14 @@ const PoliciesPage: React.FC = () => {
       header: '',
       render: (p) =>
         p.acknowledged < p.staff ? (
-          <button type="button" className="btn btn-secondary btn-xs" onClick={() => remindPolicy(p.id)}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-xs"
+            onClick={(e) => {
+              e.stopPropagation();
+              remindPolicy(p.id);
+            }}
+          >
             <Send size={12} /> Remind {p.staff - p.acknowledged}
           </button>
         ) : (
@@ -172,8 +188,24 @@ const PoliciesPage: React.FC = () => {
     }
   ];
   return (
-    <SuitePage eyebrow="Governance" title="Policies" subtitle="Approved policies, their review dates and who has acknowledged reading them.">
-      <DataTable rows={state.policies} columns={columns} rowKey={(p) => p.id} />
+    <SuitePage eyebrow="Governance" title="Policies" subtitle="Approved policies, their review dates and who has acknowledged reading them. Policy documents are versioned in the document library.">
+      <DataTable rows={state.policies} columns={columns} rowKey={(p) => p.id} onRowClick={(p) => setOpenId(p.id)} selected={openId} />
+      {open && (
+        <Drawer title={open.title} subtitle={`v${open.version} · ${open.owner}`} onClose={() => setOpenId(null)}>
+          <DefList
+            items={[
+              ['Approved', fmtDate(open.approved)],
+              ['Next review', fmtDate(open.nextReview)],
+              ['Acknowledged', `${open.acknowledged} of ${open.staff}`],
+              ['Last reminder', open.lastReminded ? fmtDate(open.lastReminded) : '—'],
+              ['Library documents', state.docs.filter((d) => d.policyId === open.id).map((d) => `${d.number} v${d.versions.length}`).join(', ') || '—']
+            ]}
+          />
+          <Attachments owner={`policy:${open.id}`} by={me} readOnly={readOnly} title="Signed copies" />
+          <h4 className="sx-subhead">History</h4>
+          <Timeline items={open.history ?? []} />
+        </Drawer>
+      )}
     </SuitePage>
   );
 };
@@ -181,6 +213,10 @@ const PoliciesPage: React.FC = () => {
 const PermitsPage: React.FC = () => {
   const { state, startRenewal, renewPermit } = useControl();
   const [dates, setDates] = useState<Record<string, string>>({});
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [form, setForm] = useState<{ permit?: Permit } | null>(null);
+  const [showRetired, setShowRetired] = useState(false);
+  const open = state.permits.find((p) => p.id === openId);
   const columns: Column<Permit>[] = [
     {
       key: 'n',
@@ -190,6 +226,7 @@ const PermitsPage: React.FC = () => {
           <span>{p.name}</span>
           <small>
             {p.issuer} · {p.number} · {p.site}
+            {p.owner ? ` · ${p.owner}` : ''}
           </small>
         </div>
       ),
@@ -199,18 +236,25 @@ const PermitsPage: React.FC = () => {
     {
       key: 's',
       header: 'Status',
-      render: (p) => (p.renewalStarted ? <Pill status="OPEN" label="Renewing" /> : <Pill status={{ EXPIRED: 'REJECTED', EXPIRING: 'SUBMITTED', VALID: 'POSTED' }[permitState(p)]} label={{ EXPIRED: 'Expired', EXPIRING: `${daysBetween(TODAY, p.expiry)} days left`, VALID: 'Valid' }[permitState(p)]} />)
+      render: (p) => (p.retired ? <Pill status="VOID" label="Retired" /> : p.renewalStarted ? <Pill status="OPEN" label="Renewing" /> : <Pill status={{ EXPIRED: 'REJECTED', EXPIRING: 'SUBMITTED', VALID: 'POSTED' }[permitState(p)]} label={{ EXPIRED: 'Expired', EXPIRING: `${daysBetween(TODAY, p.expiry)} days left`, VALID: 'Valid' }[permitState(p)]} />)
     },
     {
       key: 'a',
       header: '',
       render: (p) =>
-        permitState(p) === 'VALID' ? null : !p.renewalStarted ? (
-          <button type="button" className="btn btn-secondary btn-xs" onClick={() => startRenewal(p.id)}>
+        p.retired || permitState(p) === 'VALID' ? null : !p.renewalStarted ? (
+          <button
+            type="button"
+            className="btn btn-secondary btn-xs"
+            onClick={(e) => {
+              e.stopPropagation();
+              startRenewal(p.id);
+            }}
+          >
             <RefreshCw size={12} /> Start renewal
           </button>
         ) : (
-          <div className="sx-inline-form" style={{ marginTop: 0 }}>
+          <div className="sx-inline-form" style={{ marginTop: 0 }} onClick={(e) => e.stopPropagation()}>
             <input className="form-control" type="date" value={dates[p.id] ?? ''} onChange={(e) => setDates({ ...dates, [p.id]: e.target.value })} />
             <button type="button" className="btn btn-primary btn-xs" onClick={() => renewPermit(p.id, dates[p.id] ?? '')}>
               Renewed
@@ -222,8 +266,21 @@ const PermitsPage: React.FC = () => {
     }
   ];
   return (
-    <SuitePage eyebrow="Compliance" title="Licences & permits" subtitle="Operating licences, certificates and permits with their expiry dates.">
-      <DataTable rows={state.permits} columns={columns} rowKey={(p) => p.id} initialSort={{ key: 'e', dir: 'asc' }} />
+    <SuitePage eyebrow="Compliance" title="Licences & permits" subtitle="Licence master: operating licences, certificates and permits with owners, costs, conditions and 60/30/7-day expiry reminders." actions={<PermitToolbar onAdd={() => setForm({})} />}>
+      <div className="sx-toolbar">
+        <Chips
+          value={showRetired ? 'ALL' : 'ACTIVE'}
+          onChange={(v) => setShowRetired(v === 'ALL')}
+          options={[
+            { value: 'ACTIVE', label: 'Active', count: state.permits.filter((p) => !p.retired).length },
+            { value: 'ALL', label: 'Including retired', count: state.permits.length }
+          ]}
+        />
+        <span className="sx-muted">Annual licence cost {kes(state.permits.filter((p) => !p.retired).reduce((s, p) => s + (p.annualCost ?? 0), 0), { compact: true })}</span>
+      </div>
+      <DataTable rows={state.permits.filter((p) => showRetired || !p.retired)} columns={columns} rowKey={(p) => p.id} initialSort={{ key: 'e', dir: 'asc' }} onRowClick={(p) => setOpenId(p.id)} selected={openId} />
+      {open && <PermitDrawer p={open} onClose={() => setOpenId(null)} onEdit={() => setForm({ permit: open })} />}
+      {form && <PermitFormModal permit={form.permit} onClose={() => setForm(null)} />}
     </SuitePage>
   );
 };
@@ -236,8 +293,9 @@ export const GovernanceSidebar: React.FC = () => {
       label: 'Comply',
       items: [
         { id: 'calendar', label: 'Compliance calendar', icon: CalendarDays, badge: state.obligations.filter((o) => o.status === 'DUE' && o.due < TODAY).length, badgeTone: 'critical' },
-        { id: 'permits', label: 'Licences & permits', icon: BadgeCheck, badge: state.permits.filter((p) => permitState(p) !== 'VALID').length },
-        { id: 'policies', label: 'Policies', icon: FileText }
+        { id: 'permits', label: 'Licences & permits', icon: BadgeCheck, badge: state.permits.filter((p) => !p.retired && permitState(p) !== 'VALID').length },
+        { id: 'policies', label: 'Policies', icon: FileText },
+        { id: 'documents', label: 'Document library', icon: FolderOpen, badge: state.docs.filter((d) => d.status === 'IN_REVIEW').length }
       ]
     }
   ];
@@ -256,6 +314,7 @@ export const GovernanceSuite: React.FC = () => {
       {governance.page === 'calendar' && <CalendarPage />}
       {governance.page === 'policies' && <PoliciesPage />}
       {governance.page === 'permits' && <PermitsPage />}
+      {governance.page === 'documents' && <DocumentsPage />}
     </div>
   );
 };
@@ -312,6 +371,7 @@ export const ImplementationSuite: React.FC = () => {
             );
           })}
         </div>
+        <TestCasesPanel />
         <Field label="Go-live readiness" span={4}>
           <p className="sx-note">Each workstream goes live when configuration, data, training and testing are complete. Tick tasks as they finish — progress updates for the whole programme.</p>
         </Field>
