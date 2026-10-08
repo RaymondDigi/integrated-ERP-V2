@@ -6,9 +6,8 @@ import {
   Play,
   Download,
   FileSpreadsheet,
-  RefreshCw,
   ChevronRight,
-  Cpu,
+  CalendarRange,
   ClipboardList,
   Send,
   FileText,
@@ -33,6 +32,7 @@ import { PayrollWorksheet } from './payroll/PayrollWorksheet';
 import { downloadCsv, kes, payRail, periodOf, rowsFor } from './payroll/reports';
 import { BankUploadCard } from './payroll/BankUpload';
 import { PeriodControl } from './payroll/PeriodControl';
+import { PayRuns } from './payroll/PayRuns';
 import { Pager, usePaged } from '../../components/common/Pager';
 import { PeriodTag } from './payroll/shared';
 
@@ -41,6 +41,7 @@ export { calculateKenyanStatutory };
 
 const TABS = [
   { id: 'console', label: 'Payroll console', icon: Coins },
+  { id: 'runs', label: 'Pay runs', icon: CalendarRange },
   { id: 'worksheet', label: 'Payroll worksheet', icon: FileSpreadsheet },
   { id: 'items', label: 'Payroll items', icon: ClipboardList },
   { id: 'setup', label: 'Pay item setup', icon: Settings2 },
@@ -54,7 +55,6 @@ const TABS = [
 const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => {
   const {
     tenantPayrollBatches,
-    runPayrollBatch,
     addToast,
     openRightDrawer,
     hrEmployees,
@@ -161,19 +161,6 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
       ['Rail', 'Staff ID', 'Employee', 'Account / phone', 'Amount', 'Narration'],
       rows.map((r) => [payRail(r.e), r.e.staffId, r.e.fullName, payRail(r.e) === 'M-Pesa' ? r.e.mpesaPhoneMasked : r.e.bankAccountMasked, r.p.net, `Salary ${open.label}`])
     );
-
-  // Surgical runs for one site
-  const branches = [...new Set(hrEmployees.filter((e) => e.orgId === selectedOrgId).map((e) => [e.branch, e.block].filter(Boolean).join(' — ')))];
-  const [selectedPipeline, setSelectedPipeline] = useState<'Monthly Payroll' | 'Weekly Payroll'>('Monthly Payroll');
-  const [selectedBranch, setSelectedBranch] = useState(branches[0] ?? '');
-  const [isExecuting, setIsExecuting] = useState(false);
-  const handleExecuteBatch = () => {
-    setIsExecuting(true);
-    setTimeout(() => {
-      runPayrollBatch(selectedBranch, selectedPipeline);
-      setIsExecuting(false);
-    }, 900);
-  };
 
   // Only the open period is live; everything else is a previous (paid) period
   const monthKey = (b: (typeof tenantPayrollBatches)[number]) => b.id.split('-').slice(1, 3).join('-');
@@ -408,26 +395,16 @@ const PayrollConsole: React.FC<{ goTab: (t: string) => void }> = ({ goTab }) => 
       <div className="pr-card">
         <div className="pr-card-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Cpu size={18} color="var(--brand-primary)" />
+            <CalendarRange size={18} color="var(--brand-primary)" />
             <div>
-              <h3>Run one site separately</h3>
-              <p>Calculate a single branch or unit without locking the whole company’s payroll.</p>
+              <h3>Daily, weekly and custom pay runs</h3>
+              <p>Pay daily-rated workers for a day, a week or any date range, for the whole company or one site. Each run is approved, paid and reported on separately.</p>
             </div>
           </div>
         </div>
         <div className="pr-toolbar">
-          <select className="form-control" value={selectedPipeline} onChange={(e) => setSelectedPipeline(e.target.value as 'Monthly Payroll' | 'Weekly Payroll')} aria-label="Pay frequency">
-            <option value="Monthly Payroll">Monthly payroll (bank transfer)</option>
-            <option value="Weekly Payroll">Weekly payroll (M-Pesa)</option>
-          </select>
-          <select className="form-control grow" value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value)} aria-label="Site">
-            {branches.map((b) => (
-              <option key={b}>{b}</option>
-            ))}
-          </select>
-          <button className="btn btn-primary" onClick={handleExecuteBatch} disabled={isExecuting}>
-            {isExecuting ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
-            <span>{isExecuting ? 'Calculating…' : 'Run site'}</span>
+          <button className="btn btn-primary" onClick={() => goTab('runs')}>
+            <Play size={14} /> Open pay runs
           </button>
         </div>
       </div>
@@ -528,6 +505,7 @@ export const PayrollView: React.FC = () => {
       </div>
 
       {tab === 'console' && <PayrollConsole goTab={goTab} />}
+      {tab === 'runs' && <PayRuns />}
       {tab === 'worksheet' && <PayrollWorksheet />}
       {tab === 'items' && <PayrollItems />}
       {tab === 'setup' && <PayItemSetup />}

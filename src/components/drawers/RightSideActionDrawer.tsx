@@ -264,19 +264,19 @@ export const RightSideActionDrawer: React.FC = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 'auto', paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
-              {data.pipeline === 'Weekly Payroll' && (
+              {data.pipeline !== 'Monthly Payroll' && (
                 <button
                   className="btn btn-primary"
                   onClick={() => {
                     addToast({
                       type: 'success',
                       title: 'M-Pesa B2C Gateway Dispatched',
-                      message: `Weekly payroll (M-Pesa B2C): instant mobile disbursement triggered for ${data.workerCount} employees.`
+                      message: `${data.pipeline} (M-Pesa B2C): instant mobile disbursement triggered for ${data.workerCount} employees.`
                     });
                     closeRightDrawer();
                   }}
                 >
-                  <Send size={14} /> Weekly payroll (M-Pesa B2C): Disburse Instant Payout
+                  <Send size={14} /> {data.pipeline} (M-Pesa B2C): Disburse Instant Payout
                 </button>
               )}
               <button

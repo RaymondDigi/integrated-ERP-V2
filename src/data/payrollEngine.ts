@@ -7,6 +7,7 @@ import { PAYROLL_POLICY, ratesOn, type PayrollPolicy } from './statutoryRates';
 import { componentAt, PAY_COMPONENTS, type PayCalc, type PayComponentType } from './payComponents';
 import { evalFormula } from '../utils/formula';
 import { EMPLOYER_LOANS, LOAN_TYPE_LABEL, loanStartingBalance, SEED_LOANS, SEED_PAY_ITEMS, type PayItem, type StaffLoan } from './payItems';
+import { payRunBatch, payRunRows } from './payRuns';
 
 /**
  * One payroll engine for the whole hub. Payslips, payroll batches, the Finance payroll journal, summaries
@@ -714,9 +715,7 @@ export const buildPayrollBatches = (list: HREmployee[], today = new Date(), ctx:
         runDate: inPrep ? isoDay(today) : `${d.getFullYear()}-${mm}-22`
       });
     }
-    // Weekly runs for daily-rated workers: 4–6 days each week
-    const casuals = list.filter((e) => e.orgId === orgId && isCasual(e) && e.status !== 'TERMINATED');
-    if (!casuals.length) continue;
+    // Weekly runs for daily-rated workers, calculated by the same pay-run engine as runs created in Pay runs
     const monday = new Date(today);
     monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
     for (let w = 0; w <= 3; w++) {
@@ -724,31 +723,14 @@ export const buildPayrollBatches = (list: HREmployee[], today = new Date(), ctx:
       start.setDate(monday.getDate() - 7 * w);
       const end = new Date(start);
       end.setDate(start.getDate() + 6);
-      const slips = casuals
-        .filter((e) => e.joinedDate <= isoDay(end))
-        .map((e) => {
-          const days = 4 + ((hash(e.staffId) + w) % 3);
-          const gross = days * (e.payRateKes ?? 0);
-          const r = computeStatutory({ date: isoDay(end), cashGross: gross, profile: e.tax as TaxProfile | undefined });
-          return { gross, nssf: r.nssfEe, shif: r.shif, ahl: r.ahlEe, paye: r.paye, net: gross - r.nssfEe - r.shif - r.ahlEe - r.paye };
-        });
-      const t = (k: 'gross' | 'nssf' | 'shif' | 'ahl' | 'paye' | 'net') => slips.reduce((x, y) => x + y[k], 0);
+      const from = isoDay(start);
+      const to = isoDay(end);
+      const rows = payRunRows(list, orgId, from, to);
+      if (!rows.length) continue;
       const week = Math.ceil(((start.getTime() - new Date(start.getFullYear(), 0, 1).getTime()) / 86_400_000 + 1) / 7);
+      const period = `Week ${week} (${start.getDate()} ${MONTHS[start.getMonth()].slice(0, 3)} – ${end.getDate()} ${MONTHS[end.getMonth()].slice(0, 3)})${w === 0 ? ' — this week' : ''}`;
       out.push({
-        id: `PAY-${start.getFullYear()}-W${week}-${code}`,
-        orgId,
-        batchNo: `BATCH-${start.getFullYear()}-W${week}-${code}`,
-        period: `Week ${week} (${start.getDate()} ${MONTHS[start.getMonth()].slice(0, 3)} – ${end.getDate()} ${MONTHS[end.getMonth()].slice(0, 3)})${w === 0 ? ' — this week' : ''}`,
-        branch,
-        pipeline: 'Weekly Payroll',
-        totalGrossKes: t('gross'),
-        totalPayeKes: t('paye'),
-        totalNssfKes: t('nssf'),
-        totalShifKes: t('shif'),
-        totalAhlKes: t('ahl'),
-        totalNetDisbursementKes: t('net'),
-        workerCount: slips.length,
-        status: w === 0 ? 'CALCULATED' : 'DISBURSED_MPESA',
+        ...payRunBatch({ kind: 'WEEKLY', from, to, payDate: to, branch: 'All sites' }, orgId, { id: `PAY-${start.getFullYear()}-W${week}-${code}`, batchNo: `BATCH-${start.getFullYear()}-W${week}-${code}`, period }, rows, w === 0 ? 'CALCULATED' : 'DISBURSED_MPESA'),
         runDate: isoDay(w === 0 ? today : end)
       });
     }

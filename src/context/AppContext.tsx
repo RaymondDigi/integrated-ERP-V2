@@ -73,6 +73,7 @@ import { useRegistersState, type RegistersStateSlice } from './registersState';
 import { useSecurityState, type SecurityStateSlice } from './securityState';
 import type { PeopleDeps } from './sliceDeps';
 import { buildPayrollBatches, latestPaidMonth, makeContext, type ExitType, type PayReduction, type PayrollHold, monthRun, MONTHS, openPeriod, SEED_CONTEXT, terminalDues, type PayrollContext } from '../data/payrollEngine';
+import { PAY_RUN_LABEL, payRunBatch, payRunClash, payRunRows, payRunWindowError, rangeLabel, type PayRunRequest } from '../data/payRuns';
 import { loanInstallment, SEED_LOANS, SEED_PAY_ITEMS, type PayItem, type StaffLoan } from '../data/payItems';
 import { componentAt, currentComponents, PAY_COMPONENTS, setComponentRegistry, type PayComponentType } from '../data/payComponents';
 
@@ -326,7 +327,7 @@ interface AppContextType
   updateCandidateStage: (candidateId: string, stage: JobApplicant['stage']) => void;
   toggleOnboardingItem: (id: string, field: 'kraPinVerified' | 'nssfVerified' | 'shifVerified' | 'kitIssued' | 'contractSigned') => void;
   addAttendancePunch: (punch: Omit<BiometricPunch, 'id' | 'orgId' | 'timestamp'>) => void;
-  runPayrollBatch: (branch: string, pipeline: PayrollBatch['pipeline']) => void;
+  createPayRun: (req: PayRunRequest) => boolean;
   convertContractType: (workerId: string) => void;
   closeOshPermit: (id: string) => void;
   signoffClearanceDept: (id: string, dept: 'stores' | 'it' | 'finance' | 'hr') => void;
@@ -985,37 +986,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const { approveLeaveRequest, rejectLeaveRequest, cancelLeaveRequest, createLeaveRequest } = leave;
   const hire = useHireState({ requisitions, setRequisitions, candidates, setCandidates, onboardingRecords, setOnboardingRecords, hrEmployees, addHrEmployee, updateHrEmployee, addToast, selectedOrgId, payrollOpenPeriod, tenantOrganizations });
 
-  const runPayrollBatch = (branch: string, pipeline: PayrollBatch['pipeline']) => {
-    // Calculated from the company's current employees with the same engine as payslips
-    const today = new Date();
-    const run = monthRun(hrEmployees, selectedOrgId, today.getFullYear(), today.getMonth(), payrollCtx);
-    const part = pipeline === 'Monthly Payroll' ? run.salaried : run.casual;
-    const weekly = pipeline !== 'Monthly Payroll';
-    // A weekly run covers about a quarter of the month's days
-    const f = weekly ? 0.25 : 1;
-    const newBatch: PayrollBatch = {
-      id: `PAY-${today.getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-      orgId: selectedOrgId,
-      batchNo: `BATCH-${Date.now().toString().slice(-6)}`,
-      period: weekly ? 'Current week' : `${MONTHS[today.getMonth()]} ${today.getFullYear()}`,
-      branch,
-      pipeline,
-      totalGrossKes: Math.round(part.gross * f),
-      totalPayeKes: Math.round(part.paye * f),
-      totalNssfKes: Math.round(part.nssf * f),
-      totalShifKes: Math.round(part.shif * f),
-      totalAhlKes: Math.round(part.ahl * f),
-      totalNetDisbursementKes: Math.round(part.net * f),
-      workerCount: part.workers,
-      status: 'AUDIT_APPROVED',
-      runDate: today.toISOString().split('T')[0]
-    };
-    setExtraBatches((prev) => [newBatch, ...prev]);
-    addToast({
-      type: 'success',
-      title: 'Payroll Batch Executed',
-      message: `${pipeline} for ${branch} calculated with 2026 statutory schedules (PAYE, NSSF, SHIF, AHL).`
-    });
+  // Pay runs: daily, weekly or custom-date runs for daily-rated workers, calculated like payslips and approved before payment
+  const createPayRun: AppContextType['createPayRun'] = (req) => {
+    const err = payRunWindowError(req);
+    if (err) {
+      addToast({ type: 'error', title: 'Check the dates', message: err });
+      return false;
+    }
+    // No day may be paid twice: a run overlapping an existing run for the same site (or all sites) is refused
+    const clash = payRunClash(payrollBatches, selectedOrgId, req);
+    if (clash) {
+      addToast({ type: 'error', title: 'Already paid for these days', message: `${clash.batchNo} covers ${clash.periodFrom} to ${clash.periodTo}. Choose other dates or a different site.` });
+      return false;
+    }
+    const rows = payRunRows(hrEmployees, selectedOrgId, req.from, req.to, req.branch);
+    if (!rows.length) {
+      addToast({ type: 'warning', title: 'Nobody to pay', message: 'No daily-rated workers attended in these dates for this site.' });
+      return false;
+    }
+    const stamp = Date.now().toString().slice(-6);
+    const batch = payRunBatch(req, selectedOrgId, { id: `PAY-RUN-${req.kind}-${req.from.replace(/-/g, '')}-${stamp}`, batchNo: `BATCH-${req.kind}-${stamp}` }, rows);
+    setExtraBatches((prev) => [batch, ...prev]);
+    addToast({ type: 'success', title: `${PAY_RUN_LABEL[req.kind]} calculated`, message: `${batch.workerCount} workers, ${rangeLabel(req.from, req.to)}. Approve it, then pay it.` });
+    return true;
   };
 
   const payrollActor = 'Rose Chepkoech';
@@ -1455,7 +1448,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         rejectLeaveRequest,
         cancelLeaveRequest,
         createLeaveRequest,
-        runPayrollBatch,
+        createPayRun,
         convertContractType,
         signoffClearanceDept,
 

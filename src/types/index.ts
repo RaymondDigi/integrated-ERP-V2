@@ -434,7 +434,7 @@ export interface ContractTypeDefinition {
   serviceThresholdDays?: number;
 }
 
-export type PayFrequencyRun = 'Monthly Payroll' | 'Weekly Payroll';
+export type PayFrequencyRun = 'Monthly Payroll' | 'Weekly Payroll' | 'Daily Payroll' | 'Custom Payroll';
 
 /* ------------------------------------------------------------------ */
 /* Organisation structure (company-maintained lookup lists)            */
@@ -678,6 +678,10 @@ export interface PayrollBatch {
   workerCount: number;
   status: 'DRAFT' | 'CALCULATED' | 'AUDIT_APPROVED' | 'DISBURSED_MPESA' | 'POSTED_GL';
   runDate: string;
+  /** Pay runs (daily, weekly, custom): the days covered, inclusive, and the pay date */
+  periodFrom?: string;
+  periodTo?: string;
+  payDate?: string;
 }
 
 export interface ContractThresholdRecord {
