@@ -37,6 +37,7 @@ import {
   ESS_ANNOUNCEMENTS,
   TEAM_OUT_TODAY,
   syncEssEmployee,
+  switchEssEmployee,
   buildPayslips,
   nextPayDate,
   formatKes,
@@ -59,6 +60,7 @@ import { detectIssues, setAiHolidays, type AiContext, type AiAction } from './ai
 import { EssApprovals, EssPerformance, EssAssets, EssDisciplinary } from './EssRecords';
 import { EssP9 } from './EssP9';
 import { EssServices, TeamLeaveReport } from './EssServices';
+import { useSession } from '../../auth/session';
 import { codeOf, leaveBalances, validateLeaveRequest } from '../../data/leaveEngine';
 
 type EssTab = 'home' | 'ai' | 'leave' | 'approvals' | 'pay' | 'performance' | 'attendance' | 'requests' | 'records' | 'services' | 'profile';
@@ -107,6 +109,10 @@ const timeNow = () => new Date().toLocaleTimeString('en-GB', { hour: '2-digit', 
 
 export const EssPortalView: React.FC = () => {
   const { leaveRequests, createLeaveRequest, cancelLeaveRequest, addToast, setCurrentView, hrEmployees, updateHrEmployee, logEmployeeEdit, leaveCfg, leaveHolidays, essRequests, submitEssRequest, payrollCtx, addAttendancePunch } = useApp();
+  // The portal shows the signed-in persona's own record when the persona is an employee (else the demo employee)
+  const session = useSession();
+  const signedIn = hrEmployees.find((x) => x.staffId === session?.staffId && x.status !== 'TERMINATED');
+  if (signedIn) switchEssEmployee(signedIn, hrEmployees);
   // Keep the assistant's working-day maths on the same calendar as HR (holidays for this employee's site)
   const essOrg = hrEmployees.find((e) => e.staffId === ESS_EMPLOYEE.staffId)?.orgId;
   setAiHolidays(leaveHolidays.filter((h) => h.location === 'ALL' || h.location === essOrg).map((h) => ({ date: h.observed || h.date, name: h.name })));

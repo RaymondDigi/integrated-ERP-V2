@@ -120,6 +120,7 @@ const panel = (page, title) => page.locator('section.sx-panel').filter({ hasText
 
   // The store guard also refuses writes from screens that do not disable buttons
   await open(page, 'ess');
+  check('ESS follows the signed-in employee', await page.getByText(/Amina/).count());
   await page.locator('.ess-tab', { hasText: 'Services' }).click();
   await page.waitForTimeout(200);
   await clearToasts(page);
