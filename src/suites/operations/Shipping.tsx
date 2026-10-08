@@ -6,9 +6,18 @@ import { daysBetween, fmtDate, kes, round2, TODAY } from '../finance/engine';
 import type { Shipment } from './types';
 import { ApprovalPanel, DataTable, DefList, Drawer, FlowSteps, Hero, LinkButton, Meter, Panel, Pill, Stat, SuitePage, TodoList, greeting, type Column, type FlowAction, type TodoItem } from '../ui/kit';
 import { SuiteSidebar, type SuiteNavGroup } from '../ui/SuiteSidebar';
-import { Crumb, OpsFooter, useFocus, useTopOnChange } from './parts';
+import { Crumb, useFocus, useTopOnChange } from './parts';
+import { Ban, BarChart3, ClipboardList, FileText, Gauge, Plus, Radar, ScrollText, Shield, Truck, Wallet } from 'lucide-react';
+import { useAccess } from '../../platform/access';
+import { isShippingExt, SHP_EXT_LABEL, type ShippingExtPage } from './shipping/pages';
+import { LogisticsFooter } from './warehousing/ui';
+import { useShippingExt } from './shipping/store';
+import { InstructionsPage } from './shipping/InstructionsPage';
+import { BondsPage, ChargesPage, LicencesPage, TrackingPage, TrucksPage, VesselsPage } from './shipping/OpsPages';
+import { TemplatesPage } from './shipping/TemplatesPage';
+import { KpisPage, ShippingReportsPage } from './shipping/ReportsPage';
 
-const LABEL: Record<ShippingPage, string> = { overview: 'Overview', shipments: 'Shipments', documents: 'Export documents' };
+const LABEL: Record<ShippingPage, string> = { overview: 'Overview', shipments: 'Shipments', documents: 'Export documents', ...SHP_EXT_LABEL };
 const S_PILL: Record<Shipment['stage'], string> = { BOOKED: 'DRAFT', DOCUMENTS: 'SUBMITTED', LOADED: 'APPROVED', DEPARTED: 'OPEN', ARRIVED: 'PART_PAID', DELIVERED: 'POSTED' };
 
 const SOverview: React.FC = () => {
@@ -77,7 +86,7 @@ const SOverview: React.FC = () => {
 };
 
 const ShipmentsPage: React.FC = () => {
-  const { state, shipping, commercial } = useOperations();
+  const { state, shipping, commercial, setShipping } = useOperations();
   const [openId, setOpenId] = useState<string | null>(null);
   useFocus(shipping.focus, (id) => state.shipments.some((s) => s.id === id), setOpenId);
   const columns: Column<Shipment>[] = [
@@ -115,7 +124,16 @@ const ShipmentsPage: React.FC = () => {
   ];
   const open = state.shipments.find((s) => s.id === openId);
   return (
-    <SuitePage eyebrow="Exports" title="Shipments" subtitle="From booking to delivery. A shipment cannot sail until every export document is in and the invoice is raised.">
+    <SuitePage
+      eyebrow="Exports"
+      title="Shipments"
+      subtitle="From booking to delivery. A shipment cannot sail until every export document is in, the invoice is raised and the VGM is certified."
+      actions={
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => setShipping('instructions', 'new')}>
+          <Plus size={15} /> New shipment (from an instruction)
+        </button>
+      }
+    >
       <DataTable rows={state.shipments} columns={columns} rowKey={(s) => s.id} onRowClick={(s) => setOpenId(s.id)} selected={openId} initialSort={{ key: 'e', dir: 'desc' }} />
       {open && <ShipmentDrawer s={open} onClose={() => setOpenId(null)} />}
     </SuitePage>
@@ -123,7 +141,10 @@ const ShipmentsPage: React.FC = () => {
 };
 
 const ShipmentDrawer: React.FC<{ s: Shipment; onClose: () => void }> = ({ s, onClose }) => {
-  const { state, actor, products, commercial, finance, toggleDoc, setContainer, raiseExportInvoice, advanceShipment } = useOperations();
+  const { state, actor, products, commercial, finance, toggleDoc, setContainer, raiseExportInvoice, advanceShipment, blockShipment, setShipping } = useOperations();
+  const shx = useShippingExt();
+  const { readOnly } = useAccess();
+  const [blockNote, setBlockNote] = useState('');
   const [refs, setRefs] = useState<Record<string, string>>({});
   const [container, setC] = useState(s.container ?? '');
   const [seal, setSeal] = useState(s.seal ?? '');
@@ -164,9 +185,25 @@ const ShipmentDrawer: React.FC<{ s: Shipment; onClose: () => void }> = ({ s, onC
           ['Booking', s.bookingRef],
           ['Container', s.container ?? '—'],
           ['Seal', s.seal ?? '—'],
-          ['Export invoice', invoice ? `${invoice.number} (${invoice.status.toLowerCase()})` : s.invoiceNumber ?? '—']
+          ['Export invoice', invoice ? `${invoice.number} (${invoice.status.toLowerCase()})` : s.invoiceNumber ?? '—'],
+          ['Shipping instruction', s.siNumber ?? '—'],
+          ['Stuffing base', s.stuffingBase ? (state.warehouses.find((w) => w.id === s.stuffingBase)?.name ?? s.stuffingBase) : 'Mombasa port store'],
+          ['Loading plan', s.loadingPlan ?? '—'],
+          ['VGM', s.vgm ? `${s.vgm.number} · ${s.vgm.grossKg.toLocaleString()} kg (${s.vgm.method === 'METHOD_1' ? 'method 1' : 'method 2'}) · ${s.vgm.by}` : 'Not certified'],
+          ['Block', s.blocked ? `${s.blocked.reason} — ${s.blocked.by}` : 'None']
         ]}
       />
+      {!readOnly && !['DEPARTED', 'ARRIVED', 'DELIVERED'].includes(s.stage) && (
+        <div className="sx-inline-form">
+          <input className="form-control" value={blockNote} onChange={(e) => setBlockNote(e.target.value)} placeholder="Reason to block (credit, quality, customer hold)" aria-label="Block reason" />
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => blockShipment(s.id, s.blocked ? null : blockNote).ok && setBlockNote('')}>
+            <Ban size={14} /> {s.blocked ? 'Release block' : 'Block'}
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShipping('tracking', s.id)}>
+            <Radar size={14} /> External tracking ({(shx.state.milestones[s.id] ?? []).filter((m) => m.status === 'APPROVED').length} done)
+          </button>
+        </div>
+      )}
       <table className="sx-mini-table">
         <thead>
           <tr>
@@ -282,18 +319,40 @@ const DocumentsPage: React.FC = () => {
 };
 
 export const ShippingSidebar: React.FC = () => {
-  const { state, shipping, setShipping } = useOperations();
+  const { state, shipping, setShipping, actor } = useOperations();
+  const { state: x } = useShippingExt();
+  const portal = actor.role === 'CUSTOMER';
   const groups: SuiteNavGroup<ShippingPage>[] = [
     { label: 'Exports', items: [{ id: 'overview', label: 'Overview', icon: LayoutDashboard }] },
     {
       label: 'Ship',
       items: [
+        { id: 'instructions', label: portal ? 'My instructions (portal)' : 'Shipping instructions', icon: ClipboardList, badge: x.instructions.filter((si) => (!portal || si.customerId === actor.customerId) && (si.status === 'SUBMITTED' || si.status === 'CREDIT_HOLD')).length },
         { id: 'shipments', label: 'Shipments', icon: Ship, badge: state.shipments.filter((s) => s.stage !== 'DELIVERED' && shipBlockers(s).length && daysBetween(TODAY, s.etd) <= 7).length, badgeTone: 'critical' },
-        { id: 'documents', label: 'Export documents', icon: FileCheck2 }
+        { id: 'documents', label: 'Export documents', icon: FileCheck2 },
+        { id: 'tracking', label: 'External tracking', icon: Radar },
+        { id: 'vessels', label: 'Vessel schedule', icon: CalendarClock },
+        { id: 'trucks', label: 'Truck bookings', icon: Truck }
+      ]
+    },
+    {
+      label: 'Compliance & cost',
+      items: [
+        { id: 'bonds', label: 'Bonds', icon: Shield },
+        { id: 'licences', label: 'Customs licences', icon: ScrollText },
+        { id: 'charges', label: 'Charges & landed cost', icon: Wallet },
+        { id: 'templates', label: 'Document templates', icon: FileText }
+      ]
+    },
+    {
+      label: 'Analyse',
+      items: [
+        { id: 'reports', label: 'Reports', icon: BarChart3 },
+        { id: 'kpis', label: 'SI KPIs', icon: Gauge }
       ]
     }
   ];
-  return <SuiteSidebar name="Shipping & Exports" tagline="Book · document · sail" icon={Ship} groups={groups} active={shipping.page} onSelect={(p) => setShipping(p)} footer={<OpsFooter />} />;
+  return <SuiteSidebar name="Shipping & Exports" tagline="Instruct · book · document · sail" icon={Ship} groups={groups} active={shipping.page} onSelect={(p) => setShipping(p)} footer={<LogisticsFooter />} />;
 };
 export const ShippingCrumb: React.FC = () => {
   const { shipping, setShipping } = useOperations();
@@ -307,6 +366,32 @@ export const ShippingSuite: React.FC = () => {
       {shipping.page === 'overview' && <SOverview />}
       {shipping.page === 'shipments' && <ShipmentsPage />}
       {shipping.page === 'documents' && <DocumentsPage />}
+      {isShippingExt(shipping.page) && <ShippingExt page={shipping.page} />}
     </div>
   );
+};
+
+const ShippingExt: React.FC<{ page: ShippingExtPage }> = ({ page }) => {
+  switch (page) {
+    case 'instructions':
+      return <InstructionsPage />;
+    case 'tracking':
+      return <TrackingPage />;
+    case 'vessels':
+      return <VesselsPage />;
+    case 'bonds':
+      return <BondsPage />;
+    case 'charges':
+      return <ChargesPage />;
+    case 'trucks':
+      return <TrucksPage />;
+    case 'licences':
+      return <LicencesPage />;
+    case 'templates':
+      return <TemplatesPage />;
+    case 'kpis':
+      return <KpisPage />;
+    default:
+      return <ShippingReportsPage />;
+  }
 };
