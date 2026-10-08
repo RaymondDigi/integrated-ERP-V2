@@ -24,15 +24,15 @@ const ChannelPill: React.FC<{ channel: 'work' | 'personal'; fallback?: boolean }
 
 /** Every message the workspace sends, and which of the employee's two addresses it went to. */
 export const NotificationsTab: React.FC = () => {
-  const { hrEmployees, leaveRequests, essRequests, exitCases, closedPayrollPeriods, selectedOrgId } = useApp();
+  const { hrEmployees, leaveRequests, essRequests, exitCases, closedPayrollPeriods, selectedOrgId, employeeChanges, requisitions, trainingNeeds } = useApp();
   const [channel, setChannel] = useState<'all' | 'work' | 'personal' | 'fallback'>('all');
   const [category, setCategory] = useState<'All' | MailCategory>('All');
   const [search, setSearch] = useState('');
 
   const tenantIds = useMemo(() => new Set(hrEmployees.filter((e) => e.orgId === selectedOrgId).map((e) => e.staffId)), [hrEmployees, selectedOrgId]);
   const all = useMemo(
-    () => buildOutbox({ hrEmployees, leaveRequests, essRequests, exitCases, closedPayrollPeriods }).filter((m) => tenantIds.has(m.staffId)),
-    [hrEmployees, leaveRequests, essRequests, exitCases, closedPayrollPeriods, tenantIds]
+    () => buildOutbox({ hrEmployees, leaveRequests, essRequests, exitCases, closedPayrollPeriods, employeeChanges, requisitions, trainingNeeds }).filter((m) => tenantIds.has(m.staffId)),
+    [hrEmployees, leaveRequests, essRequests, exitCases, closedPayrollPeriods, employeeChanges, requisitions, trainingNeeds, tenantIds]
   );
   const missing = hrEmployees.filter((e) => tenantIds.has(e.staffId) && !e.personalEmail && e.status !== 'TERMINATED');
 

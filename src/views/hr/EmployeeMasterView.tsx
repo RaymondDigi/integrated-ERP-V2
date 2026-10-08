@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Users, Eye, EyeOff, UserPlus, ShieldCheck, FileClock, Network, Inbox, Mail } from 'lucide-react';
+import { Users, Eye, EyeOff, UserPlus, ShieldCheck, FileClock, Network, Inbox, Mail, GraduationCap, BellRing, BarChart3, History } from 'lucide-react';
+import { HrAlertsTab, HrReportsTab, MasterDataReportTab, QualificationsTab } from './hcm/EmployeeExtraTabs';
 import { useApp } from '../../context/AppContext';
 import { AddEmployeeWizard } from './employee-wizard/AddEmployeeWizard';
 import { HireHeader, useModuleTab, type TabDef } from './hire/shared';
@@ -13,7 +14,11 @@ const TABS: TabDef[] = [
   { id: 'changes', label: 'Changes & audit', icon: ShieldCheck },
   { id: 'contracts', label: 'Contracts & probation', icon: FileClock },
   { id: 'orgchart', label: 'Org chart', icon: Network },
-  { id: 'notifications', label: 'Email & notifications', icon: Mail }
+  { id: 'notifications', label: 'Email & notifications', icon: Mail },
+  { id: 'qualifications', label: 'Qualifications', icon: GraduationCap },
+  { id: 'alerts', label: 'HR alerts', icon: BellRing },
+  { id: 'reports', label: 'HR reports', icon: BarChart3 },
+  { id: 'masterdata', label: 'Master data changes', icon: History }
 ];
 
 export const EmployeeMasterView: React.FC = () => {
@@ -48,7 +53,7 @@ export const EmployeeMasterView: React.FC = () => {
           </>
         }
       />
-      {tab === 'requests' ? <EmployeeRequestsTab /> : tab === 'changes' ? <ChangesTab /> : tab === 'contracts' ? <ContractsTab /> : tab === 'orgchart' ? <OrgChartTab /> : tab === 'notifications' ? <NotificationsTab /> : <DirectoryTab unmask={unmaskPii} />}
+      {tab === 'qualifications' ? <QualificationsTab /> : tab === 'alerts' ? <HrAlertsTab /> : tab === 'reports' ? <HrReportsTab /> : tab === 'masterdata' ? <MasterDataReportTab /> : tab === 'requests' ? <EmployeeRequestsTab /> : tab === 'changes' ? <ChangesTab /> : tab === 'contracts' ? <ContractsTab /> : tab === 'orgchart' ? <OrgChartTab /> : tab === 'notifications' ? <NotificationsTab /> : <DirectoryTab unmask={unmaskPii} />}
       {wizardOpen && <AddEmployeeWizard onClose={() => setWizardOpen(false)} />}
     </div>
   );

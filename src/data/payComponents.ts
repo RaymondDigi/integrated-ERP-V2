@@ -92,6 +92,7 @@ const SEED: PayComponentType[] = [
   E({ id: 'HARDSHIP', name: 'Hardship allowance', recurrence: 'recurring', paye: 'taxable', nssf: true, shif: true, ahl: true, isCash: true, custom: true, note: 'Remote estates — 10% of basic, regular so pensionable', calc: { method: 'percent', base: 'BASIC', percent: 10 } }),
   E({ id: 'LONG_SERVICE', name: 'Long-service award', recurrence: 'one_off', paye: 'taxable', nssf: false, shif: true, ahl: true, isCash: true, custom: true, note: 'KES 1,000 per completed year, up to 15 years', calc: { method: 'formula', expression: 'MIN(YEARS, 15) * 1000' } }),
   { id: 'REIMBURSEMENT', name: 'Expense reimbursement', category: 'reimbursement', recurrence: 'one_off', paye: 'exempt', nssf: false, shif: false, ahl: false, isCash: true, note: 'Receipted business expense — not income at all' },
+  { id: 'WELFARE_BENEFIT', name: 'Staff welfare benefit', category: 'reimbursement', recurrence: 'one_off', paye: 'exempt', nssf: false, shif: false, ahl: false, isCash: true, note: 'Paid from the staff welfare fund (bereavement, wedding, hospital) — not employment income' },
 
   // Non-cash benefits — taxed, never paid out
   { id: 'HOUSING_BIK', name: 'Housing benefit (company house)', category: 'benefit_in_kind', recurrence: 'recurring', paye: 'taxable', nssf: false, shif: false, ahl: false, isCash: false, note: 'Higher of 15% of other taxable pay, market rent or rent paid; non-cash, so no NSSF/SHIF/AHL' },

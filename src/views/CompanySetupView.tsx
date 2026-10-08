@@ -32,15 +32,17 @@ import {
   validateOrg
 } from '../data/orgSettings';
 import { TextField, SelectField } from './hr/employee-wizard/WizardSteps';
+import { OrgStructurePanel } from './hr/hcm/OrgStructurePanel';
 
-type Tab = 'profile' | 'statutory' | 'periods' | 'pay' | 'rules';
+type Tab = 'profile' | 'statutory' | 'periods' | 'pay' | 'rules' | 'structure';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType; fields: string[] }[] = [
   { id: 'profile', label: 'Identity & contact', icon: Building2, fields: ['legalName', 'displayName', 'code', 'location', 'email', 'website'] },
   { id: 'statutory', label: 'Registration & PINs', icon: IdCard, fields: ['kraPin'] },
   { id: 'periods', label: 'Active periods', icon: CalendarRange, fields: ['payDay', 'cutOffDay'] },
   { id: 'pay', label: 'Overtime & rounding', icon: Clock3, fields: ['overtime.'] },
-  { id: 'rules', label: 'Probation, retirement & leave', icon: ShieldCheck, fields: ['probation.', 'retirement.', 'leave.'] }
+  { id: 'rules', label: 'Probation, retirement & leave', icon: ShieldCheck, fields: ['probation.', 'retirement.', 'leave.'] },
+  { id: 'structure', label: 'Organisation structure', icon: Building2, fields: [] }
 ];
 
 interface Draft {
@@ -249,6 +251,7 @@ export const CompanySetupView: React.FC = () => {
             {tab === 'periods' && <PeriodsTab s={draft.settings} setS={setS} err={err} num={num} />}
             {tab === 'pay' && <PayRulesTab s={draft.settings} setNested={setNested} err={err} num={num} />}
             {tab === 'rules' && <RulesTab s={draft.settings} setNested={setNested} err={err} num={num} />}
+            {tab === 'structure' && <OrgStructurePanel />}
 
             {advisories.filter((a) => TABS.find((t) => t.id === tab)!.fields.some((f) => (f.endsWith('.') ? a.field.startsWith(f) : a.field === f))).length > 0 && (
               <ul className="co-advisories">

@@ -66,7 +66,15 @@ import { useTrainingState, type TrainingStateSlice } from './trainingState';
 import { useSepState, type SepStateSlice } from './sepState';
 import { useEssState, type EssStateSlice } from './essState';
 import { useOshState, type OshStateSlice } from './oshState';
-import { buildPayrollBatches, latestPaidMonth, makeContext, type ExitType, type PayReduction, type PayrollHold, monthRun, MONTHS, openPeriod, SEED_CONTEXT, terminalDues, type PayrollContext } from '../data/payrollEngine';
+import { useHcmState, type HcmStateSlice } from './hcmState';
+import { useSecurityState, type SecurityStateSlice } from './securityState';
+import { guardActions, READ_ONLY_MESSAGE } from './hrAccess';
+import { useSession } from '../auth/session';
+import { canApprove } from '../platform/access';
+import { audit as platformAudit, auditChanges } from '../platform/audit';
+import { DAYS_PER_MONTH, GRADE_BANDS } from '../data/hireConfig';
+import { leaveAllowanceFor, suspensionBlock } from '../data/hcmEngine';
+import { basicFor, payslip, buildPayrollBatches, latestPaidMonth, makeContext, type ExitType, type PayReduction, type PayrollHold, monthRun, MONTHS, openPeriod, SEED_CONTEXT, terminalDues, type PayrollContext } from '../data/payrollEngine';
 import { loanInstallment, SEED_LOANS, SEED_PAY_ITEMS, type PayItem, type StaffLoan } from '../data/payItems';
 import { componentAt, currentComponents, PAY_COMPONENTS, setComponentRegistry, type PayComponentType } from '../data/payComponents';
 
@@ -102,6 +110,7 @@ export type NavigationTarget =
   | 'disciplinary'
   | 'osh-security'
   | 'separation'
+  | 'hr-services'
   | 'overview'
   | 'work-queue'
   | 'activity'
@@ -127,7 +136,7 @@ export interface ToastMessage {
   timestamp: string;
 }
 
-interface AppContextType extends LeaveStateSlice, TimeStateSlice, HireStateSlice, SepStateSlice, TrainingStateSlice, OshStateSlice, PerfStateSlice, EssStateSlice {
+interface AppContextType extends LeaveStateSlice, TimeStateSlice, HireStateSlice, SepStateSlice, TrainingStateSlice, OshStateSlice, PerfStateSlice, EssStateSlice, HcmStateSlice, SecurityStateSlice {
   currentView: NavigationTarget;
   setCurrentView: (view: NavigationTarget) => void;
   selectedOrgId: string;
@@ -199,7 +208,13 @@ interface AppContextType extends LeaveStateSlice, TimeStateSlice, HireStateSlice
   removeToast: (id: string) => void;
 
   // Organisation structure & custom employee fields (company-maintained)
+  /** Units of the selected company plus group-wide units (no orgId) */
   orgStructure: OrgStructure;
+  /** Every company's units, for Company setup */
+  allOrgStructure: OrgStructure;
+  /** Edit or deactivate an org unit; units with employees cannot be removed */
+  updateOrgItem: (key: keyof OrgStructure, id: string, patch: Record<string, unknown>) => boolean;
+  removeOrgItem: (key: keyof OrgStructure, id: string) => boolean;
   addBranch: (b: Omit<Branch, 'id'>) => Branch;
   addStation: (s: Omit<Station, 'id'>) => Station;
   addDepartment: (d: Omit<Department, 'id'>) => Department;
@@ -355,9 +370,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>(INITIAL_CUSTOM_FIELDS);
 
   const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  // Signed-in account: the viewer role is read only across HR; approvals need a manager
+  const session = useSession();
+  const sessionName = session?.name ?? 'HR office';
+  const readOnly = session?.role === 'viewer';
+  const blocked = () => addToast({ type: 'error', title: 'Read-only account', message: READ_ONLY_MESSAGE });
+  const guardActionsInline = <T extends object>(slice: T) => guardActions(slice, readOnly, blocked);
 
   const addOrgItem = <K extends keyof OrgStructure>(key: K, prefix: string, item: Omit<OrgStructure[K][number], 'id'>) => {
-    const created = { ...item, id: newId(prefix) } as OrgStructure[K][number];
+    // New units belong to the company being worked in unless a company is given
+    const created = { orgId: selectedOrgId, ...item, id: newId(prefix) } as OrgStructure[K][number];
     setOrgStructure((o) => ({ ...o, [key]: [...o[key], created] }));
     return created;
   };
@@ -368,6 +390,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addDesignation = (d: Omit<Designation, 'id'>) => addOrgItem('designations', 'ds', d) as Designation;
   const updateDesignation = (id: string, patch: Partial<Designation>) =>
     setOrgStructure((o) => ({ ...o, designations: o.designations.map((d) => (d.id === id ? { ...d, ...patch } : d)) }));
+  const ORG_LABEL: Record<keyof OrgStructure, string> = { branches: 'Branch', stations: 'Site', departments: 'Department', sections: 'Section', designations: 'Position' };
+  /** Employees placed in an org unit (by id, or by name for older records). */
+  const staffIn = (key: keyof OrgStructure, id: string) => {
+    const unit = (orgStructure[key] as { id: string; name?: string; title?: string; orgId?: string }[]).find((u) => u.id === id);
+    if (!unit) return [];
+    return hrEmployees.filter(
+      (e) =>
+        e.status !== 'TERMINATED' &&
+        (!unit.orgId || e.orgId === unit.orgId) &&
+        (key === 'branches'
+          ? e.branchId === id || e.branch === unit.name
+          : key === 'stations'
+          ? e.stationId === id
+          : key === 'departments'
+          ? e.departmentId === id || e.department === unit.name
+          : key === 'sections'
+          ? e.sectionId === id
+          : e.designationId === id || e.jobTitle === unit.title)
+    );
+  };
+  const updateOrgItem: AppContextType['updateOrgItem'] = (key, id, patch) => {
+    const unit = (orgStructure[key] as { id: string; name?: string; title?: string }[]).find((u) => u.id === id);
+    if (!unit) return false;
+    const label = ORG_LABEL[key];
+    const name = (patch.name ?? patch.title) as string | undefined;
+    if (name !== undefined && !String(name).trim()) {
+      addToast({ type: 'error', title: `${label} not saved`, message: 'The name cannot be blank.' });
+      return false;
+    }
+    if (patch.active === false && staffIn(key, id).length) {
+      addToast({ type: 'error', title: `${label} in use`, message: `${staffIn(key, id).length} employees are placed here. Move them before deactivating it.` });
+      return false;
+    }
+    if (key === 'departments' && patch.parentId && patch.parentId === id) {
+      addToast({ type: 'error', title: 'Check the parent', message: 'A department cannot report to itself.' });
+      return false;
+    }
+    setOrgStructure((o) => ({ ...o, [key]: (o[key] as { id: string }[]).map((u) => (u.id === id ? { ...u, ...patch } : u)) }));
+    platformAudit({ module: 'HR', by: sessionName, ref: id, action: `${label} updated`, after: JSON.stringify(patch).slice(0, 120) });
+    addToast({ type: 'success', title: `${label} saved`, message: `${name ?? unit.name ?? unit.title} updated.` });
+    return true;
+  };
+  const removeOrgItem: AppContextType['removeOrgItem'] = (key, id) => {
+    const unit = (orgStructure[key] as { id: string; name?: string; title?: string }[]).find((u) => u.id === id);
+    if (!unit) return false;
+    const label = ORG_LABEL[key];
+    const used = staffIn(key, id).length;
+    const children =
+      key === 'branches' ? orgStructure.stations.filter((x) => x.branchId === id).length : key === 'departments' ? orgStructure.sections.filter((x) => x.departmentId === id).length + orgStructure.departments.filter((x) => x.parentId === id).length : 0;
+    if (used || children) {
+      addToast({ type: 'error', title: `${label} cannot be removed`, message: used ? `${used} employees are placed here — move them first, or deactivate it.` : `It still has ${children} units under it.` });
+      return false;
+    }
+    setOrgStructure((o) => ({ ...o, [key]: (o[key] as { id: string }[]).filter((u) => u.id !== id) }));
+    platformAudit({ module: 'HR', by: sessionName, ref: id, action: `${label} removed`, before: unit.name ?? unit.title });
+    addToast({ type: 'info', title: `${label} removed`, message: `${unit.name ?? unit.title} deleted from the structure.` });
+    return true;
+  };
 
   const addCustomField = (f: Omit<CustomFieldDefinition, 'id'>) => {
     const created: CustomFieldDefinition = { ...f, id: newId('cf') };
@@ -386,8 +466,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     return created;
   };
-  const updateHrEmployee = (staffId: string, patch: Partial<HREmployee>) =>
+  const updateHrEmployee = (staffId: string, patch: Partial<HREmployee>) => {
+    // Every master-data change is kept with its old and new value for the change report
+    const before = hrEmployees.find((e) => e.staffId === staffId);
+    if (before) auditChanges('HR', sessionName, staffId, before, { ...before, ...patch }, Object.keys(patch) as (keyof HREmployee)[]);
     setHrEmployees((prev) => prev.map((e) => (e.staffId === staffId ? { ...e, ...patch } : e)));
+  };
   const [payReductions, setPayReductions] = useState<PayReduction[]>([]);
   const addPayReduction = (r: Omit<PayReduction, 'id'>) => {
     const created: PayReduction = { ...r, id: `PRD-${Date.now().toString(36)}` };
@@ -872,11 +956,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const createRequisition = (req: Omit<EmployeeRequisition, 'id' | 'orgId' | 'requisitionNo' | 'requestedDate' | 'status'>) => {
+    // One number for the record and the document, never reused
+    const year = new Date().getFullYear();
+    const n = Math.max(0, ...requisitions.filter((r) => r.id.startsWith(`REQ-${year}-`)).map((r) => Number(r.id.slice(9)) || 0)) + 1;
+    const no = `REQ-${year}-${String(n).padStart(3, '0')}`;
     const newReq: EmployeeRequisition = {
       ...req,
-      id: `REQ-2026-${Math.floor(100 + Math.random() * 900)}`,
+      id: no,
       orgId: selectedOrgId,
-      requisitionNo: `REQ-2026-${Math.floor(100 + Math.random() * 900)}`,
+      requisitionNo: no,
       requestedDate: new Date().toISOString().split('T')[0],
       status: 'PENDING_APPROVAL'
     };
@@ -940,9 +1028,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const decisionDate = () => new Date().toISOString().slice(0, 10);
 
   // Leave: workflow, validation and configuration live in the leave state hook
-  const leave = useLeaveState({ hrEmployees, leaveRequests, setLeaveRequests, addToast, selectedOrgId });
+  // Leave allowance is paid once a year with the first annual leave of 10 days or more
+  const postLeaveAllowance = (r: LeaveRequest) => {
+    const e = hrEmployees.find((x) => x.staffId === r.staffId);
+    if (!e) return 0;
+    const due = leaveAllowanceFor(r, basicFor(e, payrollOpenPeriod.year, payrollOpenPeriod.month), leaveRequests);
+    if (!due) return 0;
+    const n = postPayItems([{ staffId: r.staffId, componentId: 'LEAVE_ALLOWANCE', amount: due.amount, period: payrollOpenPeriod.key, recurring: false, reference: r.id, note: `Annual leave allowance ${due.year}`, source: 'Leave' }], sessionName);
+    return n ? due.amount : 0;
+  };
+  // Every HR store refuses changes from a read-only (viewer) account
+  const leave = guardActions(useLeaveState({ hrEmployees, leaveRequests, setLeaveRequests, addToast, selectedOrgId, postLeaveAllowance }), readOnly, blocked);
   const { approveLeaveRequest, rejectLeaveRequest, cancelLeaveRequest, createLeaveRequest } = leave;
-  const hire = useHireState({ requisitions, setRequisitions, candidates, setCandidates, onboardingRecords, setOnboardingRecords, hrEmployees, addHrEmployee, updateHrEmployee, addToast, selectedOrgId, payrollOpenPeriod, tenantOrganizations });
+  const hire = guardActions(
+    useHireState({ requisitions, setRequisitions, candidates, setCandidates, onboardingRecords, setOnboardingRecords, hrEmployees, addHrEmployee, updateHrEmployee, addToast, selectedOrgId, payrollOpenPeriod, tenantOrganizations, postPayItems: (items, by) => postPayItems(items, by) }),
+    readOnly,
+    blocked,
+    { addApplicant: null, activateHire: null, requestEmployeeChange: null, decideEmployeeChange: false, recordTestScore: false, scheduleInterview: false }
+  );
 
   const runPayrollBatch = (branch: string, pipeline: PayrollBatch['pipeline']) => {
     // Calculated from the company's current employees with the same engine as payslips
@@ -966,14 +1069,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalAhlKes: Math.round(part.ahl * f),
       totalNetDisbursementKes: Math.round(part.net * f),
       workerCount: part.workers,
-      status: 'AUDIT_APPROVED',
+      // A new run is calculated only; Finance approves it before it can be posted
+      status: 'CALCULATED',
       runDate: today.toISOString().split('T')[0]
     };
     setExtraBatches((prev) => [newBatch, ...prev]);
     addToast({
       type: 'success',
-      title: 'Payroll Batch Executed',
-      message: `${pipeline} for ${branch} calculated with 2026 statutory schedules (PAYE, NSSF, SHIF, AHL).`
+      title: 'Payroll Batch Calculated',
+      message: `${pipeline} for ${branch} calculated with 2026 statutory schedules (PAYE, NSSF, SHIF, AHL). It needs Finance approval before posting.`
     });
   };
 
@@ -997,10 +1101,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addToast({ type: 'success', title: items.length === 1 ? 'Item posted' : `${items.length} items posted`, message: `Included in the ${items[0]?.period ?? ''} payroll — batch totals updated.` });
     return items.length;
   };
-  const time = useTimeState({ hrEmployees, leaveRequests, leaveHolidays: leave.leaveHolidays, attendancePunches, payrollOpenPeriod, addPayReduction, removePayReduction, postPayItems, updateHrEmployee, addToast });
-  const perf = usePerfState({ hrEmployees, selectedOrgId, payrollOpenPeriod, payrollCtx, postPayItems, updateHrEmployee, raiseCase: time.raiseCase, addToast });
-  const training = useTrainingState({ hrEmployees, leaveRequests, addToast });
-  const sep = useSepState({
+  const time = guardActionsInline(useTimeState({ hrEmployees, leaveRequests, leaveHolidays: leave.leaveHolidays, attendancePunches, payrollOpenPeriod, addPayReduction, removePayReduction, postPayItems, updateHrEmployee, addToast }));
+  const perf = guardActionsInline(usePerfState({ hrEmployees, selectedOrgId, payrollOpenPeriod, payrollCtx, postPayItems, updateHrEmployee, raiseCase: time.raiseCase, addToast }));
+  const training = guardActionsInline(useTrainingState({ hrEmployees, leaveRequests, addToast }));
+  const sep = guardActionsInline(useSepState({
     hrEmployees,
     selectedOrgId,
     payrollOpenPeriod,
@@ -1014,8 +1118,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return r.owed > 0 ? { amount: r.owed, ref: r.lines.map((l) => `${l.bondId} (${l.course})`).join(', ') } : undefined;
     },
     onBondRecovered: (staffId, exitDate) => training.bondRecoveryFor(staffId, exitDate).lines.forEach((l) => training.setBondStatus(l.bondId, 'Recovered'))
-  });
-  const osh = useOshState({ hrEmployees, selectedOrgId, payrollCtx, timeDays: time.timeDays, timeDecisions: time.timeDecisions, confirmAbsences: time.confirmAbsences, addToast });
+  }));
+  const osh = guardActionsInline(useOshState({ hrEmployees, selectedOrgId, payrollCtx, timeDays: time.timeDays, timeDecisions: time.timeDecisions, confirmAbsences: time.confirmAbsences, addToast }));
+  // Qualifications, placements, welfare, medical, travel, CSR, events, outsourced labour, library, talent, PPE, payroll set-up and flexi time
+  const hcm = guardActionsInline(
+    useHcmState({ hrEmployees, selectedOrgId, payrollOpenPeriod, updateHrEmployee, postPayItems: (items, by) => postPayItems(items, by), addTrainingNeed: training.addTrainingNeed, issuePpe: osh.issuePpe, noteRatesChanged, addToast })
+  );
+  // Security operations, insurance claims, alarms and grievance / whistle-blowing
+  const security = guardActionsInline(useSecurityState({ hrEmployees, selectedOrgId, raiseCase: time.raiseCase, addToast }));
+  // Staff whose suspension period has ended are reinstated automatically
+  useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const due = hrEmployees.filter((e) => e.suspension && e.suspension.to < today && e.status === 'SUSPENDED');
+    if (!due.length) return;
+    setHrEmployees((prev) =>
+      prev.map((e) =>
+        due.some((d) => d.staffId === e.staffId)
+          ? { ...e, status: 'ACTIVE', suspension: undefined, history: [...(e.history ?? []), { date: today, kind: 'Reinstated', summary: `Suspension ${e.suspension?.caseId ?? ''} ended ${e.suspension?.to ?? ''}`, by: 'System' }] }
+          : e
+      )
+    );
+  }, [hrEmployees]);
   const savePayComponent: AppContextType['savePayComponent'] = (c, mode, effectiveFrom) => {
     const current = currentComponents(payComponents);
     const code = c.id.trim().toUpperCase();
@@ -1136,7 +1259,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setStaffLoans((prev) => prev.map((l) => (l.id === id ? { ...l, status, suspendedFrom: status === 'SUSPENDED' ? payrollOpenPeriod.key : undefined } : l)));
     addToast({ type: 'info', title: status === 'SUSPENDED' ? 'Loan suspended' : 'Loan resumed', message: `${id} ${status === 'SUSPENDED' ? 'skipped' : 'recovered again'} from ${payrollOpenPeriod.label}.` });
   };
-  const ess = useEssState({
+  const ess = guardActionsInline(useEssState({
     hrEmployees,
     payrollOpenPeriod,
     tenantName: (orgId) => tenantOrganizations.find((t) => t.id === orgId)?.name ?? orgId,
@@ -1146,9 +1269,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addTrainingNeed: training.addTrainingNeed,
     startExit: sep.startExit,
     reportIncident: osh.reportIncident as Parameters<typeof useEssState>[0]['reportIncident'],
-    addToast
-  });
+    addToast,
+    payOf: (staffId) => {
+      const e = hrEmployees.find((x) => x.staffId === staffId);
+      if (!e) return { basic: 0, gross: 0, net: 0 };
+      const s = payslip(e, payrollOpenPeriod.year, payrollOpenPeriod.month, payrollCtx);
+      return { basic: s.basic, gross: s.gross, net: s.net };
+    },
+    openAdvances: (staffId) => {
+      const [y, m] = payrollOpenPeriod.key.split('-').map(Number);
+      return staffLoans.filter((l) => {
+        if (l.staffId !== staffId || l.type !== 'SALARY_ADVANCE' || l.status !== 'ACTIVE') return false;
+        const [sy, sm] = l.startPeriod.split('-').map(Number);
+        return (y - sy) * 12 + (m - sm) < l.termMonths;
+      }).length;
+    }
+  }));
   const setPayrollBatchStatus = (id: string, status: PayrollBatch['status'], glRef?: string) => {
+    const current = payrollBatches.find((x) => x.id === id);
+    // Finance approval is a separate person from the payroll officer who prepared the run
+    if (status === 'AUDIT_APPROVED') {
+      if (!session || !canApprove(session.role)) {
+        addToast({ type: 'error', title: 'Approval needed', message: 'Only a manager or administrator can approve a payroll run.' });
+        return;
+      }
+      if (sessionName === payrollActor) {
+        addToast({ type: 'error', title: 'Segregation of duties', message: `${payrollActor} prepared this payroll and cannot approve it.` });
+        return;
+      }
+      const me = hrEmployees.find((e) => e.staffId === session.staffId);
+      const susp = me ? suspensionBlock(me, 'approve payroll') : null;
+      if (susp) {
+        addToast({ type: 'error', title: 'Approver suspended', message: susp });
+        return;
+      }
+    }
+    if (status === 'POSTED_GL' && current && current.status !== 'AUDIT_APPROVED' && current.status !== 'POSTED_GL') {
+      addToast({ type: 'error', title: 'Not approved', message: `${current.batchNo} must be approved by Finance before it is posted to the ledger.` });
+      return;
+    }
     setBatchStatus((m) => ({ ...m, [id]: status }));
     if (glRef) setPayrollGlRefs((m) => ({ ...m, [id]: glRef }));
     const b = payrollBatches.find((x) => x.id === id);
@@ -1172,7 +1331,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setHrEmployees((prev) =>
       prev.map((e) =>
         e.id === workerId || e.staffId === workerId
-          ? { ...e, contractType: target?.name ?? e.contractType, basicSalaryKes: 24500, status: 'ACTIVE' }
+          ? // Monthly pay continues the daily rate (26 days), never below the lowest grade band
+            { ...e, contractType: target?.name ?? e.contractType, basicSalaryKes: Math.max(Math.round((e.payRateKes ?? 0) * DAYS_PER_MONTH), GRADE_BANDS[0]?.min ?? 0), status: 'ACTIVE' }
           : e
       )
     );
@@ -1230,6 +1390,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const tenantPayrollBatches = payrollBatches.filter((b) => b.orgId === selectedOrgId);
   const tenantContractThresholds = contractThresholdRecords.filter((w) => w.orgId === selectedOrgId);
   const tenantSeparations = separationRecords.filter((s) => s.orgId === selectedOrgId);
+  // Org structure for the company being worked in (units with no company are shared)
+  const companyOrgStructure: OrgStructure = useMemo(() => {
+    const mine = <T extends { orgId?: string }>(xs: T[]) => xs.filter((x) => !x.orgId || x.orgId === selectedOrgId);
+    return { branches: mine(orgStructure.branches), stations: mine(orgStructure.stations), departments: mine(orgStructure.departments), sections: mine(orgStructure.sections), designations: mine(orgStructure.designations) };
+  }, [orgStructure, selectedOrgId]);
+  // Shared HR actions refuse a read-only account in the store, not only in the UI
+  const hrCore = guardActions(
+    {
+      addBranch, addStation, addDepartment, addSection, addDesignation, updateDesignation, updateOrgItem, removeOrgItem, addCustomField, removeCustomField,
+      addHrEmployee, updateHrEmployee, addPayReduction, removePayReduction, savePayComponent, setPayComponentStatus, deletePayComponent, postPayItems,
+      cancelPayItem, setWorksheetItem, endRecurringPayItem, addStaffLoan, setLoanStatus, setPayrollBatchStatus, holdPayroll, releasePayroll,
+      approveRequisition, createRequisition, updateCandidateStage, toggleOnboardingItem, addAttendancePunch, runPayrollBatch, convertContractType, signoffClearanceDept
+    },
+    readOnly,
+    blocked,
+    { savePayComponent: READ_ONLY_MESSAGE, postPayItems: 0, addStaffLoan: null, updateOrgItem: false, removeOrgItem: false }
+  );
 
   return (
     <AppContext.Provider
@@ -1300,21 +1477,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         candidates,
         onboardingRecords,
         hrEmployees,
-        orgStructure,
-        addBranch,
-        addStation,
-        addDepartment,
-        addSection,
-        addDesignation,
-        updateDesignation,
+        orgStructure: companyOrgStructure,
+        allOrgStructure: orgStructure,
+        updateOrgItem: hrCore.updateOrgItem,
+        removeOrgItem: hrCore.removeOrgItem,
+        addBranch: hrCore.addBranch,
+        addStation: hrCore.addStation,
+        addDepartment: hrCore.addDepartment,
+        addSection: hrCore.addSection,
+        addDesignation: hrCore.addDesignation,
+        updateDesignation: hrCore.updateDesignation,
         customFields,
-        addCustomField,
-        removeCustomField,
-        addHrEmployee,
-        updateHrEmployee,
+        addCustomField: hrCore.addCustomField,
+        removeCustomField: hrCore.removeCustomField,
+        addHrEmployee: hrCore.addHrEmployee,
+        updateHrEmployee: hrCore.updateHrEmployee,
         payReductions,
-        addPayReduction,
-        removePayReduction,
+        addPayReduction: hrCore.addPayReduction,
+        removePayReduction: hrCore.removePayReduction,
         attendancePunches,
         leaveRequests,
         ...leave,
@@ -1325,45 +1505,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...ess,
         ...osh,
         ...hire,
+        ...hcm,
+        ...security,
         payrollBatches,
         payItems,
         staffLoans,
         payComponents,
-        savePayComponent,
-        setPayComponentStatus,
-        deletePayComponent,
+        savePayComponent: hrCore.savePayComponent,
+        setPayComponentStatus: hrCore.setPayComponentStatus,
+        deletePayComponent: hrCore.deletePayComponent,
         payrollCtx,
         payrollOpenPeriod,
         closedPayrollPeriods,
-        postPayItems,
-        cancelPayItem,
-        setWorksheetItem,
-        endRecurringPayItem,
-        addStaffLoan,
-        setLoanStatus,
-        setPayrollBatchStatus,
+        postPayItems: hrCore.postPayItems,
+        cancelPayItem: hrCore.cancelPayItem,
+        setWorksheetItem: hrCore.setWorksheetItem,
+        endRecurringPayItem: hrCore.endRecurringPayItem,
+        addStaffLoan: hrCore.addStaffLoan,
+        setLoanStatus: hrCore.setLoanStatus,
+        setPayrollBatchStatus: hrCore.setPayrollBatchStatus,
         payrollGlRefs,
         noteRatesChanged,
         ratesStamp,
         payrollHolds,
-        holdPayroll,
-        releasePayroll,
+        holdPayroll: hrCore.holdPayroll,
+        releasePayroll: hrCore.releasePayroll,
         contractThresholdRecords,
         separationRecords,
 
-        approveRequisition,
-        createRequisition,
-        updateCandidateStage,
-        toggleOnboardingItem,
-        addAttendancePunch,
+        approveRequisition: hrCore.approveRequisition,
+        createRequisition: hrCore.createRequisition,
+        updateCandidateStage: hrCore.updateCandidateStage,
+        toggleOnboardingItem: hrCore.toggleOnboardingItem,
+        addAttendancePunch: hrCore.addAttendancePunch,
         approveLeaveRequest,
         rejectLeaveRequest,
         cancelLeaveRequest,
         createLeaveRequest,
-        runPayrollBatch,
-        convertContractType,
-        signoffClearanceDept,
-
+        runPayrollBatch: hrCore.runPayrollBatch,
+        convertContractType: hrCore.convertContractType,
+        signoffClearanceDept: hrCore.signoffClearanceDept,
         acknowledgeWorkItem,
         snoozeWorkItem,
         resolveWorkItem,

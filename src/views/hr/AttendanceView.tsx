@@ -11,6 +11,7 @@ import { OvertimeTab } from './time/OvertimeTab';
 import { CasualDaysTab } from './time/CasualDaysTab';
 import { PunchLogTab } from './time/PunchLogTab';
 import { SchedulesTab } from './time/SchedulesTab';
+import { FlexiTab } from './hcm/FlexiTab';
 
 export const ATTENDANCE_TABS = [
   { id: 'muster', label: 'Daily muster', icon: Users },
@@ -19,7 +20,8 @@ export const ATTENDANCE_TABS = [
   { id: 'overtime', label: 'Overtime to payroll', icon: Timer },
   { id: 'casuals', label: 'Casual days', icon: AlarmClock },
   { id: 'punches', label: 'Punch log', icon: Fingerprint },
-  { id: 'schedules', label: 'Schedules & rules', icon: Clock }
+  { id: 'schedules', label: 'Schedules & rules', icon: Clock },
+  { id: 'flexi', label: 'Flexi-time bank', icon: Timer }
 ];
 
 export const AttendanceView: React.FC = () => {
@@ -136,6 +138,7 @@ export const AttendanceView: React.FC = () => {
       {tab === 'overtime' && <OvertimeTab />}
       {tab === 'casuals' && <CasualDaysTab />}
       {tab === 'punches' && <PunchLogTab />}
+      {tab === 'flexi' && <FlexiTab />}
       {tab === 'schedules' && <SchedulesTab />}
     </div>
   );

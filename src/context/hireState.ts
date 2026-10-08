@@ -53,6 +53,8 @@ import {
   validateOffer
 } from '../data/hireEngine';
 import { basicFor, isCasual } from '../data/payrollEngine';
+import type { PayItem } from '../data/payItems';
+import { suspensionBlock } from '../data/hcmEngine';
 
 type Toast = { type: 'success' | 'warning' | 'error' | 'info'; title: string; message: string };
 
@@ -115,6 +117,8 @@ export interface HireStateSlice {
   advanceApplicant: (id: string) => boolean;
   closeApplicant: (id: string, outcome: 'Rejected' | 'Withdrawn', reason: string) => void;
   scheduleInterview: (id: string, iv: Pick<Interview, 'round' | 'date' | 'time' | 'location' | 'panel'>) => boolean;
+  /** Records an aptitude or skills test score; interviews need every vacancy test passed */
+  recordTestScore: (id: string, test: string, score: number) => boolean;
   saveScores: (applicantId: string, interviewId: string, panelistStaffId: string, scores: Record<string, number>, note?: string) => void;
   updateCheck: (applicantId: string, kind: CheckKind, status: BackgroundCheck['status'], note?: string) => void;
   prepareOffer: (applicantId: string, terms: OfferTerms) => boolean;
@@ -146,6 +150,8 @@ interface Deps {
   selectedOrgId: string;
   payrollOpenPeriod: { year: number; month: number; key: string; label: string };
   tenantOrganizations: TenantOrganization[];
+  /** Posts pay items (acting allowance); optional so older callers still work */
+  postPayItems?: (items: Omit<PayItem, 'id' | 'orgId' | 'postedBy' | 'postedOn' | 'status'>[], by?: string) => number;
 }
 
 const nextNo = (ids: string[], prefix: string) => {
@@ -186,9 +192,13 @@ export const useHireState = ({
   addToast,
   selectedOrgId,
   payrollOpenPeriod,
-  tenantOrganizations
+  tenantOrganizations,
+  postPayItems
 }: Deps): HireStateSlice => {
-  const [vacancies, setVacancies] = useState<Vacancy[]>(INITIAL_VACANCIES);
+  // Open vacancies are on the careers portal; the first carries an aptitude test before interview
+  const [vacancies, setVacancies] = useState<Vacancy[]>(() =>
+    INITIAL_VACANCIES.map((v, i) => ({ ...v, published: v.published ?? v.status === 'OPEN', tests: v.tests ?? (i === 0 ? [{ name: 'Numerical reasoning', passMark: 60 }, { name: 'Tea process knowledge', passMark: 50 }] : undefined) }))
+  );
   const [establishmentPlans, setPlans] = useState<EstablishmentPlan[]>(INITIAL_ESTABLISHMENT);
   const [employeeChanges, setChanges] = useState<EmployeeChange[]>(INITIAL_EMPLOYEE_CHANGES);
   const [hireAudit, setAudit] = useState<HireAuditEntry[]>([]);
@@ -418,6 +428,10 @@ export const useHireState = ({
       return null;
     }
     const n = Math.max(8800, ...candidates.map((c) => Number(c.id.replace(/\D/g, '')) || 0)) + 1;
+    // Former employees are flagged so HR checks the exit reason before re-engaging
+    const former = hrEmployees.find((e) => e.status === 'TERMINATED' && (e.email?.toLowerCase() === a.email.trim().toLowerCase() || e.phone === a.phone.trim()));
+    const exitText = former?.history?.map((h) => `${h.kind} ${h.summary}`).join(' ') ?? '';
+    const exEmployee = former ? { staffId: former.staffId, exitDate: former.exitDate, reason: former.history?.slice(-1)[0]?.kind, eligible: !/disciplin|dismiss|summary/i.test(exitText) } : undefined;
     const created: JobApplicant = {
       id: `CAND-${n}`,
       orgId: v?.orgId ?? selectedOrgId,
@@ -437,10 +451,17 @@ export const useHireState = ({
       location: a.location,
       internalStaffId: a.internalStaffId,
       answers: a.answers,
+      exEmployee,
       comms: [{ at: todayIso(), channel: 'Email', subject: 'Application received', by: me }]
     };
     setCandidates((prev) => [created, ...prev]);
     audit('Candidate', created.id, `Application logged for ${created.appliedRole}`);
+    if (exEmployee)
+      addToast({
+        type: exEmployee.eligible ? 'info' : 'warning',
+        title: 'Former employee',
+        message: `${created.candidateName} worked here as ${exEmployee.staffId}${exEmployee.exitDate ? ` until ${fmtDate(exEmployee.exitDate)}` : ''}.${exEmployee.eligible ? '' : ' The exit was disciplinary — check before re-engaging.'}`
+      });
     const s = screen(created, v);
     addToast({ type: 'success', title: 'Application logged', message: `${created.candidateName} → ${created.appliedRole}. Knock-out screen: ${s.pass ? 'passes' : `fails (${s.failures[0]})`}.` });
     return created;
@@ -520,10 +541,27 @@ export const useHireState = ({
     addToast({ type: 'info', title: outcome === 'Rejected' ? 'Application closed' : 'Candidate withdrawn', message: `${c.candidateName}: ${reason.trim()}` });
   };
 
+  const recordTestScore = (id: string, test: string, score: number) => {
+    const c = candidates.find((x) => x.id === id);
+    const t = vacancies.find((v) => v.id === c?.vacancyId)?.tests?.find((x) => x.name === test);
+    if (!c || !t) return fail('Test not found', 'Pick a test set on this vacancy.');
+    if (!(score >= 0 && score <= 100)) return fail('Score 0 to 100', 'Enter the percentage score.');
+    if (['Hired', 'Rejected', 'Withdrawn'].includes(stageOf(c))) return fail('Application closed', `${c.candidateName}'s application is closed.`);
+    const passed = score >= t.passMark;
+    const row = { test, score, passMark: t.passMark, passed, by: me, on: todayIso() };
+    patchCand(id, (x) => ({ ...x, testResults: [...(x.testResults ?? []).filter((r) => r.test !== test), row] }));
+    audit('Candidate', id, `${test}: ${score}% (${passed ? 'pass' : 'fail'}, pass mark ${t.passMark}%)`);
+    addToast({ type: passed ? 'success' : 'warning', title: passed ? 'Test passed' : 'Below pass mark', message: `${c.candidateName}: ${test} ${score}% against ${t.passMark}%.` });
+    return true;
+  };
+
   const scheduleInterview = (id: string, data: Pick<Interview, 'round' | 'date' | 'time' | 'location' | 'panel'>) => {
     const c = candidates.find((x) => x.id === id);
     if (!c) return false;
     if (!['Shortlisted', 'Interview'].includes(stageOf(c))) return fail('Not shortlisted', 'Only shortlisted candidates can be invited to interview.');
+    const tests = vacancies.find((v) => v.id === c.vacancyId)?.tests ?? [];
+    const notPassed = tests.filter((t) => !c.testResults?.some((r) => r.test === t.name && r.passed));
+    if (notPassed.length) return fail('Aptitude test first', `${c.candidateName} has not passed: ${notPassed.map((t) => t.name).join(', ')}.`);
     if (!data.date || data.date < todayIso()) return fail('Pick a date', 'The interview date must be today or later.');
     if (!data.panel.length) return fail('Panel needed', 'Add at least one panelist.');
     const clash = candidates.flatMap((x) => (x.interviews ?? []).filter((i) => i.status === 'SCHEDULED' && i.date === data.date && i.time === data.time && i.panel.some((p) => data.panel.includes(p))));
@@ -774,7 +812,7 @@ export const useHireState = ({
 
   /* ---------------------------------------------------------------- employee changes */
 
-  const PAY_KINDS: EmployeeChange['kind'][] = ['PROMOTION', 'INCREMENT', 'REGRADE'];
+  const PAY_KINDS: EmployeeChange['kind'][] = ['PROMOTION', 'INCREMENT', 'REGRADE', 'DEMOTION'];
 
   const validateChange = (e: HREmployee, c: NewEmployeeChange): string[] => {
     const errs: string[] = [];
@@ -804,6 +842,26 @@ export const useHireState = ({
       if (isCasual(e)) errs.push('Daily-rated contracts convert through a new hire with a salary.');
       if (!p.contractType || p.contractType === e.contractType) errs.push('Choose a different contract type.');
     }
+    if (c.kind === 'DEMOTION') {
+      if (p.newBasic && p.previousBasic && p.newBasic >= p.previousBasic) errs.push('A demotion must lower the basic salary.');
+      if (!p.caseRef?.trim()) errs.push('Quote the disciplinary or performance case behind the demotion.');
+    }
+    if (c.kind !== 'REHIRE' && e.status === 'TERMINATED') errs.push(`${e.fullName} has left — use Re-hire.`);
+    if (c.kind === 'REASSIGNMENT' && !p.duties?.trim()) errs.push('Describe the new duties.');
+    if (c.kind === 'ACTING') {
+      if (!p.actingTitle?.trim()) errs.push('Give the post they will act in.');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(c.effectiveFrom)) errs.push('Pick the first day of acting.');
+      else if (!p.actingTo || p.actingTo <= c.effectiveFrom) errs.push('The acting end date must be after the start.');
+      else if (addMonths(c.effectiveFrom, 6) < p.actingTo) errs.push('An acting appointment runs for at most 6 months; renew it after review.');
+      if (p.allowance !== undefined && p.allowance < 0) errs.push('The acting allowance cannot be negative.');
+      if (p.actingForStaffId === e.staffId) errs.push('An employee cannot act for themselves.');
+    }
+    if (c.kind === 'REHIRE') {
+      if (e.status !== 'TERMINATED') errs.push(`${e.fullName} is still employed — only leavers can be re-hired.`);
+      if (!p.startDate) errs.push('Pick the new start date.');
+      else if (e.exitDate && p.startDate <= e.exitDate) errs.push('The new start date must be after the last exit.');
+      if (!p.contractType) errs.push('Choose the contract for the new engagement.');
+    }
     if (employeeChanges.some((x) => x.staffId === e.staffId && x.kind === c.kind && x.status === 'PENDING')) errs.push(`A ${CHANGE_LABEL[c.kind].toLowerCase()} for ${e.fullName} is already waiting for approval.`);
     return errs;
   };
@@ -827,6 +885,14 @@ export const useHireState = ({
         return `Contract renewed to ${fmtDate(p.contractEndDate)}`;
       case 'CONVERT_CONTRACT':
         return `${e.contractType} → ${p.contractType}`;
+      case 'DEMOTION':
+        return `Demoted ${e.jobTitle}${p.jobTitle ? ` → ${p.jobTitle}` : ''}, KES ${(p.previousBasic ?? 0).toLocaleString()} → ${(p.newBasic ?? 0).toLocaleString()} (case ${p.caseRef ?? '—'})`;
+      case 'REASSIGNMENT':
+        return `Duties reassigned${p.jobTitle ? ` as ${p.jobTitle}` : ''}: ${p.duties ?? ''}`;
+      case 'ACTING':
+        return `Acting ${p.actingTitle}${p.actingForStaffId ? ` for ${nameOf(p.actingForStaffId)}` : ''} to ${fmtDate(p.actingTo)}${p.allowance ? `, allowance KES ${p.allowance.toLocaleString()}/month` : ''}`;
+      case 'REHIRE':
+        return `Re-hired from ${fmtDate(p.startDate)} on ${p.contractType}`;
     }
   };
 
@@ -872,7 +938,10 @@ export const useHireState = ({
     if (actor.fullName === ch.requestedBy) return fail('Segregation of duties', `${actor.fullName} requested ${ch.id} and cannot approve it.`);
     if (actor.staffId === ch.staffId) return fail('Segregation of duties', 'Employees cannot approve changes to their own record.');
     if (!/manager|director|chief|head/i.test(actor.jobTitle)) return fail('Not an approver', `${actor.fullName} (${actor.jobTitle}) cannot approve employee changes.`);
+    const susp = suspensionBlock(actor, 'approve changes');
+    if (susp) return fail('Approver suspended', susp);
     const p = ch.payload;
+    if (approve && ch.kind === 'DEMOTION' && !/director|chief executive/i.test(actor.jobTitle)) return fail('Director approval', 'A demotion must be approved by a director or the managing director.');
     const above = PAY_KINDS.includes(ch.kind) && p.newBasic && bandPosition(p.newBasic, p.grade ?? e.grade ?? '') === 'above';
     if (approve && above && !/managing director|chief executive/i.test(actor.jobTitle)) return fail('Managing director approval', 'The new salary is above the grade band, so only the managing director can approve it.');
     if (!approve && !comment?.trim()) return fail('Reason needed', 'Say why the change is rejected.');
@@ -905,6 +974,27 @@ export const useHireState = ({
     if (ch.kind === 'EXTEND_PROBATION') Object.assign(patch, { probationStatus: 'EXTENDED', probationEndDate: p.probationEndDate });
     if (ch.kind === 'RENEW_CONTRACT') Object.assign(patch, { contractEndDate: p.contractEndDate });
     if (ch.kind === 'CONVERT_CONTRACT') Object.assign(patch, { contractType: p.contractType, contractEndDate: p.contractType === 'Standard Employment Contract' ? undefined : p.contractEndDate });
+    if (ch.kind === 'REASSIGNMENT' && p.jobTitle?.trim()) Object.assign(patch, { jobTitle: p.jobTitle.trim() });
+    if (ch.kind === 'ACTING' && p.allowance && p.allowance > 0 && p.actingTo) {
+      const from = ch.effectiveFrom.slice(0, 7) < payrollOpenPeriod.key ? payrollOpenPeriod.key : ch.effectiveFrom.slice(0, 7);
+      postPayItems?.([{ staffId: ch.staffId, componentId: 'ACTING', amount: p.allowance, period: from, recurring: true, endPeriod: p.actingTo.slice(0, 7), reference: ch.id, note: `Acting ${p.actingTitle ?? ''}`, source: 'Manual' }], actor.fullName);
+    }
+    if (ch.kind === 'REHIRE' && p.startDate) {
+      const prior = { from: e.joinedDate, to: e.exitDate ?? todayIso(), jobTitle: e.jobTitle, contractType: e.contractType, reason: e.history?.slice(-1)[0]?.kind };
+      Object.assign(patch, {
+        status: 'ACTIVE',
+        previousServices: [...(e.previousServices ?? []), prior],
+        joinedDate: p.startDate,
+        contractStartDate: p.startDate,
+        contractType: p.contractType ?? e.contractType,
+        contractEndDate: p.contractEndDate,
+        jobTitle: p.jobTitle?.trim() || e.jobTitle,
+        exitDate: undefined,
+        probationStatus: 'ON_PROBATION',
+        probationEndDate: addMonths(p.startDate, hireRules.probationMonths),
+        ...(p.newBasic ? { basicSalaryKes: p.newBasic } : {})
+      });
+    }
     updateHrEmployee(ch.staffId, patch);
     addToast({
       type: 'success',
@@ -937,6 +1027,7 @@ export const useHireState = ({
     advanceApplicant,
     closeApplicant,
     scheduleInterview,
+    recordTestScore,
     saveScores,
     updateCheck,
     prepareOffer,

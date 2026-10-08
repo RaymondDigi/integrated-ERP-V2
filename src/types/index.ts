@@ -392,6 +392,10 @@ export interface JobApplicant {
   comms?: import('../data/hireConfig').CommEntry[];
   stageLog?: { stage: string; at: string; by: string; note?: string }[];
   outcomeReason?: string;
+  /** Aptitude / skills test scores, one per test set on the vacancy */
+  testResults?: { test: string; score: number; passMark: number; passed: boolean; by: string; on: string }[];
+  /** Former employee found by email or phone when the application was logged */
+  exEmployee?: { staffId: string; exitDate?: string; reason?: string; eligible: boolean };
 }
 
 export interface OnboardingRecord {
@@ -440,36 +444,48 @@ export type PayFrequencyRun = 'Monthly Payroll' | 'Weekly Payroll';
 /* Organisation structure (company-maintained lookup lists)            */
 /* ------------------------------------------------------------------ */
 
-export interface Branch {
+/** Org units without an orgId are shared by every company in the group; inactive units stay for history. */
+export interface OrgUnitScope {
+  orgId?: string;
+  active?: boolean;
+}
+
+export interface Branch extends OrgUnitScope {
   id: string;
   name: string;
   location?: string;
 }
 
-export interface Station {
+export interface Station extends OrgUnitScope {
   id: string;
   name: string;
   branchId: string;
 }
 
-export interface Department {
+export interface Department extends OrgUnitScope {
   id: string;
   name: string;
   costCenter: string;
+  /** Parent department (division) in the company's hierarchy */
+  parentId?: string;
+  headStaffId?: string;
 }
 
-export interface Section {
+export interface Section extends OrgUnitScope {
   id: string;
   name: string;
   departmentId: string;
+  headStaffId?: string;
 }
 
-export interface Designation {
+export interface Designation extends OrgUnitScope {
   id: string;
   title: string;
   grade?: string;
   departmentId?: string;
   jobDescription?: JobDescription;
+  /** Approved number of posts for this position */
+  establishment?: number;
 }
 
 export interface OrgStructure {
@@ -598,6 +614,35 @@ export interface HREmployee {
   /** Edit details (Employee Master): emergency contact and desk phone extension. */
   emergencyContact?: { name: string; relationship: string; phone: string };
   phoneExtension?: string;
+  /** Academic qualifications register (Certificate … PhD) */
+  qualifications?: EmployeeQualification[];
+  /** Professional body memberships and certifications (ICPAK, IHRM, EBK …) */
+  professionalCerts?: ProfessionalCert[];
+  /** Disciplinary suspension in force: status, sign-in and approval authority are withheld for the period */
+  suspension?: { from: string; to: string; caseId: string; pay: 'HALF' | 'NONE' };
+  /** Earlier periods of service, kept when a leaver is re-hired */
+  previousServices?: { from: string; to: string; jobTitle: string; contractType: string; reason?: string }[];
+}
+
+export type QualificationLevel = 'Certificate' | 'Diploma' | 'Degree' | 'Masters' | 'Post Graduate Diploma' | 'PhD';
+
+export interface EmployeeQualification {
+  id: string;
+  level: QualificationLevel;
+  field: string;
+  institution: string;
+  year: number;
+  verified: boolean;
+  verifiedBy?: string;
+}
+
+export interface ProfessionalCert {
+  id: string;
+  body: string;
+  membershipNo: string;
+  grade?: string;
+  expiry: string;
+  cpdHours?: number;
 }
 
 export interface BiometricPunch {

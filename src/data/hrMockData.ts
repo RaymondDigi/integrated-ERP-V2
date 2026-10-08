@@ -69,7 +69,12 @@ export const CONTRACT_TYPES: ContractTypeDefinition[] = [
   { id: 'ct-standard', name: 'Standard Employment Contract', payBasis: 'MONTHLY_SALARY', payFrequency: 'MONTHLY', hasEndDate: false },
   { id: 'ct-fixed', name: 'Fixed-Term Contract', payBasis: 'MONTHLY_SALARY', payFrequency: 'MONTHLY', hasEndDate: true },
   { id: 'ct-daily', name: 'Daily-Rated Contract', payBasis: 'DAILY_RATE', payFrequency: 'WEEKLY', hasEndDate: true, serviceThresholdDays: 26 },
-  { id: 'ct-output', name: 'Output-Based Contract', payBasis: 'OUTPUT_RATE', payFrequency: 'WEEKLY', hasEndDate: true, serviceThresholdDays: 26 }
+  { id: 'ct-output', name: 'Output-Based Contract', payBasis: 'OUTPUT_RATE', payFrequency: 'WEEKLY', hasEndDate: true, serviceThresholdDays: 26 },
+  // Plucking-season staff engaged for the flush and re-engaged each season
+  { id: 'ct-seasonal', name: 'Seasonal Contract', payBasis: 'DAILY_RATE', payFrequency: 'WEEKLY', hasEndDate: true },
+  // Interns and industrial attachees (Interns & attachees in Onboarding)
+  { id: 'ct-intern', name: 'Internship Agreement', payBasis: 'MONTHLY_SALARY', payFrequency: 'MONTHLY', hasEndDate: true },
+  { id: 'ct-attach', name: 'Industrial Attachment', payBasis: 'MONTHLY_SALARY', payFrequency: 'MONTHLY', hasEndDate: true }
 ];
 
 export const HR_PROCESS_APPS: HRProcessApp[] = [
@@ -228,6 +233,19 @@ export const HR_PROCESS_APPS: HRProcessApp[] = [
     badgeVariant: 'info',
     route: 'separation',
     metrics: { label: 'Terminal Slips', value: '100% Cleared' }
+  },
+  {
+    id: 'hr-services',
+    stepNumber: 13,
+    name: 'Staff Welfare & Services',
+    category: 'Governance & Safety',
+    shortDesc: 'Welfare, medical cover, travel, CSR & library',
+    fullDesc: 'Welfare entitlements paid through payroll, medical scheme membership and claims, travel imprest and petty cash with Finance issue and surrender, CSR and staff events, outsourced labour and the staff library.',
+    iconName: 'Award',
+    badgeText: 'New',
+    badgeVariant: 'info',
+    route: 'hr-services',
+    metrics: { label: 'Services', value: 6 }
   }
 ];
 

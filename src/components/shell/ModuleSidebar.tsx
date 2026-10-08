@@ -94,7 +94,9 @@ export const ModuleSidebar: React.FC = () => {
           { label: 'Applicant Pipeline', icon: UserCheck, tab: 'pipeline' },
           { label: 'Interviews & Scorecards', icon: Award, tab: 'interviews' },
           { label: 'Offers', icon: FileText, tab: 'offers' },
-          { label: 'Hiring Statistics', icon: TrendingUp, tab: 'insights' }
+          { label: 'Hiring Statistics', icon: TrendingUp, tab: 'insights' },
+          { label: 'Aptitude Tests', icon: ClipboardCheck, tab: 'tests' },
+          { label: 'Careers Portal', icon: Users, tab: 'careers' }
         ];
 
       case 'onboarding':
@@ -102,7 +104,8 @@ export const ModuleSidebar: React.FC = () => {
           { label: 'New Hires', icon: ShieldAlert, tab: 'hires' },
           { label: 'Task Board by Owner', icon: ListChecks, tab: 'tasks' },
           { label: 'Induction Sessions', icon: GraduationCap, tab: 'sessions' },
-          { label: 'Probation Tracker', icon: Clock, tab: 'probation' }
+          { label: 'Probation Tracker', icon: Clock, tab: 'probation' },
+          { label: 'Interns & Attachees', icon: GraduationCap, tab: 'placements' }
         ];
 
       case 'employees':
@@ -112,7 +115,11 @@ export const ModuleSidebar: React.FC = () => {
           { label: 'Changes & Audit Trail', icon: Lock, tab: 'changes' },
           { label: 'Contracts & Probation', icon: FileCheck, tab: 'contracts' },
           { label: 'Organisation Chart', icon: Layers, tab: 'orgchart' },
-          { label: 'Email & Notifications', icon: Mail, tab: 'notifications' }
+          { label: 'Email & Notifications', icon: Mail, tab: 'notifications' },
+          { label: 'Qualifications & Certs', icon: Award, tab: 'qualifications' },
+          { label: 'HR Alerts & Notices', icon: CalendarClock, tab: 'alerts' },
+          { label: 'HR Reports Library', icon: FileSpreadsheet, tab: 'reports' },
+          { label: 'Master Data Changes', icon: Lock, tab: 'masterdata' }
         ];
 
       case 'attendance':
@@ -123,7 +130,8 @@ export const ModuleSidebar: React.FC = () => {
           { label: 'Overtime to Payroll', icon: Timer, tab: 'overtime' },
           { label: 'Casual Days Worked', icon: AlarmClock, tab: 'casuals' },
           { label: 'Punch Log', icon: Fingerprint, tab: 'punches' },
-          { label: 'Schedules & Rules', icon: Clock, tab: 'schedules' }
+          { label: 'Schedules & Rules', icon: Clock, tab: 'schedules' },
+          { label: 'Flexi-time Bank', icon: Timer, tab: 'flexi' }
         ];
 
       case 'leave':
@@ -147,7 +155,9 @@ export const ModuleSidebar: React.FC = () => {
           { label: 'Payslips & Register', icon: FileText, tab: 'payslips' },
           { label: 'Reports & Summaries', icon: FileSpreadsheet, tab: 'summaries' },
           { label: 'Custom Summaries', icon: Layers, tab: 'custom' },
-          { label: 'Statutory Rates & Simulator', icon: Zap, tab: 'statutory' }
+          { label: 'Statutory Rates & Simulator', icon: Zap, tab: 'statutory' },
+          { label: 'Salary Structure', icon: Layers, tab: 'structure' },
+          { label: 'GL & Bank Files', icon: FileText, tab: 'bankfiles' }
         ];
 
       case 'performance':
@@ -159,7 +169,8 @@ export const ModuleSidebar: React.FC = () => {
           { label: 'Calibration & 9-Box', icon: Grid3x3, tab: 'calibration' },
           { label: 'Rewards', icon: Coins, tab: 'rewards' },
           { label: 'PIPs & Development', icon: LifeBuoy, tab: 'pip' },
-          { label: 'Scales & Policy', icon: SlidersHorizontal, tab: 'setup' }
+          { label: 'Scales & Policy', icon: SlidersHorizontal, tab: 'setup' },
+          { label: 'Talent & Succession', icon: Target, tab: 'talent' }
         ];
 
       case 'training':
@@ -189,7 +200,22 @@ export const ModuleSidebar: React.FC = () => {
           { label: 'PPE Register', icon: OshShirt, tab: 'ppe' },
           { label: 'Inspections & Risk', icon: ClipboardCheck, tab: 'inspections' },
           { label: 'Medical Surveillance', icon: OshStethoscope, tab: 'medical' },
-          { label: 'Statutory & Committee', icon: FileText, tab: 'statutory' }
+          { label: 'Statutory & Committee', icon: FileText, tab: 'statutory' },
+          { label: 'Security Operations', icon: ShieldCheck, tab: 'security' },
+          { label: 'Gate & Cargo in Transit', icon: Lock, tab: 'gate' },
+          { label: 'Investigations & Claims', icon: FileWarning, tab: 'investigations' },
+          { label: 'Grievances & Whistleblowing', icon: MessageSquare, tab: 'grievances' },
+          { label: 'CCTV & Alarms (simulated)', icon: OshSiren, tab: 'alarms' }
+        ];
+
+      case 'hr-services':
+        return [
+          { label: 'Welfare', icon: Award, tab: 'welfare' },
+          { label: 'Medical Cover', icon: OshStethoscope, tab: 'medical' },
+          { label: 'Travel & Imprest', icon: Send, tab: 'travel' },
+          { label: 'CSR & Events', icon: CalendarDays, tab: 'csr' },
+          { label: 'Outsourced Labour', icon: Users, tab: 'outsourced' },
+          { label: 'Library', icon: GraduationCap, tab: 'library' }
         ];
 
       case 'separation':

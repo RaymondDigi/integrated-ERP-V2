@@ -1,5 +1,7 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import type { HREmployee, LeaveRequest } from '../types';
+import { useSession } from '../auth/session';
+import { suspensionBlock } from '../data/hcmEngine';
 import {
   AL_CLOSING_2025,
   HOLIDAY_ATTENDANCE,
@@ -83,11 +85,28 @@ interface Deps {
   setLeaveRequests: Dispatch<SetStateAction<LeaveRequest[]>>;
   addToast: (t: Toast) => void;
   selectedOrgId: string;
+  /** Posts the leave allowance for an approved annual leave when policy allows; returns the amount (0 when none is due) */
+  postLeaveAllowance?: (r: LeaveRequest) => number;
 }
 
 const stamp = () => new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
 
-export const useLeaveState = ({ hrEmployees, leaveRequests, setLeaveRequests, addToast, selectedOrgId }: Deps): LeaveStateSlice => {
+export const useLeaveState = ({ hrEmployees, leaveRequests, setLeaveRequests, addToast, selectedOrgId, postLeaveAllowance }: Deps): LeaveStateSlice => {
+  const session = useSession();
+  /** Nobody decides their own leave, and a suspended manager cannot approve. */
+  const cannotDecide = (r: LeaveRequest, actor?: string) => {
+    const self = (session?.staffId && session.staffId === r.staffId && session.role !== 'employee') || (actor && actor === r.staffName) || (session?.role === 'employee' && session.staffId === r.staffId);
+    if (self) {
+      addToast({ type: 'error', title: 'Segregation of duties', message: 'You cannot approve or decline your own leave.' });
+      return true;
+    }
+    const block = suspensionBlock(hrEmployees.find((e) => e.staffId === session?.staffId), 'approve leave');
+    if (block) {
+      addToast({ type: 'error', title: 'Suspended', message: block });
+      return true;
+    }
+    return false;
+  };
   const [leaveTypeVersions, setTypes] = useState<LeaveTypeVersion[]>(INITIAL_LEAVE_TYPE_VERSIONS);
   const [leavePolicyVersions, setPolicies] = useState<PolicyVersion[]>(INITIAL_POLICY_VERSIONS);
   const [matrix, setMatrix] = useState<EntitlementMatrix>(INITIAL_ENTITLEMENT_MATRIX);
@@ -263,6 +282,7 @@ export const useLeaveState = ({ hrEmployees, leaveRequests, setLeaveRequests, ad
   const approveLeaveRequest = (id: string, comment?: string, actor?: string) => {
     const r = leaveRequests.find((x) => x.id === id);
     if (!r || r.status !== 'PENDING_APPROVAL') return;
+    if (cannotDecide(r, actor)) return;
     const steps = workflowFor(r, leaveCfg);
     const step = currentStepOf(r);
     const by = actor ?? (step === 'SUPERVISOR' ? r.approverName ?? 'Supervisor' : hrName(r.orgId));
@@ -272,24 +292,27 @@ export const useLeaveState = ({ hrEmployees, leaveRequests, setLeaveRequests, ad
       addToast({ type: 'success', title: 'Supervisor approval recorded', message: `${r.staffName}'s ${r.leaveType.toLowerCase()} now waits for HR (${hrName(r.orgId)}). The days stay reserved.` });
       return;
     }
+    // Leave allowance is paid once a year with the first qualifying annual leave (posted to payroll)
+    const allowance = postLeaveAllowance?.(r) ?? 0;
     decide(id, (x) => ({
       ...x,
       status: 'APPROVED',
       approvals,
       decidedOn: todayIso(),
       approverComment: comment || x.approverComment,
-      leaveAllowanceTriggered: x.leaveType === 'Annual Leave'
+      leaveAllowanceTriggered: allowance > 0
     }));
     addToast({
       type: 'success',
       title: 'Leave approved',
-      message: `${r.daysCount} days of ${r.leaveType.toLowerCase()} for ${r.staffName} moved from reserved to taken.${r.leaveType === 'Annual Leave' ? ' Leave allowance goes to the next payroll run.' : ''}`
+      message: `${r.daysCount} days of ${r.leaveType.toLowerCase()} for ${r.staffName} moved from reserved to taken.${allowance ? ` Leave allowance of KES ${allowance.toLocaleString()} posted to the open payroll.` : ''}`
     });
   };
 
   const rejectLeaveRequest = (id: string, comment?: string, actor?: string) => {
     const r = leaveRequests.find((x) => x.id === id);
     if (!r || r.status !== 'PENDING_APPROVAL') return;
+    if (cannotDecide(r, actor)) return;
     const step = currentStepOf(r);
     const by = actor ?? (step === 'SUPERVISOR' ? r.approverName ?? 'Supervisor' : hrName(r.orgId));
     decide(id, (x) => ({

@@ -11,6 +11,8 @@ import { CalibrationTab } from './performance/CalibrationTab';
 import { RewardsTab } from './performance/RewardsTab';
 import { PipTab } from './performance/PipTab';
 import { SetupTab } from './performance/SetupTab';
+import { TalentTab } from './hcm/TalentTabs';
+import { Network } from 'lucide-react';
 
 export const PERFORMANCE_TABS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -20,7 +22,8 @@ export const PERFORMANCE_TABS = [
   { id: 'calibration', label: 'Calibration & 9-box', icon: Grid3x3 },
   { id: 'rewards', label: 'Rewards', icon: Coins },
   { id: 'pip', label: 'PIPs & development', icon: LifeBuoy },
-  { id: 'setup', label: 'Scales & policy', icon: SlidersHorizontal }
+  { id: 'setup', label: 'Scales & policy', icon: SlidersHorizontal },
+  { id: 'talent', label: 'Talent & succession', icon: Network }
 ];
 
 export const PerformanceView: React.FC = () => {
@@ -149,6 +152,7 @@ export const PerformanceView: React.FC = () => {
           {tab === 'rewards' && <RewardsTab />}
           {tab === 'pip' && <PipTab />}
           {tab === 'setup' && <SetupTab />}
+          {tab === 'talent' && <TalentTab />}
         </>
       )}
     </div>

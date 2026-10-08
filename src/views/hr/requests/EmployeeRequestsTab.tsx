@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
-import { REQUEST_APPROVERS, type EssRequest } from '../../../context/essState';
+import { REQUEST_APPROVERS, TWO_STEP, type EssRequest } from '../../../context/essState';
+import { useSession } from '../../../auth/session';
 import { Pager, usePaged } from '../../../components/common/Pager';
 
 const fmt = (iso?: string) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
@@ -26,7 +27,9 @@ const effect = (r: EssRequest) =>
 export const EmployeeRequestsTab: React.FC = () => {
   const { essRequests, decideEssRequest, hrEmployees, selectedOrgId } = useApp();
   const [status, setStatus] = useState<'open' | 'all'>('open');
-  const [actor, setActor] = useState('Rose Chepkoech');
+  // Decisions are made as the signed-in user; the store checks they may decide
+  const session = useSession();
+  const actor = session?.name ?? 'Unknown';
   const [notes, setNotes] = useState<Record<string, string>>({});
   const staff = (id: string) => hrEmployees.find((e) => e.staffId === id);
   const rows = essRequests
@@ -34,7 +37,6 @@ export const EmployeeRequestsTab: React.FC = () => {
     .filter((r) => (status === 'all' ? true : r.status === 'Submitted' || r.status === 'In Review'))
     .sort((a, b) => b.submittedOn.localeCompare(a.submittedOn));
   const pg = usePaged(rows, 10, status);
-  const people = [...new Set(Object.values(REQUEST_APPROVERS).flat())];
   return (
     <div className="hr-table-card">
       <div className="pr-toolbar" style={{ padding: '12px 16px' }}>
@@ -43,13 +45,8 @@ export const EmployeeRequestsTab: React.FC = () => {
           <option value="all">All requests</option>
         </select>
         <span className="pr-muted" style={{ marginLeft: 'auto' }}>
-          Acting as
+          Deciding as {actor}
         </span>
-        <select className="form-control" value={actor} onChange={(ev) => setActor(ev.target.value)} aria-label="Acting as">
-          {people.map((p) => (
-            <option key={p}>{p}</option>
-          ))}
-        </select>
       </div>
       <div className="pr-table-scroll">
         <table className="hr-table pr-table">
@@ -66,7 +63,8 @@ export const EmployeeRequestsTab: React.FC = () => {
             {pg.rows.map((r) => {
               const e = staff(r.staffId);
               const open = r.status === 'Submitted' || (r.status === 'In Review' && !['Resignation', 'Training Request'].includes(r.type));
-              const can = REQUEST_APPROVERS[r.type].includes(actor) && e?.fullName !== actor;
+              const managerStep = TWO_STEP.includes(r.type) && r.stage !== 'FINANCE';
+              const can = e?.fullName !== actor;
               return (
                 <tr key={r.id}>
                   <td>
@@ -103,7 +101,7 @@ export const EmployeeRequestsTab: React.FC = () => {
                     {open ? (
                       <>
                         <div className="muted" style={{ marginBottom: 4 }}>
-                          {effect(r)}. Decided by {REQUEST_APPROVERS[r.type].join(' or ')}.
+                          {effect(r)}. {managerStep ? 'Step 1: line manager, then Finance' : `${TWO_STEP.includes(r.type) ? `Manager approved by ${r.managerApprovedBy}. Step 2: ` : 'Decided by '}${REQUEST_APPROVERS[r.type].join(' or ')}`}.
                         </div>
                         <input className="form-control" style={{ marginBottom: 6 }} placeholder="Note to the employee (required to decline)" value={notes[r.id] ?? ''} onChange={(ev) => setNotes({ ...notes, [r.id]: ev.target.value })} />
                         <button className="btn btn-primary" style={{ padding: '3px 10px', fontSize: 11 }} disabled={!can} onClick={() => decideEssRequest(r.id, true, actor, notes[r.id])}>

@@ -21,6 +21,7 @@ import {
 } from '../../../data/oshEngine';
 import { ActionTable, Chips, EmpCell, Empty, fmt, NewActionRow, Pill, StaffSelect, useOshOrg } from './shared';
 import { RaiseClaimModal } from './WibaTab';
+import { RecordAttachments } from '../hcm/ui';
 
 const STATUS_CLS: Record<IncidentStatus, string> = { REPORTED: 'warning', INVESTIGATING: 'info', ACTIONS: 'primary', CLOSED: 'success' };
 const SEV_CLS: Record<Severity, string> = { NONE: 'primary', FIRST_AID: 'info', MEDICAL: 'warning', LOST_TIME: 'critical', PERMANENT: 'critical', FATAL: 'critical' };
@@ -533,6 +534,7 @@ const IncidentModal: React.FC<{ i: OshIncident; onClose: () => void; onForm: () 
         </section>
       )}
 
+      <RecordAttachments owner={`OSH-INC-${i.id}`} title="Photos, statements and medical reports" />
       {claim && <RaiseClaimModal incident={i} onClose={() => setClaim(false)} />}
     </Modal>
   );

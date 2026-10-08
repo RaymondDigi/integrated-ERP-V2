@@ -76,6 +76,8 @@ export interface TimeStateSlice {
   timeAudit: TimeAuditEntry[];
   /** Adds a supervisor punch for a missing in or out, with the reason kept for audit. */
   fixMissingPunch: (staffId: string, date: string, dir: 'IN' | 'OUT', hm: string, reason: string) => void;
+  /** Imports a terminal export (ZKTeco / ADMS CSV — simulated device sync): staffId, date, time, direction, device */
+  importDevicePunches: (rows: Record<string, string>[]) => { imported: number; errors: string[] };
   /** Approve or reject overtime, excuse lateness, accept a geofence punch… */
   decideTimeExceptions: (keys: string[], status: DecisionStatus, reason: string) => void;
   /** HR confirms absences; unauthorised days in the open payroll month reduce pay. */
@@ -200,6 +202,32 @@ export const useTimeState = (deps: Deps): TimeStateSlice => {
     decide([exKey(dir === 'OUT' ? 'MISSING_OUT' : 'MISSING_IN', staffId, date)], 'FIXED', reason.trim(), SUPERVISOR);
     audit(SUPERVISOR, `Added ${dir === 'OUT' ? 'punch-out' : 'punch-in'} ${hm} for ${nameOf(staffId)} on ${fmtDate(date)}: ${reason.trim()}`);
     addToast({ type: 'success', title: 'Punch corrected', message: `${nameOf(staffId)}, ${fmtDate(date)}: ${dir === 'OUT' ? 'out' : 'in'} at ${hm}. Hours recalculated.` });
+  };
+
+  const importDevicePunches: TimeStateSlice['importDevicePunches'] = (rows) => {
+    const errors: string[] = [];
+    const added: TimePunch[] = [];
+    rows.forEach((r, i) => {
+      const line = `Row ${i + 2}`;
+      const staffId = (r.staffId ?? '').trim();
+      const e = hrEmployees.find((x) => x.staffId === staffId);
+      const date = (r.date ?? '').trim();
+      const hm = (r.time ?? '').trim();
+      const dir = (r.direction ?? '').trim().toUpperCase();
+      if (!e) return errors.push(`${line}: unknown staff ID ${staffId || '(blank)'}`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > timeToday) return errors.push(`${line}: date must be YYYY-MM-DD and not in the future`);
+      if (!/^\d{1,2}:\d{2}$/.test(hm)) return errors.push(`${line}: time must be HH:MM`);
+      if (dir !== 'IN' && dir !== 'OUT') return errors.push(`${line}: direction must be IN or OUT`);
+      const min = parseHm(hm);
+      if ([...timePunches, ...added].some((p) => p.staffId === staffId && p.date === date && p.dir === dir && Math.abs(p.min - min) < 2)) return errors.push(`${line}: duplicate punch for ${staffId} at ${hm}`);
+      added.push({ id: `TP-DEV-${Date.now().toString(36)}-${i}`, orgId: e.orgId, staffId, date, min, dir, source: 'BIOMETRIC', device: (r.device ?? '').trim() || 'ZKTeco import', note: 'Device export import', by: 'Device sync (simulated)', recordedAt: timeToday });
+    });
+    if (added.length) {
+      setManualPunches((xs) => [...xs, ...added]);
+      audit('Device sync (simulated)', `Imported ${added.length} terminal punches${errors.length ? `, ${errors.length} rejected` : ''}`);
+      addToast({ type: errors.length ? 'warning' : 'success', title: 'Terminal punches imported', message: `${added.length} punches added; hours and exceptions recalculated.${errors.length ? ` ${errors.length} rows rejected.` : ''}` });
+    }
+    return { imported: added.length, errors };
   };
 
   const decideTimeExceptions: TimeStateSlice['decideTimeExceptions'] = (keys, status, reason) => {
@@ -372,7 +400,14 @@ export const useTimeState = (deps: Deps): TimeStateSlice => {
       const factor = s.pay === 'HALF' ? 0.5 : 1;
       const r = addPayReduction({ staffId: c.staffId, from: s.from, to: s.to, factor, reason: s.pay === 'HALF' ? `Suspension on half pay — case ${id}` : `Suspension without pay — case ${id}`, source: 'Disciplinary', ref: id });
       outcome.reductionId = r.id;
-      events.push(`suspended ${s.pay === 'HALF' ? 'on half pay' : 'without pay'} ${fmtDate(s.from)} to ${fmtDate(s.to)}; payroll notified`);
+      // The suspension also withholds sign-in, self-service and approval authority for the period
+      const emp = hrEmployees.find((x) => x.staffId === c.staffId);
+      updateHrEmployee(c.staffId, {
+        suspension: { from: s.from, to: s.to, caseId: id, pay: s.pay },
+        status: s.from <= timeToday ? 'SUSPENDED' : emp?.status ?? 'ACTIVE',
+        history: [...(emp?.history ?? []), { date: s.from, kind: 'Suspended', summary: `Suspended ${fmtDate(s.from)} to ${fmtDate(s.to)} (${s.pay === 'HALF' ? 'half pay' : 'no pay'}) — system access and approvals withheld`, ref: id, by: HR_OFFICER }]
+      });
+      events.push(`suspended ${s.pay === 'HALF' ? 'on half pay' : 'without pay'} ${fmtDate(s.from)} to ${fmtDate(s.to)}; payroll notified; sign-in and approval authority withheld`);
       docs.push({ name: 'Suspension letter', kind: 'SUSPENSION' });
     }
     if (months) docs.push({ name: SANCTION_LABEL[o.sanction], kind: 'WARNING' });
@@ -409,6 +444,10 @@ export const useTimeState = (deps: Deps): TimeStateSlice => {
     if ((status === 'UPHELD' || (status === 'VARIED' && varied !== 'SUSPENSION')) && outcome?.reductionId) {
       removePayReduction(outcome.reductionId);
       outcome = { ...outcome, reductionId: undefined };
+      // Suspension set aside: access and status restored at once
+      const emp = hrEmployees.find((x) => x.staffId === c.staffId);
+      if (emp?.suspension?.caseId === id)
+        updateHrEmployee(c.staffId, { suspension: undefined, status: emp.status === 'SUSPENDED' ? 'ACTIVE' : emp.status, history: [...(emp.history ?? []), { date: timeToday, kind: 'Reinstated', summary: `Suspension set aside on appeal (${id})`, ref: id, by: HR_OFFICER }] });
     }
     if (status === 'VARIED' && varied && outcome) {
       const months = WARNING_MONTHS[varied];
@@ -438,6 +477,7 @@ export const useTimeState = (deps: Deps): TimeStateSlice => {
   };
 
   return {
+    importDevicePunches,
     timeToday,
     timeNow,
     timePunches,

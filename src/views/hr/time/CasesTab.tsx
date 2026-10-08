@@ -23,6 +23,7 @@ import { addDays, fmtDate, fmtShort } from '../../../data/timeEngine';
 import { HR_OFFICER, SUPERVISOR } from '../../../data/timeConfig';
 import { Chips, EmpCell, Empty, Pill } from './shared';
 import { NewCaseModal } from './CaseForms';
+import { RecordAttachments } from '../hcm/ui';
 import { LETTER_TITLE, LetterModal, lettersFor } from './Letters';
 
 export const STAGE_CLS: Record<CaseStage, string> = { RAISED: 'primary', INVESTIGATION: 'info', SHOW_CAUSE: 'warning', HEARING: 'warning', OUTCOME: 'info', APPEAL: 'critical', CLOSED: 'success' };
@@ -309,6 +310,7 @@ const CaseModal: React.FC<{ c: DisciplinaryCase; onClose: () => void }> = ({ c, 
           </section>
         </aside>
       </div>
+      <RecordAttachments owner={`DISC-${c.id}`} title="Evidence and signed letters" />
       {letter && <LetterModal c={c} kind={letter} onClose={() => setLetter(null)} />}
     </Modal>
   );

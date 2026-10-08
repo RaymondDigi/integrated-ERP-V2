@@ -49,6 +49,7 @@ import { PerformanceView } from './views/hr/PerformanceView';
 import { TrainingSkillsView } from './views/hr/TrainingSkillsView';
 import { DisciplinaryView } from './views/hr/DisciplinaryView';
 import { OshSecurityView } from './views/hr/OshSecurityView';
+import { HrServicesView } from './views/hr/HrServicesView';
 import { SeparationView } from './views/hr/SeparationView';
 
 // Platform Views
@@ -177,6 +178,8 @@ export const App: React.FC = () => {
         return <OshSecurityView />;
       case 'separation':
         return <SeparationView />;
+      case 'hr-services':
+        return <HrServicesView />;
 
       // Core System Views
       case 'overview':

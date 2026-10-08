@@ -37,6 +37,7 @@ import {
   ESS_ANNOUNCEMENTS,
   TEAM_OUT_TODAY,
   syncEssEmployee,
+  switchEssEmployee,
   buildPayslips,
   nextPayDate,
   formatKes,
@@ -58,9 +59,11 @@ import { EssAiAssistant, AiHomeCard, ProfileCompletenessCard } from './EssAi';
 import { detectIssues, setAiHolidays, type AiContext, type AiAction } from './aiEngine';
 import { EssApprovals, EssPerformance, EssAssets, EssDisciplinary } from './EssRecords';
 import { EssP9 } from './EssP9';
+import { EssServices, TeamLeaveReport } from './EssServices';
+import { useSession } from '../../auth/session';
 import { codeOf, leaveBalances, validateLeaveRequest } from '../../data/leaveEngine';
 
-type EssTab = 'home' | 'ai' | 'leave' | 'approvals' | 'pay' | 'performance' | 'attendance' | 'requests' | 'records' | 'profile';
+type EssTab = 'home' | 'ai' | 'leave' | 'approvals' | 'pay' | 'performance' | 'attendance' | 'requests' | 'records' | 'services' | 'profile';
 type PaySub = 'payslips' | 'p9';
 type RecordsSub = 'assets' | 'disciplinary' | 'documents';
 
@@ -74,6 +77,7 @@ const TABS: { id: EssTab; label: string; icon: React.ElementType; approverOnly?:
   { id: 'attendance', label: 'Attendance', icon: Clock },
   { id: 'requests', label: 'Requests', icon: Inbox },
   { id: 'records', label: 'My Records', icon: Archive },
+  { id: 'services', label: 'Services', icon: Package },
   { id: 'profile', label: 'My Profile', icon: UserCircle }
 ];
 
@@ -105,6 +109,10 @@ const timeNow = () => new Date().toLocaleTimeString('en-GB', { hour: '2-digit', 
 
 export const EssPortalView: React.FC = () => {
   const { leaveRequests, createLeaveRequest, cancelLeaveRequest, addToast, setCurrentView, hrEmployees, updateHrEmployee, logEmployeeEdit, leaveCfg, leaveHolidays, essRequests, submitEssRequest, payrollCtx, addAttendancePunch } = useApp();
+  // The portal shows the signed-in persona's own record when the persona is an employee (else the demo employee)
+  const session = useSession();
+  const signedIn = hrEmployees.find((x) => x.staffId === session?.staffId && x.status !== 'TERMINATED');
+  if (signedIn) switchEssEmployee(signedIn, hrEmployees);
   // Keep the assistant's working-day maths on the same calendar as HR (holidays for this employee's site)
   const essOrg = hrEmployees.find((e) => e.staffId === ESS_EMPLOYEE.staffId)?.orgId;
   setAiHolidays(leaveHolidays.filter((h) => h.location === 'ALL' || h.location === essOrg).map((h) => ({ date: h.observed || h.date, name: h.name })));
@@ -384,6 +392,8 @@ export const EssPortalView: React.FC = () => {
           />
         )}
         {tab === 'approvals' && <EssApprovals pending={approvalsPending} decided={approvalsDecided} />}
+        {tab === 'approvals' && <TeamLeaveReport />}
+        {tab === 'services' && <EssServices />}
         {tab === 'pay' && (
           <div className="ess-stack">
             <SubTabs

@@ -9,6 +9,7 @@ import { PpeTab } from './osh/PpeTab';
 import { InspectionsTab } from './osh/InspectionsTab';
 import { MedicalTab } from './osh/MedicalTab';
 import { StatutoryTab } from './osh/StatutoryTab';
+import { AlarmsTab, GateTransitTab, GrievancesTab, InvestigationsClaimsTab, SECURITY_TABS, SecurityOpsTab } from './hcm/SecurityTabs';
 
 export const OSH_TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: Gauge },
@@ -18,7 +19,8 @@ export const OSH_TABS = [
   { id: 'ppe', label: 'PPE', icon: Shirt },
   { id: 'inspections', label: 'Inspections & risk', icon: ClipboardCheck },
   { id: 'medical', label: 'Medical surveillance', icon: Stethoscope },
-  { id: 'statutory', label: 'Statutory & committee', icon: FileCheck }
+  { id: 'statutory', label: 'Statutory & committee', icon: FileCheck },
+  ...SECURITY_TABS
 ];
 
 export const OshSecurityView: React.FC = () => {
@@ -51,7 +53,7 @@ export const OshSecurityView: React.FC = () => {
                 <span className="digicraft-badge-light">Process #11</span>
               </h1>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
-                {activeTenant.name}: incidents and DOSH notices, WIBA claims, permits to work, PPE, inspections and statutory compliance (OSHA 2007, WIBA 2007).
+                {activeTenant.name}: incidents and DOSH notices, WIBA claims, permits to work, PPE, inspections and statutory compliance (OSHA 2007, WIBA 2007), plus security operations, investigations, insurance claims and grievances.
               </p>
             </div>
           </div>
@@ -115,6 +117,11 @@ export const OshSecurityView: React.FC = () => {
       {tab === 'inspections' && <InspectionsTab />}
       {tab === 'medical' && <MedicalTab />}
       {tab === 'statutory' && <StatutoryTab />}
+      {tab === 'security' && <SecurityOpsTab />}
+      {tab === 'gate' && <GateTransitTab />}
+      {tab === 'investigations' && <InvestigationsClaimsTab />}
+      {tab === 'grievances' && <GrievancesTab />}
+      {tab === 'alarms' && <AlarmsTab />}
     </div>
   );
 };

@@ -8,7 +8,7 @@ try { pw = require('playwright'); } catch { pw = require('/opt/node-tools/node_m
 const { chromium } = pw;
 
 const BASE = process.argv[2] ?? 'http://localhost:5199';
-const VIEWS = ['apps','finance','trading','procurement','bizdev','warehousing','production','shipping','fleet','maintenance','quality','ict','integrations-hub','governance','implementation','approvals','executive','ess','org-setup','employee-requisition','recruitment','onboarding','employees','attendance','leave','payroll','performance','training','disciplinary','osh-security','separation','overview','work-queue','activity','users','organizations','workflows','integrations','roles','security','billing','audit','health','ai-insights','settings','forms-inputs','profile'];
+const VIEWS = ['apps','finance','trading','procurement','bizdev','warehousing','production','shipping','fleet','maintenance','quality','ict','integrations-hub','governance','implementation','approvals','executive','ess','org-setup','employee-requisition','recruitment','onboarding','employees','attendance','leave','payroll','performance','training','disciplinary','osh-security','separation','hr-services','overview','work-queue','activity','users','organizations','workflows','integrations','roles','security','billing','audit','health','ai-insights','settings','forms-inputs','profile'];
 const ROLES = [
   { email: 'admin@integrated.local', views: VIEWS },
   { email: 'd.otieno@intergrated-erp.ke', staffId: 'KHE-0134', views: ['finance','approvals','executive','procurement'] },

@@ -435,3 +435,29 @@ export const profileFromRecord = (r?: HREmployee): Partial<EssProfileData> =>
     : {};
 
 export const QUALIFICATIONS = ['Certificate', 'Diploma', "Bachelor's Degree", "Master's Degree", 'Doctorate', 'Professional Certification'];
+
+/**
+ * Points the portal at the signed-in employee (personas with a staff ID). Personal contact fields fall back to
+ * what the record holds; the manager line comes from the reporting line on the employee master.
+ */
+export const switchEssEmployee = (record: HREmployee, all: HREmployee[]) => {
+  if (record.staffId === ESS_EMPLOYEE.staffId) return;
+  const mgr = all.find((x) => x.staffId === record.reportsToStaffId);
+  Object.assign(ESS_EMPLOYEE, {
+    staffId: record.staffId,
+    preferredName: record.fullName.split(' ')[0],
+    initials: record.fullName
+      .split(' ')
+      .map((p) => p[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase(),
+    manager: mgr ? `${mgr.fullName} (${mgr.jobTitle})` : '—',
+    personalEmail: record.personalEmail ?? '',
+    address: record.address ?? '',
+    nextOfKin: record.nextOfKin ?? ESS_EMPLOYEE.nextOfKin,
+    emergencyContact: record.emergencyContact ?? ESS_EMPLOYEE.emergencyContact,
+    ...fromRecord(record)
+  });
+  liveRecord = record;
+};
