@@ -22,7 +22,6 @@ export const PAY_DAY = 25;
 /** The 2026 pay review raised salaries by about 8.7% (basic before the review = 92%). */
 const REVIEW_YEAR = 2026;
 const STANDARD_HOURS = 225;
-const OT_RATE = 1.5;
 
 const hash = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 const round500 = (n: number) => Math.round(n / 500) * 500;
