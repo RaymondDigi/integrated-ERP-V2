@@ -3,6 +3,7 @@ import type { NavigationTarget } from '../context/AppContext';
 import type { HREmployee } from '../types';
 import { WORKFORCE } from '../data/workforce';
 import { isCompanyEmail } from '../utils/emailRouting';
+import { mfaRequiredFor, securityPolicy } from '../platform/securityPolicy';
 
 /**
  * Emulated unified sign-in. Mirrors the Integrated ERP login flow — email and password, an authenticator
@@ -202,7 +203,8 @@ export const signIn = (emailRaw: string, password: string, code: string, remembe
   const all = attempts();
   const mine = all[email];
   const windowOpen = mine && Date.now() - mine.since < LOCK_MINUTES * 60_000;
-  if (windowOpen && mine.count >= MAX_ATTEMPTS) {
+  const maxAttempts = securityPolicy()?.lockoutAttempts ?? MAX_ATTEMPTS;
+  if (windowOpen && mine.count >= maxAttempts) {
     const mins = Math.ceil((LOCK_MINUTES * 60_000 - (Date.now() - mine.since)) / 60_000);
     return { ok: false, locked: true, error: `Too many attempts. Try again in ${mins} minute${mins === 1 ? '' : 's'}.` };
   }
@@ -214,10 +216,10 @@ export const signIn = (emailRaw: string, password: string, code: string, remembe
   if (!account || password !== DEMO_PASSWORD) {
     const count = (windowOpen ? mine.count : 0) + 1;
     write('local', ATTEMPTS_KEY, JSON.stringify({ ...all, [email]: { count, since: windowOpen ? mine.since : Date.now() } }));
-    const left = MAX_ATTEMPTS - count;
+    const left = maxAttempts - count;
     return { ok: false, error: 'Email or password is incorrect', attemptsLeft: left };
   }
-  if (account.mfa) {
+  if (mfaRequiredFor(account.role, account.mfa)) {
     if (!code) return { ok: false, mfaRequired: true, error: 'Enter the 6-digit code from your authenticator app' };
     if (code.replace(/\s/g, '') !== DEMO_MFA_CODE) return { ok: false, mfaRequired: true, error: 'The authenticator code is incorrect' };
   }
@@ -231,6 +233,9 @@ export const signIn = (emailRaw: string, password: string, code: string, remembe
   emit();
   return { ok: true, account };
 };
+
+/** Role of the signed-in account, for permission checks outside React (stores and platform services). */
+export const sessionRole = (): Role | undefined => snapshot?.role;
 
 export const signOut = () => {
   current = null;

@@ -76,7 +76,7 @@ const RuleEditor: React.FC = () => {
                       <button type="button" className="btn btn-secondary btn-xs" onClick={() => setF({ id: r.id, key: r.key, minValue: r.minValue, approverRole: r.approverRole, secondRole: r.secondRole, active: r.active })}>
                         Edit
                       </button>
-                      <button type="button" className="btn btn-ghost btn-xs" aria-label="Remove rule" onClick={() => run(() => (removeRule(access.name, r.id), { ok: true }), 'Rule removed')}>
+                      <button type="button" className="btn btn-ghost btn-xs" aria-label="Remove rule" onClick={() => run(() => removeRule(access.name, r.id), 'Rule removed')}>
                         <Trash2 size={12} />
                       </button>
                     </div>

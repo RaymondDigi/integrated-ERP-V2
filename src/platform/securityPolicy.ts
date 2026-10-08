@@ -1,5 +1,6 @@
 import { createBus } from './bus';
 import { audit } from './audit';
+import { adminDenied } from './guard';
 import type { Role } from '../auth/session';
 
 /**
@@ -34,6 +35,8 @@ export const passwordProblems = (pw: string) => {
 };
 
 export const setSecurityPolicy = (by: string, next: SecurityPolicy): { ok: true } | { ok: false; error: string } => {
+  const denied = adminDenied();
+  if (denied) return { ok: false, error: denied };
   if (next.minLength < 8) return { ok: false, error: 'Passwords must be at least 8 characters' };
   if (!next.mfaRoles.includes('admin')) return { ok: false, error: 'Administrators must always use MFA' };
   if (next.lockoutAttempts < 3 || next.lockoutAttempts > 10) return { ok: false, error: 'Lock-out must be between 3 and 10 attempts' };

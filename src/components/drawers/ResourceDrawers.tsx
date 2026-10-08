@@ -8,6 +8,8 @@ import {
   Ban,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { requestRoleChange } from '../../platform/accessRequests';
+import { useAccess } from '../../platform/access';
 
 export const ResourceDrawers: React.FC = () => {
   const {
@@ -22,7 +24,7 @@ export const ResourceDrawers: React.FC = () => {
     resetUserMfa,
     revokeSession,
     revokeAllSessions,
-    changeUserRole,
+    addToast,
     acknowledgeWorkItem,
     snoozeWorkItem,
     resolveWorkItem,
@@ -34,6 +36,8 @@ export const ResourceDrawers: React.FC = () => {
   const [userTab, setUserTab] = useState<'overview' | 'access' | 'sessions' | 'audit'>('overview');
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [newRole, setNewRole] = useState(selectedUser?.role || 'Analyst');
+  const [roleReason, setRoleReason] = useState('');
+  const access = useAccess();
 
   // --- USER DETAIL DRAWER ---
   if (selectedUser) {
@@ -410,7 +414,7 @@ export const ResourceDrawers: React.FC = () => {
                   Change User Role
                 </h4>
                 <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                  Select the target role for {selectedUser.name}. Elevating privileges requires dual-custody audit logging.
+                  Select the target role for {selectedUser.name}. The change is sent for approval by another administrator (you cannot approve your own request) and is recorded in the audit trail.
                 </p>
 
                 <select
@@ -426,6 +430,14 @@ export const ResourceDrawers: React.FC = () => {
                   <option value="Compliance Auditor">Compliance Auditor</option>
                   <option value="Analyst">Analyst (Read-Only)</option>
                 </select>
+                <textarea
+                  className="form-control"
+                  rows={2}
+                  placeholder="Business reason (required)"
+                  value={roleReason}
+                  onChange={(e) => setRoleReason(e.target.value)}
+                  aria-label="Reason for role change"
+                />
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
                   <button className="btn btn-secondary btn-sm" onClick={() => setShowRoleModal(false)}>
@@ -434,11 +446,17 @@ export const ResourceDrawers: React.FC = () => {
                   <button
                     className="btn btn-primary btn-sm"
                     onClick={() => {
-                      changeUserRole(selectedUser.id, newRole as any);
+                      const r = requestRoleChange({ userId: selectedUser.id, userName: selectedUser.name, fromRole: selectedUser.role, toRole: newRole, reason: roleReason, requestedBy: access.name });
+                      if (!r.ok) {
+                        addToast({ type: 'error', title: 'Not sent', message: r.error });
+                        return;
+                      }
+                      addToast({ type: 'success', title: 'Role change requested', message: 'Another administrator approves it in Roles & Access or the Approval Center.' });
+                      setRoleReason('');
                       setShowRoleModal(false);
                     }}
                   >
-                    Confirm Role Change
+                    Request Role Change
                   </button>
                 </div>
               </div>

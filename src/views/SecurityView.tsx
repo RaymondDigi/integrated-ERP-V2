@@ -6,6 +6,7 @@ import {
   Plus
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { SecurityPolicyPanel } from './PlatformPanels';
 
 export const SecurityView: React.FC = () => {
   const { addToast } = useApp();
@@ -102,6 +103,8 @@ export const SecurityView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      <SecurityPolicyPanel />
 
       {/* Tabs */}
       <div className="tab-list tab-list-scrollable">

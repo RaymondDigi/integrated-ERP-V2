@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { User } from '../types';
+import { RightsReviewPanel } from './PlatformPanels';
 
 export const UsersView: React.FC = () => {
   const {
@@ -145,6 +146,8 @@ export const UsersView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      <RightsReviewPanel />
 
       {/* Advanced Data Table Container */}
       <div className="emc-table-card">

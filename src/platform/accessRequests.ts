@@ -1,6 +1,7 @@
 import { createBus, pid, stamp } from './bus';
 import { audit } from './audit';
 import { notify } from './outbox';
+import { adminDenied, writeDenied } from './guard';
 
 /**
  * Role changes go through a request and an approval instead of taking effect at once. The approver can never be
@@ -30,6 +31,8 @@ export const allAccessRequests = bus.all;
 type R = { ok: true; id?: string } | { ok: false; error: string };
 
 export const requestRoleChange = (r: Pick<AccessRequest, 'userId' | 'userName' | 'fromRole' | 'toRole' | 'reason' | 'requestedBy'>): R => {
+  const denied = writeDenied();
+  if (denied) return { ok: false, error: denied };
   if (r.fromRole === r.toRole) return { ok: false, error: 'Choose a different role' };
   if (r.reason.trim().length < 10) return { ok: false, error: 'Give the business reason (at least 10 characters)' };
   if (bus.all().some((x) => x.userId === r.userId && x.status === 'PENDING')) return { ok: false, error: 'This user already has a role change waiting for approval' };
@@ -44,6 +47,8 @@ export const requestRoleChange = (r: Pick<AccessRequest, 'userId' | 'userName' |
 export const decideRoleChange = (id: string, by: string, approve: boolean, note: string, apply: (r: AccessRequest) => void): R => {
   const r = bus.all().find((x) => x.id === id);
   if (!r) return { ok: false, error: 'Request not found' };
+  const denied = adminDenied();
+  if (denied) return { ok: false, error: denied };
   if (r.status !== 'PENDING') return { ok: false, error: 'This request has already been decided' };
   if (r.requestedBy === by) return { ok: false, error: 'You asked for this change, so someone else must approve it' };
   if (!approve && !note.trim()) return { ok: false, error: 'Give a reason for rejecting' };
@@ -79,6 +84,8 @@ export const useRightsSchedule = () => schedule.use()[0];
 export const useRightsRuns = runs.use;
 
 export const setRightsSchedule = (by: string, s: Pick<RightsSchedule, 'frequency' | 'recipients'>): R => {
+  const denied = adminDenied();
+  if (denied) return { ok: false, error: denied };
   if (!s.recipients.includes('@')) return { ok: false, error: 'Add at least one recipient email' };
   const cur = schedule.all()[0];
   schedule.set([{ ...cur, ...s, nextRun: nextFrom(s.frequency) }]);

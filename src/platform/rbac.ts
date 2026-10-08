@@ -1,5 +1,6 @@
 import { createBus } from './bus';
 import { audit } from './audit';
+import { adminDenied } from './guard';
 import type { Role } from '../auth/session';
 
 /**
@@ -84,6 +85,8 @@ export const canOpen = (role: Role | undefined, view: string) => {
 };
 
 export const setModuleAccess = (by: string, role: Exclude<Role, 'employee'>, module: ModuleKey, allowed: boolean): { ok: boolean; error?: string } => {
+  const denied = adminDenied();
+  if (denied) return { ok: false, error: denied };
   if (role === 'admin') return { ok: false, error: 'Administrators always keep every module' };
   const cur = accessMatrix();
   const list = allowed ? [...new Set([...cur[role], module])] : cur[role].filter((m) => m !== module);

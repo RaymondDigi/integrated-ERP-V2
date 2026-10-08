@@ -1,5 +1,6 @@
 import { createBus, pid } from './bus';
 import { audit } from './audit';
+import { adminDenied, writeDenied } from './guard';
 
 /**
  * User-defined fields for any kind of record. Administrators define the fields per entity; values are kept per
@@ -40,6 +41,8 @@ export const customValuesFor = (owner: string) => values.all().find((v) => v.own
 type R = { ok: true } | { ok: false; error: string };
 
 export const addCustomField = (by: string, d: Omit<CustomFieldDef, 'id' | 'key'>): R => {
+  const denied = adminDenied();
+  if (denied) return { ok: false, error: denied };
   if (!d.label.trim()) return { ok: false, error: 'Give the field a label' };
   const key = d.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
   if (defs.all().some((x) => x.entity === d.entity && x.key === key)) return { ok: false, error: 'That field already exists for this record type' };
@@ -48,13 +51,18 @@ export const addCustomField = (by: string, d: Omit<CustomFieldDef, 'id' | 'key'>
   audit({ module: 'Platform', by, action: 'Custom field added', ref: CUSTOM_ENTITIES[d.entity] ?? d.entity, field: key, after: d.type });
   return { ok: true };
 };
-export const removeCustomField = (by: string, id: string) => {
+export const removeCustomField = (by: string, id: string): R => {
+  const denied = adminDenied();
+  if (denied) return { ok: false, error: denied };
   const d = defs.all().find((x) => x.id === id);
   defs.set(defs.all().filter((x) => x.id !== id));
   if (d) audit({ module: 'Platform', by, action: 'Custom field removed', ref: CUSTOM_ENTITIES[d.entity] ?? d.entity, field: d.key });
+  return { ok: true };
 };
 
 export const setCustomValues = (by: string, owner: string, next: Record<string, string>, entity: string): R => {
+  const denied = writeDenied();
+  if (denied) return { ok: false, error: denied };
   const missing = defs.all().filter((d) => d.entity === entity && d.required && !next[d.key]?.trim());
   if (missing.length) return { ok: false, error: `Fill in ${missing.map((m) => m.label).join(', ')}` };
   for (const d of defs.all().filter((x) => x.entity === entity && x.type === 'number'))

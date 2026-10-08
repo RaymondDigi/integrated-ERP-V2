@@ -1,5 +1,6 @@
 import { createBus, pid } from './bus';
 import { audit } from './audit';
+import { adminDenied } from './guard';
 
 /**
  * Configurable approval rules. Each rule says who approves a kind of document, from what value or level it
@@ -70,6 +71,8 @@ export const nextApprover = (key: string, value: number, approvalsSoFar: number)
 
 type R = { ok: true } | { ok: false; error: string };
 export const saveRule = (by: string, r: Omit<ApprovalRule, 'id' | 'area' | 'document' | 'valueLabel'> & { id?: string }): R => {
+  const denied = adminDenied();
+  if (denied) return { ok: false, error: denied };
   if (!RULE_KEYS[r.key]) return { ok: false, error: 'Choose the document type' };
   if (!RULE_ROLES[r.approverRole]) return { ok: false, error: 'Choose the approver' };
   if (r.secondRole && r.secondRole === r.approverRole) return { ok: false, error: 'The second approver must be a different role' };
@@ -80,8 +83,12 @@ export const saveRule = (by: string, r: Omit<ApprovalRule, 'id' | 'area' | 'docu
   audit({ module: 'Workflows', by, action: before ? 'Approval rule changed' : 'Approval rule added', ref: `${full.document} ≥ ${full.minValue}`, field: 'approver', before: before ? `${before.approverRole}${before.secondRole ? ` + ${before.secondRole}` : ''}${before.active ? '' : ' (off)'}` : '', after: `${full.approverRole}${full.secondRole ? ` + ${full.secondRole}` : ''}${full.active ? '' : ' (off)'}` });
   return { ok: true };
 };
-export const removeRule = (by: string, id: string) => {
+export const removeRule = (by: string, id: string): R => {
+  const denied = adminDenied();
+  if (denied) return { ok: false, error: denied };
   const r = bus.all().find((x) => x.id === id);
+  if (r && !bus.all().some((x) => x.id !== id && x.key === r.key && x.active)) return { ok: false, error: 'Keep at least one active rule for each document type' };
   bus.set(bus.all().filter((x) => x.id !== id));
   if (r) audit({ module: 'Workflows', by, action: 'Approval rule removed', ref: `${r.document} ≥ ${r.minValue}` });
+  return { ok: true };
 };
