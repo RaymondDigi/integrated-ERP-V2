@@ -45,6 +45,8 @@ export const addMonths = (iso: string, n: number) => {
 export const daysBetween = (a: string, b: string) => Math.round((new Date(b + 'T00:00:00').getTime() - new Date(a + 'T00:00:00').getTime()) / 86_400_000);
 export const fmtDate = (iso?: string) => (iso ? new Date(iso.length === 7 ? iso + '-01T00:00:00' : iso + 'T00:00:00').toLocaleDateString('en-GB', iso.length === 7 ? { month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 export const kes = (n: number) => `KES ${Math.round(n).toLocaleString()}`;
+/** Demo reveal: fills the masked part with a stable pattern. Real reveals come from the vault and are logged. */
+export const reveal = (masked: string, on: boolean) => (on ? masked.replace(/\*+/g, (m) => '7392815640'.slice(0, m.length)) : masked);
 
 /* ------------------------------------------------------------------ grades and cost */
 

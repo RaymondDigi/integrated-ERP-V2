@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Gauge as OshGauge, Siren as OshSiren, ShieldPlus as OshShieldPlus, KeyRound as OshKeyRound, Shirt as OshShirt, Stethoscope as OshStethoscope } from 'lucide-react';
-import { Target, MessageSquare, ClipboardCheck, Grid3x3, LifeBuoy, SlidersHorizontal, LayoutDashboard } from 'lucide-react';
+import { Target, MessageSquare, ClipboardCheck, Grid3x3, LifeBuoy, SlidersHorizontal, LayoutDashboard, Mail } from 'lucide-react';
 import { HR_PROCESS_APPS } from '../../data/hrMockData';
 import { FinanceSidebar } from '../../suites/finance/FinanceSuite';
 import { TradingSidebar } from '../../suites/commercial/trading/TradingSuite';
@@ -111,7 +111,8 @@ export const ModuleSidebar: React.FC = () => {
           { label: 'Employee Requests', icon: ClipboardList, tab: 'requests' },
           { label: 'Changes & Audit Trail', icon: Lock, tab: 'changes' },
           { label: 'Contracts & Probation', icon: FileCheck, tab: 'contracts' },
-          { label: 'Organisation Chart', icon: Layers, tab: 'orgchart' }
+          { label: 'Organisation Chart', icon: Layers, tab: 'orgchart' },
+          { label: 'Email & Notifications', icon: Mail, tab: 'notifications' }
         ];
 
       case 'attendance':

@@ -1,20 +1,75 @@
+import { PhotoUpload } from '../../../components/common/EmployeePhoto';
+import { NextOfKinEditor } from '../../../components/forms/NextOfKinEditor';
+import { kinFromDrafts, kinSummary } from '../../../utils/nextOfKin';
 import React, { useMemo, useState } from 'react';
-import { Plus, Trash2, X, Check, FileText, Pencil, Info, AlertTriangle, RefreshCw, Building2, Smartphone, Settings2, CalendarClock, Accessibility, Ban } from 'lucide-react';
+import { Plus, Trash2, X, Check, FileText, Pencil, Info, AlertTriangle, RefreshCw, Building2, Smartphone, Settings2, CalendarClock, Accessibility, Ban, Lock } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
 import { CONTRACT_TYPES } from '../../../data/hrMockData';
 import { GRADE_SCALES, KENYAN_BANKS } from '../../../data/orgData';
 import { CreatableSelect } from '../../../components/forms/CreatableSelect';
 import { JobDescriptionPanel, emptyJobDescription } from '../../../components/forms/JobDescriptionPanel';
 import { calculatePaye, retirementDate, HIGHEST_TAX_RATE, DEFAULT_PWD_EXEMPT_AMOUNT } from '../../../utils/tax';
-import type { CustomFieldDefinition, CustomFieldType, EmployeeFieldGroup, JobDescription } from '../../../types';
-import { PAY_BASIS_LABEL, nextStaffId, type EmployeeForm, type Errors, type StepId } from './wizardModel';
+import type { CustomFieldDefinition, CustomFieldType, EmployeeFieldGroup, HREmployee, JobDescription } from '../../../types';
+import { CHANGE_LABEL, type ChangeKind } from '../../../data/hireConfig';
+import { fmtDate, reveal } from '../../../data/hireEngine';
+import { PAY_BASIS_LABEL, nextStaffId, suggestWorkEmail, type EmployeeForm, type Errors, type StepId } from './wizardModel';
+
+/** Set when the wizard edits an existing employee instead of adding one. */
+export interface EditCtx {
+  e: HREmployee;
+  unmask: boolean;
+  onRequestChange: (k: ChangeKind) => void;
+}
 
 export interface StepProps {
   form: EmployeeForm;
   set: (patch: Partial<EmployeeForm>) => void;
   errors: Errors;
   showErrors: boolean;
+  edit?: EditCtx;
 }
+
+/** A value shown read-only in edit mode, because it changes through an approved request. */
+const LockedField: React.FC<{ label: string; value: React.ReactNode; span?: 1 | 2 | 4 }> = ({ label, value, span = 1 }) => (
+  <div className={`req-field ew-span-${span}`}>
+    <span>{label}</span>
+    <div className="ew-locked">
+      <Lock size={13} /> <span>{value || '—'}</span>
+    </div>
+  </div>
+);
+
+/** Why the locked fields above cannot be typed over, with the requests that change them. */
+const LockedNote: React.FC<{ edit: EditCtx; text: string; kinds: { kind: ChangeKind; label: string; show?: boolean }[] }> = ({ edit, text, kinds }) => {
+  const { employeeChanges } = useApp();
+  const pending = employeeChanges.filter((c) => c.staffId === edit.e.staffId && c.status === 'PENDING');
+  const leaving = edit.e.status === 'TERMINATED' || !!edit.e.exitDate;
+  return (
+    <div className="ew-callout info ew-locked-note">
+      <Lock size={16} />
+      <div>
+        <strong>Changed through an approved request</strong>
+        <span>{text}</span>
+        {pending.length > 0 && <span>Already waiting: {pending.map((c) => `${CHANGE_LABEL[c.kind].toLowerCase()} (${c.id})`).join(', ')}.</span>}
+        {!leaving && (
+          <div className="ew-locked-actions">
+            {kinds
+              .filter((k) => k.show !== false)
+              .map((k) => (
+                <button key={k.kind} type="button" className="btn btn-secondary btn-sm" onClick={() => edit.onRequestChange(k.kind)}>
+                  {k.label}
+                </button>
+              ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/** "On file …" hint for a masked number in edit mode. */
+const onFileHint = (edit: EditCtx | undefined, masked: string | undefined, create: string) =>
+  edit ? (masked && masked !== '—' ? `On file ${reveal(masked, edit.unmask)} — type a new one only to replace it` : 'None on file') : create;
 
 const kes = (n: number) => `KES ${Math.round(n).toLocaleString()}`;
 
@@ -403,37 +458,81 @@ export const CustomFieldsBlock: React.FC<StepProps & { group: EmployeeFieldGroup
 /* ------------------------------------------------------------------ */
 
 export const PersonalStep: React.FC<StepProps> = (p) => {
-  const { form, set, errors, showErrors } = p;
+  const { form, set, errors, showErrors, edit } = p;
+  const { hrEmployees, addToast } = useApp();
   const e = (k: string) => (showErrors ? errors[k] : undefined);
+  const suggested = edit ? '' : suggestWorkEmail(form, CONTRACT_TYPES, hrEmployees);
   const maxDob = new Date(new Date().getFullYear() - 18, new Date().getMonth(), new Date().getDate()).toISOString().slice(0, 10);
   return (
     <>
+      <SectionTitle>Photo</SectionTitle>
+      <PhotoUpload
+        name={[form.firstName, form.lastName].filter(Boolean).join(' ') || 'New employee'}
+        photoUrl={form.photoUrl || undefined}
+        onChange={(url) => set({ photoUrl: url ?? '' })}
+        onError={(m) => addToast({ type: 'error', title: 'Photo not accepted', message: m })}
+        hint="Optional — JPG, PNG or WebP under 5 MB, cropped to a square. Shown in the directory, profile and portal."
+      />
+
       <SectionTitle>Name & identity</SectionTitle>
       <div className="ew-grid">
         <TextField label="First name" required value={form.firstName} onChange={(v) => set({ firstName: v })} error={e('firstName')} />
         <TextField label="Middle name" value={form.middleName} onChange={(v) => set({ middleName: v })} />
         <TextField label="Last name" required value={form.lastName} onChange={(v) => set({ lastName: v })} error={e('lastName')} />
-        <SelectField label="Gender" required value={form.gender} onChange={(v) => set({ gender: v as EmployeeForm['gender'] })} options={['Female', 'Male', 'Other']} error={e('gender')} />
-        <TextField label="Date of birth" required type="date" max={maxDob} value={form.dateOfBirth} onChange={(v) => set({ dateOfBirth: v })} error={e('dateOfBirth')} />
-        <TextField label="National ID / passport" required value={form.nationalId} onChange={(v) => set({ nationalId: v })} error={e('nationalId')} />
+        <SelectField label="Gender" required={!edit || !!edit.e.gender} value={form.gender} onChange={(v) => set({ gender: v as EmployeeForm['gender'] })} options={['Female', 'Male', 'Other']} error={e('gender')} />
+        <TextField label="Date of birth" required={!edit || !!edit.e.dateOfBirth} type="date" max={maxDob} value={form.dateOfBirth} onChange={(v) => set({ dateOfBirth: v })} error={e('dateOfBirth')} />
+        <TextField
+          label="National ID / passport"
+          required={!edit}
+          value={form.nationalId}
+          placeholder={edit ? 'Leave blank to keep' : undefined}
+          onChange={(v) => set({ nationalId: v })}
+          error={e('nationalId')}
+          hint={edit ? onFileHint(edit, edit.e.nationalIdMasked, '') : undefined}
+        />
         <SelectField label="Marital status" value={form.maritalStatus} onChange={(v) => set({ maritalStatus: v })} options={['Single', 'Married', 'Divorced', 'Widowed']} />
       </div>
 
       <SectionTitle>Statutory numbers</SectionTitle>
       <div className="ew-grid">
-        <TextField label="KRA PIN" value={form.kraPin} placeholder="A123456789B" onChange={(v) => set({ kraPin: v.toUpperCase() })} error={e('kraPin')} hint="Can be added later" />
-        <TextField label="NSSF number" value={form.nssfNo} onChange={(v) => set({ nssfNo: v })} hint="Can be added later" />
-        <TextField label="SHIF number" value={form.shifNo} onChange={(v) => set({ shifNo: v })} hint="Can be added later" />
+        <TextField label="KRA PIN" value={form.kraPin} placeholder="A123456789B" onChange={(v) => set({ kraPin: v.toUpperCase() })} error={e('kraPin')} hint={onFileHint(edit, edit?.e.kraPinMasked, 'Can be added later')} />
+        <TextField label="NSSF number" value={form.nssfNo} onChange={(v) => set({ nssfNo: v })} hint={onFileHint(edit, edit?.e.nssfNoMasked, 'Can be added later')} />
+        <TextField label="SHIF number" value={form.shifNo} onChange={(v) => set({ shifNo: v })} hint={onFileHint(edit, edit?.e.shifNoMasked, 'Can be added later')} />
       </div>
 
-      <SectionTitle>Contact & next of kin</SectionTitle>
+      <SectionTitle>Contact</SectionTitle>
       <div className="ew-grid">
         <TextField label="Mobile number" required type="tel" placeholder="+254 712 345 678" value={form.phone} onChange={(v) => set({ phone: v })} error={e('phone')} />
-        <TextField label="Personal email" type="email" value={form.personalEmail} onChange={(v) => set({ personalEmail: v })} error={e('personalEmail')} />
+        <TextField
+          label="Work email"
+          type="email"
+          value={form.workEmail}
+          placeholder={suggested || 'initial.surname@intergrated-erp.ke'}
+          onChange={(v) => set({ workEmail: v })}
+          error={e('workEmail')}
+          required={!!edit}
+          hint={form.workEmail || edit ? 'Signs in and receives approval requests' : `Leave blank to use ${suggested || 'the suggested company address'}`}
+        />
+        <TextField label="Phone extension" value={form.phoneExtension} onChange={(v) => set({ phoneExtension: v })} error={e('phoneExtension')} placeholder="Optional" />
+        <TextField
+          label="Personal email"
+          type="email"
+          value={form.personalEmail}
+          onChange={(v) => set({ personalEmail: v })}
+          error={e('personalEmail')}
+          hint="Payslips, leave and request decisions go here"
+        />
         <TextField label="Home address" span={2} value={form.address} onChange={(v) => set({ address: v })} />
-        <TextField label="Next of kin" value={form.kinName} onChange={(v) => set({ kinName: v })} />
-        <TextField label="Relationship" value={form.kinRelationship} onChange={(v) => set({ kinRelationship: v })} />
-        <TextField label="Next of kin phone" type="tel" value={form.kinPhone} onChange={(v) => set({ kinPhone: v })} error={e('kinPhone')} />
+      </div>
+
+      <SectionTitle>Next of kin</SectionTitle>
+      <NextOfKinEditor value={form.kins ?? []} onChange={(kins) => set({ kins })} errors={showErrors ? (errors as Record<string, string>) : {}} />
+
+      <SectionTitle>Emergency contact</SectionTitle>
+      <div className="ew-grid">
+        <TextField label="Emergency contact" value={form.ecName} onChange={(v) => set({ ecName: v })} error={e('ecName')} placeholder="Someone other than the employee" />
+        <TextField label="Relationship" value={form.ecRelationship} onChange={(v) => set({ ecRelationship: v })} />
+        <TextField label="Emergency phone" type="tel" value={form.ecPhone} onChange={(v) => set({ ecPhone: v })} error={e('ecPhone')} />
       </div>
       {errors.phoneWarn && (
         <div className="ew-warn">
@@ -453,7 +552,7 @@ export const PersonalStep: React.FC<StepProps> = (p) => {
 type Creating = { kind: 'branch' | 'station' | 'department' | 'section' | 'designation'; name: string } | null;
 
 export const PlacementStep: React.FC<StepProps> = (p) => {
-  const { form, set, errors, showErrors } = p;
+  const { form, set, errors, showErrors, edit } = p;
   const { orgStructure: org, addBranch, addStation, addDepartment, addSection, addDesignation, updateDesignation, tenantEmployees, addToast } = useApp();
   const [creating, setCreating] = useState<Creating>(null);
   const [editingJd, setEditingJd] = useState(false);
@@ -603,6 +702,45 @@ export const PlacementStep: React.FC<StepProps> = (p) => {
       {(creating?.kind === 'branch' || creating?.kind === 'station') && quick()}
 
       <SectionTitle>Department & role</SectionTitle>
+      {edit ? (
+        <>
+          <div className="ew-grid ew-grid-2">
+            <LockedField label="Department / cost centre" value={`${edit.e.department}${dept?.costCenter ?? edit.e.costCenter ? ` · ${dept?.costCenter ?? edit.e.costCenter}` : ''}`} />
+            <LockedField label="Designation" value={`${edit.e.jobTitle}${edit.e.grade ? ` · ${edit.e.grade}` : ''}`} />
+          </div>
+          <LockedNote
+            edit={edit}
+            text="Moving department or changing the job changes the cost centre and often pay, so a manager approves it."
+            kinds={[
+              { kind: 'TRANSFER', label: 'Request a transfer' },
+              { kind: 'PROMOTION', label: 'Request a promotion', show: !/daily/i.test(edit.e.contractType) }
+            ]}
+          />
+          <div className="ew-grid ew-grid-2">
+            <CreatableSelect
+              label="Section / unit"
+              entityName="section"
+              value={form.sectionId}
+              allowClear
+              disabled={!form.departmentId}
+              disabledHint="Department not set up in the organisation structure"
+              options={sections.map((s) => ({ value: s.id, label: s.name }))}
+              onChange={(v) => set({ sectionId: v })}
+              onCreateRequest={(q) => setCreating({ kind: 'section', name: q })}
+            />
+            <CreatableSelect
+              label="Reports to"
+              entityName="manager"
+              value={form.reportsToStaffId}
+              allowClear
+              options={tenantEmployees.filter((x) => x.staffId !== edit.e.staffId).map((x) => ({ value: x.staffId, label: x.fullName, hint: `${x.jobTitle} · ${x.staffId}` }))}
+              onChange={(v) => set({ reportsToStaffId: v })}
+            />
+          </div>
+          {creating?.kind === 'section' && quick()}
+        </>
+      ) : (
+      <>
       <div className="ew-grid ew-grid-2">
         <CreatableSelect
           label="Department / cost centre"
@@ -653,6 +791,8 @@ export const PlacementStep: React.FC<StepProps> = (p) => {
       </div>
       {(e('departmentId') || e('designationId')) && <small className="ew-error">{e('departmentId') ?? e('designationId')}</small>}
       {creating?.kind === 'designation' && quick()}
+      </>
+      )}
 
       {dept && (
         <p className="ew-hint ew-cc">
@@ -752,10 +892,77 @@ export const PlacementStep: React.FC<StepProps> = (p) => {
 /* ------------------------------------------------------------------ */
 
 export const ContractStep: React.FC<StepProps> = (p) => {
-  const { form, set, errors, showErrors } = p;
+  const { form, set, errors, showErrors, edit } = p;
   const { hrEmployees } = useApp();
   const e = (k: string) => (showErrors ? errors[k] : undefined);
   const ct = CONTRACT_TYPES.find((c) => c.name === form.contractType);
+
+  if (edit) {
+    const r = edit.e;
+    const daily = /daily/i.test(r.contractType);
+    const probationOpen = (r.probationMonths ?? 0) > 0 && r.probationStatus !== 'CONFIRMED';
+    return (
+      <>
+        <SectionTitle>Contract</SectionTitle>
+        <div className="ew-grid">
+          <LockedField label="Contract type" value={r.contractType} span={2} />
+          <LockedField label="Staff ID" value={r.staffId} />
+          <LockedField label="Start date" value={fmtDate(r.contractStartDate ?? r.joinedDate)} />
+          {ct && !ct.hasEndDate ? <LockedField label="Retirement age" value={`${form.retirementAge}${r.retirementDate ? ` · retires ${fmtDate(r.retirementDate)}` : ''}`} /> : <LockedField label="End date" value={fmtDate(r.contractEndDate)} />}
+          <LockedField label="Probation" value={r.probationMonths ? `${r.probationMonths} months${r.probationStatus ? ` · ${r.probationStatus.toLowerCase()}` : ''}` : 'None'} />
+        </div>
+        <LockedNote
+          edit={edit}
+          text="Contract type, dates and probation are part of the signed contract, so they change through a renewal, conversion or probation decision."
+          kinds={[
+            { kind: 'RENEW_CONTRACT', label: 'Renew contract', show: !!ct?.hasEndDate && !daily },
+            { kind: 'CONVERT_CONTRACT', label: 'Convert contract', show: !daily },
+            { kind: 'CONFIRM_PROBATION', label: 'Confirm probation', show: probationOpen },
+            { kind: 'EXTEND_PROBATION', label: 'Extend probation', show: probationOpen }
+          ]}
+        />
+
+        <SectionTitle>Working terms</SectionTitle>
+        <div className="ew-grid">
+          <TextField label="Notice period (days)" type="number" value={form.noticeDays} onChange={(v) => set({ noticeDays: v })} error={e('noticeDays')} />
+          <TextField label="Work schedule" span={2} value={form.workSchedule} onChange={(v) => set({ workSchedule: v })} placeholder="e.g. Mon–Fri, 8:00–17:00 or Shift work" />
+        </div>
+
+        <SectionTitle>Leave entitlement</SectionTitle>
+        <div className="ew-grid">
+          <TextField
+            label="Annual leave (working days / year)"
+            required
+            type="number"
+            min="0"
+            max="60"
+            value={form.leaveAnnualDays}
+            onChange={(v) => set({ leaveAnnualDays: v })}
+            error={e('leaveAnnualDays')}
+            hint={`${(Number(form.leaveAnnualDays || 0) / 12).toFixed(2)} days accrue per month`}
+          />
+          <label className="req-field">
+            <span>How leave is credited</span>
+            <select className="form-control" value={form.leaveAccrual} onChange={(ev) => set({ leaveAccrual: ev.target.value as EmployeeForm['leaveAccrual'] })}>
+              <option value="MONTHLY">Accrues monthly</option>
+              <option value="UPFRONT">Full entitlement at start of year</option>
+            </select>
+          </label>
+          <label className="ew-check ew-span-2 ew-check-field">
+            <input type="checkbox" checked={form.leaveDuringProbation} onChange={(ev) => set({ leaveDuringProbation: ev.target.checked })} />
+            <span>Can take annual leave during probation</span>
+          </label>
+        </div>
+        {errors.leaveAnnualDaysWarn && (
+          <div className="ew-warn">
+            <AlertTriangle size={14} /> {errors.leaveAnnualDaysWarn}
+          </div>
+        )}
+
+        <CustomFieldsBlock {...p} group="contract" />
+      </>
+    );
+  }
 
   return (
     <>
@@ -867,7 +1074,7 @@ export const ContractStep: React.FC<StepProps> = (p) => {
 /* ------------------------------------------------------------------ */
 
 export const PaymentStep: React.FC<StepProps> = (p) => {
-  const { form, set, errors, showErrors } = p;
+  const { form, set, errors, showErrors, edit } = p;
   const [banks, setBanks] = useState(KENYAN_BANKS);
   const e = (k: string) => (showErrors ? errors[k] : undefined);
   const ct = CONTRACT_TYPES.find((c) => c.name === form.contractType);
@@ -889,6 +1096,20 @@ export const PaymentStep: React.FC<StepProps> = (p) => {
   return (
     <>
       <SectionTitle>Pay</SectionTitle>
+      {edit ? (
+        <>
+          <div className="ew-grid">
+            <LockedField label={basis.field} value={`${kes(rate)} ${basis.unit.replace('KES ', '')}`} />
+            <LockedField label="Allowances" value={form.allowances.length ? form.allowances.map((a) => `${a.label} ${kes(Number(a.amount) || 0)}`).join(' · ') : 'None'} span={2} />
+          </div>
+          <LockedNote
+            edit={edit}
+            text="Pay changes take effect from the open payroll period or later and are kept in the salary history, so a manager approves them."
+            kinds={[{ kind: 'PROMOTION', label: 'Request a promotion / increment', show: !/daily/i.test(edit.e.contractType) }]}
+          />
+        </>
+      ) : (
+      <>
       <div className="ew-grid">
         <TextField label={basis.field} required type="number" min="0" value={form.payRate} onChange={(v) => set({ payRate: v })} error={e('payRate')} hint={basis.unit} />
       </div>
@@ -923,6 +1144,8 @@ export const PaymentStep: React.FC<StepProps> = (p) => {
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
 
       <SectionTitle>Tax settings</SectionTitle>
@@ -1094,11 +1317,29 @@ export const PaymentStep: React.FC<StepProps> = (p) => {
             }}
           />
           <TextField label="Bank branch" value={form.bankBranch} onChange={(v) => set({ bankBranch: v })} />
-          <TextField label="Account number" required value={form.bankAccount} onChange={(v) => set({ bankAccount: v })} error={e('bankAccount') ?? e('bankName')} span={2} />
+          <TextField
+            label="Account number"
+            required={!edit}
+            value={form.bankAccount}
+            placeholder={edit ? 'Leave blank to keep the account on file' : undefined}
+            onChange={(v) => set({ bankAccount: v })}
+            error={e('bankAccount') ?? e('bankName')}
+            hint={edit ? onFileHint(edit, edit.e.bankAccountMasked, '') : undefined}
+            span={2}
+          />
         </div>
       ) : (
         <div className="ew-grid">
-          <TextField label="M-Pesa number" required type="tel" placeholder="0712 345 678" value={form.mpesaNumber} onChange={(v) => set({ mpesaNumber: v })} error={e('mpesaNumber')} />
+          <TextField
+            label="M-Pesa number"
+            required={!edit}
+            type="tel"
+            placeholder={edit ? 'Leave blank to keep' : '0712 345 678'}
+            value={form.mpesaNumber}
+            onChange={(v) => set({ mpesaNumber: v })}
+            error={e('mpesaNumber')}
+            hint={edit ? onFileHint(edit, edit.e.mpesaPhoneMasked, '') : undefined}
+          />
         </div>
       )}
 
@@ -1142,7 +1383,7 @@ export const AdditionalStep: React.FC<StepProps> = (p) => {
 /* ------------------------------------------------------------------ */
 
 export const ReviewStep: React.FC<{ form: EmployeeForm; goTo: (s: StepId) => void }> = ({ form, goTo }) => {
-  const { orgStructure: org, customFields, tenantEmployees } = useApp();
+  const { orgStructure: org, customFields, tenantEmployees, hrEmployees } = useApp();
   const name = (list: { id: string; name?: string; title?: string }[], id: string) => {
     const x = list.find((i) => i.id === id);
     return x ? x.name ?? x.title ?? '' : '';
@@ -1201,8 +1442,10 @@ export const ReviewStep: React.FC<{ form: EmployeeForm; goTo: (s: StepId) => voi
           ['National ID', form.nationalId],
           ['KRA PIN', form.kraPin],
           ['Mobile', form.phone],
-          ['Email', form.personalEmail],
-          ['Next of kin', form.kinName ? `${form.kinName} (${form.kinRelationship || '—'}) ${form.kinPhone}` : '']
+          ['Work email', form.workEmail || suggestWorkEmail(form, CONTRACT_TYPES, hrEmployees)],
+          ['Personal email', form.personalEmail],
+          ['Photo', form.photoUrl ? 'Uploaded' : 'Not added'],
+          ['Next of kin', kinSummary(kinFromDrafts(form.kins ?? []).nextOfKins ?? [])]
         ])}
         {block('placement', 'Placement', [
           ['Branch', name(org.branches, form.branchId)],

@@ -1,10 +1,16 @@
 import { useSyncExternalStore } from 'react';
 import type { NavigationTarget } from '../context/AppContext';
+import type { HREmployee } from '../types';
+import { WORKFORCE } from '../data/workforce';
+import { isCompanyEmail } from '../utils/emailRouting';
 
 /**
  * Emulated unified sign-in. Mirrors the Integrated ERP login flow — email and password, an authenticator
  * code for accounts that have one, a lock-out after repeated wrong passwords and a 12-hour session — but
  * runs entirely in the browser with demo accounts. Nothing here is real security.
+ *
+ * Staff sign in with the work email on their Employee Master record — never a personal address — so a change
+ * of work email in Edit details changes the sign-in, and leavers lose access when their record closes.
  */
 
 export type Role = 'admin' | 'manager' | 'member' | 'viewer' | 'employee';
@@ -46,6 +52,67 @@ export const ROLE_LABEL: Record<Role, string> = {
   employee: 'Employee portal only'
 };
 
+/* ------------------------------------------------ Employee Master directory */
+
+let directory: HREmployee[] = WORKFORCE;
+
+const initialsOf = (name: string) =>
+  name
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w[0])
+    .filter((_, i, a) => i === 0 || i === a.length - 1)
+    .join('')
+    .toUpperCase();
+
+/** Role from the job: managers approve, HR/finance/admin officers work in their modules, others are not set up. */
+const roleFromJob = (e: HREmployee): Pick<Account, 'role' | 'landing'> | null => {
+  const t = e.jobTitle.toLowerCase();
+  if (/director|manager|head|chief|supervisor|controller/.test(t)) return { role: 'manager', landing: 'apps' };
+  if (/payroll|hr |human resource|officer|accountant|administrator|analyst|coordinator/.test(`${t} `)) return { role: 'member', landing: /payroll/.test(t) ? 'payroll' : 'apps' };
+  return null;
+};
+
+const closed = (e: HREmployee) => e.status === 'TERMINATED' || (!!e.exitDate && e.exitDate < new Date().toISOString().slice(0, 10));
+
+/** Named accounts follow their employee record's current work email; the admin and portal accounts are fixed. */
+const accountsNow = (): Account[] =>
+  ACCOUNTS.map((a) => {
+    if (!a.staffId || a.role === 'employee') return a;
+    const e = directory.find((x) => x.staffId === a.staffId);
+    return e?.email ? { ...a, email: e.email.toLowerCase(), name: e.fullName } : a;
+  });
+
+/** Demo accounts with today's work emails from the Employee Master. */
+export const demoAccounts = () => accountsNow();
+
+type Lookup = { account: Account } | { error: string } | null;
+
+/** Finds who an address belongs to: a named account, or any active employee by work email. */
+const lookup = (email: string): Lookup => {
+  const named = accountsNow().find((a) => a.email === email);
+  const staff = directory.find((e) => (e.email ?? '').toLowerCase() === email);
+  if (staff && closed(staff)) return { error: 'This work account was closed when the employment ended. Notices about final dues go to the personal email on file.' };
+  if (named) return { account: named };
+  if (staff) {
+    const r = roleFromJob(staff);
+    if (!r) return { error: `${staff.fullName} has no workspace access. Self-service in this demo opens with portal@intergrated-erp.ke.` };
+    return { account: { email, name: staff.fullName, initials: initialsOf(staff.fullName), title: staff.jobTitle, staffId: staff.staffId, ...r } };
+  }
+  const personal = directory.find((e) => (e.personalEmail ?? '').toLowerCase() === email);
+  if (personal) return { error: `That is a personal email. Sign in with your work email (${personal.email}) — personal email only receives your notices.` };
+  return null;
+};
+
+/** Keeps sign-in in step with the Employee Master (work email changes, new hires, leavers). */
+export const setDirectory = (list: HREmployee[]) => {
+  if (list === directory) return;
+  directory = list;
+  const before = snapshot;
+  refresh();
+  if (before?.email !== snapshot?.email || before?.name !== snapshot?.name || !!before !== !!snapshot) emit();
+};
+
 const SESSION_KEY = 'ieui.session';
 const ATTEMPTS_KEY = 'ieui.loginAttempts';
 const SESSION_HOURS = 12;
@@ -54,6 +121,8 @@ const LOCK_MINUTES = 15;
 
 interface StoredSession {
   email: string;
+  /** Employee behind the session, so a later change of work email keeps it */
+  staffId?: string;
   signedInAt: number;
   expiresAt: number;
 }
@@ -94,8 +163,15 @@ const load = (): StoredSession | null => {
 let current: StoredSession | null = load();
 let snapshot: (Account & { signedInAt: number; expiresAt: number }) | null = null;
 const refresh = () => {
-  const a = current && ACCOUNTS.find((x) => x.email === current!.email);
-  snapshot = a && current ? { ...a, signedInAt: current.signedInAt, expiresAt: current.expiresAt } : null;
+  if (!current) {
+    snapshot = null;
+    return;
+  }
+  // Follow the employee if HR changed the work email after sign-in
+  const moved = current.staffId && !current.email.endsWith('@integrated.local') && current.email !== 'portal@intergrated-erp.ke' ? directory.find((e) => e.staffId === current!.staffId)?.email?.toLowerCase() : undefined;
+  const found = lookup(moved ?? current.email);
+  const a = found && 'account' in found ? found.account : undefined;
+  snapshot = a ? { ...a, signedInAt: current.signedInAt, expiresAt: current.expiresAt } : null;
 };
 refresh();
 
@@ -130,7 +206,11 @@ export const signIn = (emailRaw: string, password: string, code: string, remembe
     const mins = Math.ceil((LOCK_MINUTES * 60_000 - (Date.now() - mine.since)) / 60_000);
     return { ok: false, locked: true, error: `Too many attempts. Try again in ${mins} minute${mins === 1 ? '' : 's'}.` };
   }
-  const account = ACCOUNTS.find((a) => a.email === email);
+  const found = lookup(email);
+  if (found && 'error' in found) return { ok: false, error: found.error };
+  if (!found && email.includes('@') && !isCompanyEmail(email) && !email.endsWith('@integrated.local'))
+    return { ok: false, error: 'Sign in with your company work email (name@intergrated-erp.ke)' };
+  const account = found?.account;
   if (!account || password !== DEMO_PASSWORD) {
     const count = (windowOpen ? mine.count : 0) + 1;
     write('local', ATTEMPTS_KEY, JSON.stringify({ ...all, [email]: { count, since: windowOpen ? mine.since : Date.now() } }));
@@ -143,7 +223,7 @@ export const signIn = (emailRaw: string, password: string, code: string, remembe
   }
   const { [email]: _cleared, ...rest } = all;
   write('local', ATTEMPTS_KEY, JSON.stringify(rest));
-  current = { email, signedInAt: Date.now(), expiresAt: Date.now() + SESSION_HOURS * 3_600_000 };
+  current = { email, staffId: account.staffId, signedInAt: Date.now(), expiresAt: Date.now() + SESSION_HOURS * 3_600_000 };
   memory = current;
   write(remember ? 'local' : 'session', SESSION_KEY, JSON.stringify(current));
   write(remember ? 'session' : 'local', SESSION_KEY, null);

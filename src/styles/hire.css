@@ -896,3 +896,224 @@
     justify-content: center;
   }
 }
+
+/* Next of kin — several people, one primary */
+.nok-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nok-card {
+  margin: 0;
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 10px 14px 14px;
+  background: var(--bg-surface);
+}
+.nok-card.is-primary {
+  border-color: color-mix(in srgb, var(--brand-primary) 45%, var(--border-default));
+}
+.nok-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  float: left;
+}
+.nok-head + * {
+  clear: both;
+}
+.nok-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.nok-primary,
+.nok-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nok-primary.active {
+  border-color: var(--brand-primary);
+  color: var(--brand-primary);
+  background: color-mix(in srgb, var(--brand-primary) 8%, transparent);
+}
+.nok-remove {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.nok-remove:hover {
+  color: var(--status-critical, #b91c1c);
+  border-color: currentColor;
+}
+.nok-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+.nok-wide {
+  grid-column: span 1;
+}
+.nok-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.nok-total {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.nok-total.bad {
+  color: var(--status-critical, #b91c1c);
+  font-weight: 600;
+}
+.nok-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+@media (max-width: 720px) {
+  .nok-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Employee photos */
+.emp-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-surface-subtle, #eef2f0);
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
+}
+.emp-avatar-initials {
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(140deg, #237857, #153e33);
+  border: none;
+  letter-spacing: 0.02em;
+}
+.emp-photo-upload {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.emp-photo-frame {
+  position: relative;
+  flex: none;
+}
+.emp-photo-cam {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-surface);
+  background: var(--brand-primary);
+  color: #fff;
+  cursor: pointer;
+}
+.emp-photo-cam:disabled {
+  opacity: 0.7;
+}
+.emp-photo-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.emp-photo-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.hi-profile-top {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.hi-profile-top > .pr-kv {
+  flex: 1;
+  min-width: 260px;
+}
+.hi-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Portal: next of kin list and photo controls */
+.ess-kin-list {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ess-kin-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle, var(--border-default));
+  border-radius: 10px;
+}
+.ess-kin-list li > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.ess-kin-list .ess-hint {
+  flex-basis: 100%;
+}
+.ess-kin-share {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-primary);
+}
+.ess-link-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-decoration: underline;
+}

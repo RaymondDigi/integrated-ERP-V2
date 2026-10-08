@@ -1,3 +1,5 @@
+import type { HREmployee } from '../../types';
+import { kinFromDrafts } from '../../utils/nextOfKin';
 import React, { useMemo, useState } from 'react';
 import {
   Home,
@@ -102,7 +104,7 @@ const greeting = () => {
 const timeNow = () => new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
 export const EssPortalView: React.FC = () => {
-  const { leaveRequests, createLeaveRequest, cancelLeaveRequest, addToast, setCurrentView, hrEmployees, leaveCfg, leaveHolidays, essRequests, submitEssRequest, payrollCtx, addAttendancePunch } = useApp();
+  const { leaveRequests, createLeaveRequest, cancelLeaveRequest, addToast, setCurrentView, hrEmployees, updateHrEmployee, logEmployeeEdit, leaveCfg, leaveHolidays, essRequests, submitEssRequest, payrollCtx, addAttendancePunch } = useApp();
   // Keep the assistant's working-day maths on the same calendar as HR (holidays for this employee's site)
   const essOrg = hrEmployees.find((e) => e.staffId === ESS_EMPLOYEE.staffId)?.orgId;
   setAiHolidays(leaveHolidays.filter((h) => h.location === 'ALL' || h.location === essOrg).map((h) => ({ date: h.observed || h.date, name: h.name })));
@@ -122,6 +124,29 @@ export const EssPortalView: React.FC = () => {
     setSyncedContactKey(recordContactKey);
     setProfile((p) => ({ ...p, ...profileFromRecord(recordForProfile) }));
   }
+  // What the employee changes here is saved on their employee record, so HR, payroll and notices use it too
+  const saveProfile = (p: EssProfileData) => {
+    setProfile(p);
+    const rec = hrEmployees.find((e) => e.staffId === ESS_EMPLOYEE.staffId);
+    if (!rec) return;
+    const kin = kinFromDrafts(p.kins);
+    const em = p.emName.trim() ? { name: p.emName.trim(), relationship: p.emRelationship.trim(), phone: p.emPhone.trim() } : undefined;
+    const patch: Partial<HREmployee> = {
+      phone: p.phone.trim(),
+      personalEmail: p.personalEmail.trim() || undefined,
+      address: p.address.trim() || undefined,
+      maritalStatus: p.maritalStatus || undefined,
+      ...kin,
+      emergencyContact: em,
+      photoUrl: p.photoUrl
+    };
+    const changed = (Object.keys(patch) as (keyof HREmployee)[]).filter((k) => JSON.stringify(rec[k] ?? null) !== JSON.stringify(patch[k] ?? null) && k !== 'nextOfKin');
+    if (!changed.length) return;
+    const label: Partial<Record<keyof HREmployee, string>> = { phone: 'phone', personalEmail: 'personal email', address: 'address', maritalStatus: 'marital status', nextOfKins: 'next of kin', emergencyContact: 'emergency contact', photoUrl: 'photo' };
+    const summary = `Updated in self-service: ${changed.map((k) => label[k] ?? String(k)).join(', ')}`;
+    updateHrEmployee(rec.staffId, { ...patch, history: [...(rec.history ?? []), { date: today, kind: 'Details updated', summary, by: `${rec.fullName} (self-service)` }] });
+    logEmployeeEdit(rec.staffId, [{ action: summary }], `${rec.fullName} (self-service)`);
+  };
   const [assets, setAssets] = useState<EssAsset[]>(ESS_ASSETS);
   const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
 
@@ -231,7 +256,7 @@ export const EssPortalView: React.FC = () => {
         openNewRequest(a.type, a.details);
         break;
       case 'fix-profile':
-        setProfile((p) => ({ ...p, ...a.patch }));
+        saveProfile({ ...profile, ...a.patch });
         addToast({ type: 'success', title: 'Profile corrected', message: 'The suggested fix was applied to your profile.' });
         break;
       case 'agent':
@@ -253,7 +278,7 @@ export const EssPortalView: React.FC = () => {
           </button>
           <div className="ess-hero-row">
             <div className="ess-identity">
-              <div className="ess-avatar">{ESS_EMPLOYEE.initials}</div>
+              {essRecord?.photoUrl ? <img className="ess-avatar ess-photo" src={essRecord.photoUrl} alt={ESS_EMPLOYEE.fullName} /> : <div className="ess-avatar">{ESS_EMPLOYEE.initials}</div>}
               <div>
                 <span className="ess-eyebrow">Employee Self-Service</span>
                 <h1>
@@ -406,7 +431,7 @@ export const EssPortalView: React.FC = () => {
         {tab === 'profile' && (
           <div className="ess-stack">
             <ProfileCompletenessCard ctx={aiCtx} />
-            <EssProfile profile={profile} onSave={setProfile} onRequestChange={openNewRequest} />
+            <EssProfile profile={profile} onSave={saveProfile} onRequestChange={openNewRequest} />
           </div>
         )}
       </div>

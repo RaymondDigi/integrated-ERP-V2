@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ArrowRight, ArrowUpRight, ChevronDown, Eye, EyeOff, KeyRound, Layers, LoaderCircle, Moon, ShieldCheck, Sun } from 'lucide-react';
 import { BrandLogo } from '../../components/shell/BrandLogo';
 import { useApp } from '../../context/AppContext';
-import { ACCOUNTS, DEMO_MFA_CODE, DEMO_PASSWORD, ROLE_LABEL, signIn } from '../../auth/session';
+import { demoAccounts, DEMO_MFA_CODE, DEMO_PASSWORD, ROLE_LABEL, signIn } from '../../auth/session';
 
 const MODULES = ['People & Payroll', 'Finance', 'Trading', 'Operations', 'Quality', 'Governance'];
 
@@ -199,7 +199,7 @@ export const LoginView: React.FC = () => {
                   <p>
                     Password for every account: <code>{DEMO_PASSWORD}</code>
                   </p>
-                  {ACCOUNTS.map((a) => (
+                  {demoAccounts().map((a) => (
                     <button key={a.email} type="button" onClick={() => pick(a.email)}>
                       <span className="lg-avatar">{a.initials}</span>
                       <span>

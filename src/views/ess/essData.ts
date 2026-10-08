@@ -1,3 +1,4 @@
+import { kinDraftsOf, type KinDraft } from '../../utils/nextOfKin';
 import { WORKFORCE } from '../../data/workforce';
 import { PUBLIC_HOLIDAYS_KE } from '../../data/leaveConfig';
 import { countLeaveDays, leaveBalances } from '../../data/leaveEngine';
@@ -388,6 +389,8 @@ export interface EssProfileData {
   highestQualification: string;
   hasPhoto: boolean;
   photoUrl?: string;
+  /** Everyone named as next of kin (one primary); kinName/kinRelationship/kinPhone mirror the primary */
+  kins: KinDraft[];
   kinName: string;
   kinRelationship: string;
   kinPhone: string;
@@ -405,6 +408,7 @@ export const INITIAL_ESS_PROFILE: EssProfileData = {
   dependants: '',
   highestQualification: '',
   hasPhoto: false,
+  kins: kinDraftsOf({ nextOfKin: ESS_EMPLOYEE.nextOfKin }),
   kinName: ESS_EMPLOYEE.nextOfKin.name,
   kinRelationship: ESS_EMPLOYEE.nextOfKin.relationship,
   kinPhone: ESS_EMPLOYEE.nextOfKin.phone,
@@ -422,6 +426,10 @@ export const profileFromRecord = (r?: HREmployee): Partial<EssProfileData> =>
         ...(r.address ? { address: r.address } : {}),
         ...(r.maritalStatus ? { maritalStatus: r.maritalStatus as EssProfileData['maritalStatus'] } : {}),
         ...(r.nextOfKin ? { kinName: r.nextOfKin.name, kinRelationship: r.nextOfKin.relationship, kinPhone: r.nextOfKin.phone } : {}),
+        ...(r.nextOfKin || r.nextOfKins?.length ? { kins: kinDraftsOf(r) } : {}),
+        // The photo lives on the employee record, so HR and the portal show the same picture
+        hasPhoto: !!r.photoUrl,
+        photoUrl: r.photoUrl,
         ...(r.emergencyContact ? { emName: r.emergencyContact.name, emRelationship: r.emergencyContact.relationship, emPhone: r.emergencyContact.phone } : {})
       }
     : {};

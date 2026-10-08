@@ -1,3 +1,4 @@
+import { EmployeeAvatar } from '../../../components/common/EmployeePhoto';
 import React, { useMemo, useState } from 'react';
 import { Search, ChevronDown, ChevronRight, Pencil } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
@@ -5,11 +6,17 @@ import type { HREmployee } from '../../../types';
 import { usePaged, Pager } from '../../../components/common/Pager';
 import { CONTRACT_TYPES } from '../../../data/hrMockData';
 import { CHANGE_LABEL, type ChangeKind, type EmployeeChange } from '../../../data/hireConfig';
-import { countNodes, daysBetween, fmtDate, gradeOf, orgTree, probationOf, shortGrade, todayIso, type OrgNode } from '../../../data/hireEngine';
+import { countNodes, daysBetween, fmtDate, gradeOf, orgTree, probationOf, reveal, shortGrade, todayIso, type OrgNode } from '../../../data/hireEngine';
 import { Card, Empty, Pill, Stat, initials } from './shared';
-import { ChangeModal, DecideChangeModal, ProfileDrawer, reveal } from './EmployeeProfile';
-import { EditDetailsModal } from './EditDetailsModal';
+import { ChangeModal, DecideChangeModal, ProfileDrawer } from './EmployeeProfile';
+import { AddEmployeeWizard } from '../employee-wizard/AddEmployeeWizard';
 import { ProbationTab } from './OnboardingTabs';
+
+/** Personal email is personal data: shown in full only with Show PII on. */
+const maskEmail = (v: string) => {
+  const [local, domain] = v.split('@');
+  return `${local.slice(0, 2)}${'•'.repeat(Math.max(3, local.length - 2))}@${domain}`;
+};
 
 const findType = (name: string) => CONTRACT_TYPES.find((c) => c.name === name);
 const isRateBased = (name: string) => ['DAILY_RATE', 'OUTPUT_RATE'].includes(findType(name)?.payBasis ?? '');
@@ -27,7 +34,7 @@ const useProfile = (unmask = false) => {
   return { open: setId, node: e ? <ProfileDrawer key={e.staffId} e={e} unmask={unmask} onClose={() => setId(null)} /> : null };
 };
 
-/** Edit details straight from a directory row; pay and job changes hand over to the change request. */
+/** Edit details from a directory row in the Add employee screens; pay and job changes hand over to the change request. */
 const useEditDetails = (unmask: boolean) => {
   const { hrEmployees } = useApp();
   const [id, setId] = useState<string | null>(null);
@@ -39,8 +46,8 @@ const useEditDetails = (unmask: boolean) => {
     node: (
       <>
         {e && (
-          <EditDetailsModal
-            e={e}
+          <AddEmployeeWizard
+            employee={e}
             unmask={unmask}
             onClose={() => setId(null)}
             onRequestChange={(kind) => {
@@ -76,7 +83,7 @@ export const DirectoryTab: React.FC<{ unmask: boolean }> = ({ unmask }) => {
   const list = tenantEmployees
     .filter((e) => (status === 'All' ? true : status === 'Current' ? e.status !== 'TERMINATED' : status === 'Probation' ? (() => { const p = probationOf(e, hireRules.probationMonths); return p.applies && p.status !== 'CONFIRMED' && e.status !== 'TERMINATED'; })() : e.status === status))
     .filter((e) => filterType === 'All' || e.contractType === filterType)
-    .filter((e) => !search || `${e.fullName} ${e.staffId} ${e.department} ${e.jobTitle}`.toLowerCase().includes(search.toLowerCase()))
+    .filter((e) => !search || `${e.fullName} ${e.staffId} ${e.department} ${e.jobTitle} ${e.email} ${e.personalEmail ?? ''}`.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => (b.joinedDate > today ? 1 : 0) - (a.joinedDate > today ? 1 : 0) || a.staffId.localeCompare(b.staffId));
   const pg = usePaged(list, 25, `${filterType}|${status}|${search}`);
 
@@ -92,7 +99,7 @@ export const DirectoryTab: React.FC<{ unmask: boolean }> = ({ unmask }) => {
       <div className="digicraft-toolbar" style={{ marginBottom: 16 }}>
         <div className="digicraft-search-box">
           <Search size={16} className="digicraft-search-icon" />
-          <input type="text" placeholder="Search employee by name, staff ID, department, or title..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input type="text" placeholder="Search employee by name, staff ID, email, department, or title..." value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <div className="digicraft-filter-pills">
           {['All', ...CONTRACT_TYPES.map((c) => c.name)].map((t) => (
@@ -118,6 +125,7 @@ export const DirectoryTab: React.FC<{ unmask: boolean }> = ({ unmask }) => {
               <tr>
                 <th>Staff ID</th>
                 <th>Employee Name</th>
+                <th>Work / Personal Email</th>
                 <th>Contract & Grade</th>
                 <th>Department / Branch</th>
                 <th>National ID</th>
@@ -129,7 +137,7 @@ export const DirectoryTab: React.FC<{ unmask: boolean }> = ({ unmask }) => {
               </tr>
             </thead>
             <tbody>
-              {pg.rows.length === 0 && <Empty cols={10}>No employees found for current organization and search criteria.</Empty>}
+              {pg.rows.length === 0 && <Empty cols={11}>No employees found for current organization and search criteria.</Empty>}
               {pg.rows.map((emp) => {
                 const p = probationOf(emp, hireRules.probationMonths);
                 const startsLater = emp.joinedDate > today;
@@ -139,8 +147,21 @@ export const DirectoryTab: React.FC<{ unmask: boolean }> = ({ unmask }) => {
                       <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 12 }}>{emp.staffId}</span>
                     </td>
                     <td>
-                      <div style={{ fontWeight: 600 }}>{emp.fullName}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{emp.jobTitle}</div>
+                      <div className="hi-name-cell">
+                        <EmployeeAvatar name={emp.fullName} photoUrl={emp.photoUrl} size={34} />
+                        <div>
+                          <div style={{ fontWeight: 600 }}>{emp.fullName}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{emp.jobTitle}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="hi-mono" style={{ fontSize: 11.5 }} title="Work email — sign-in and approvals">
+                        {emp.email}
+                      </div>
+                      <div className="hi-sub" title="Personal email — payslips and personal notices">
+                        {emp.personalEmail ? (unmask ? emp.personalEmail : maskEmail(emp.personalEmail)) : <span style={{ color: '#d97706' }}>No personal email</span>}
+                      </div>
                     </td>
                     <td>
                       <span className={`digicraft-status-pill ${contractTone(emp.contractType)}`}>{emp.contractType}</span>

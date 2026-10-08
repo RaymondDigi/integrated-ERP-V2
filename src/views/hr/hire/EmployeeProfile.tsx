@@ -1,3 +1,7 @@
+import { PhotoUpload } from '../../../components/common/EmployeePhoto';
+import { useSession } from '../../../auth/session';
+import { usePhotoActions } from './usePhotoActions';
+import { kinOf } from '../../../utils/nextOfKin';
 import React, { useState } from 'react';
 import { Eye, EyeOff, TrendingUp, ArrowLeftRight, FileClock, BadgeCheck, CalendarPlus, Lock, FileText, Pencil } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
@@ -7,9 +11,9 @@ import { GRADE_SCALES } from '../../../data/orgData';
 import { CONTRACT_TYPES } from '../../../data/hrMockData';
 import { allowances, basicFor, isCasual, MONTHS, periodKey } from '../../../data/payrollEngine';
 import { supervisorFor } from '../../../data/leaveConfig';
-import { addDays, annualCost, bandOf, bandPosition, daysBetween, fmtDate, gradeOf, kes, monthlyCost, probationOf, salaryTimeline, shortGrade, todayIso } from '../../../data/hireEngine';
+import { addDays, annualCost, bandOf, bandPosition, daysBetween, fmtDate, gradeOf, kes, monthlyCost, probationOf, salaryTimeline, reveal, shortGrade, todayIso } from '../../../data/hireEngine';
 import { Drawer, Field, Modal, Pill, PersonSelect, Progress, useApprovers } from './shared';
-import { EditDetailsModal, reveal } from './EditDetailsModal';
+import { AddEmployeeWizard } from '../employee-wizard/AddEmployeeWizard';
 
 const SECTIONS = ['Personal & KYC', 'Job', 'Pay', 'Documents', 'History'] as const;
 type Section = (typeof SECTIONS)[number];
@@ -44,6 +48,8 @@ export const ProfileDrawer: React.FC<{ e: HREmployee; onClose: () => void; unmas
   const ct = CONTRACT_TYPES.find((c) => c.name === e.contractType);
   const station = orgStructure.stations.find((s) => s.id === e.stationId)?.name;
   const leaving = e.status === 'TERMINATED' || !!e.exitDate;
+  const session = useSession();
+  const { setPhoto, photoError } = usePhotoActions();
 
   const actions: { kind: ChangeKind; label: string; icon: typeof TrendingUp; show: boolean }[] = [
     { kind: 'CONFIRM_PROBATION', label: 'Confirm probation', icon: BadgeCheck, show: prob.applies && prob.status !== 'CONFIRMED' },
@@ -98,25 +104,28 @@ export const ProfileDrawer: React.FC<{ e: HREmployee; onClose: () => void; unmas
         }
       >
         <div className="hi-profile-head">
-          <div className="pr-kv">
-            <div>
-              <span>Status</span>
-              <strong>
-                <Pill tone={e.status === 'ACTIVE' ? 'success' : e.status === 'TERMINATED' ? 'danger' : 'warning'}>{e.joinedDate > todayIso() ? 'Starting' : e.status.replace('_', ' ').toLowerCase()}</Pill>
-              </strong>
-              <small>
-                {fmtDate(e.joinedDate)} · {tenure(e.joinedDate)}
-              </small>
-            </div>
-            <div>
-              <span>Grade</span>
-              <strong>{shortGrade(grade)}</strong>
-              <small>{e.grade ? 'Recorded' : 'From salary band'}</small>
-            </div>
-            <div>
-              <span>Probation</span>
-              <strong style={{ fontSize: 13 }}>{prob.applies ? prob.status.replace('_', ' ').toLowerCase() : 'Not applicable'}</strong>
-              <small>{prob.applies ? `${prob.status === 'CONFIRMED' ? 'Ended' : 'Ends'} ${fmtDate(prob.end)}` : e.contractType}</small>
+          <div className="hi-profile-top">
+            <PhotoUpload name={e.fullName} photoUrl={e.photoUrl} size={84} withButtons={false} onChange={(url) => setPhoto(e, url, session?.name ?? 'HR office')} onError={photoError} />
+            <div className="pr-kv">
+              <div>
+                <span>Status</span>
+                <strong>
+                  <Pill tone={e.status === 'ACTIVE' ? 'success' : e.status === 'TERMINATED' ? 'danger' : 'warning'}>{e.joinedDate > todayIso() ? 'Starting' : e.status.replace('_', ' ').toLowerCase()}</Pill>
+                </strong>
+                <small>
+                  {fmtDate(e.joinedDate)} · {tenure(e.joinedDate)}
+                </small>
+              </div>
+              <div>
+                <span>Grade</span>
+                <strong>{shortGrade(grade)}</strong>
+                <small>{e.grade ? 'Recorded' : 'From salary band'}</small>
+              </div>
+              <div>
+                <span>Probation</span>
+                <strong style={{ fontSize: 13 }}>{prob.applies ? prob.status.replace('_', ' ').toLowerCase() : 'Not applicable'}</strong>
+                <small>{prob.applies ? `${prob.status === 'CONFIRMED' ? 'Ended' : 'Ends'} ${fmtDate(prob.end)}` : e.contractType}</small>
+              </div>
             </div>
           </div>
           {pending.length > 0 && (
@@ -143,20 +152,44 @@ export const ProfileDrawer: React.FC<{ e: HREmployee; onClose: () => void; unmas
               <dt>Date of birth</dt>
               <dd>{fmtDate(e.dateOfBirth)}</dd>
               <dt>Work email</dt>
-              <dd>{e.email}</dd>
+              <dd>
+                {e.email}
+                <div className="hi-sub">Sign-in and approval requests</div>
+              </dd>
               <dt>Phone</dt>
               <dd>
                 {e.phone}
                 {e.phoneExtension ? ` · ext. ${e.phoneExtension}` : ''}
               </dd>
               <dt>Personal email</dt>
-              <dd>{e.personalEmail ?? '—'}</dd>
+              <dd>
+                {e.personalEmail ?? '—'}
+                <div className="hi-sub">{e.personalEmail ? 'Payslips, leave and request decisions, exit and final dues' : 'Not on file — personal notices go to the work email'}</div>
+              </dd>
               <dt>Marital status</dt>
               <dd>{e.maritalStatus ?? '—'}</dd>
               <dt>Address</dt>
               <dd>{e.address ?? '—'}</dd>
-              <dt>Next of kin</dt>
-              <dd>{e.nextOfKin ? `${e.nextOfKin.name} (${e.nextOfKin.relationship}), ${e.nextOfKin.phone}` : 'On the personnel file'}</dd>
+              <dt>Next of kin{kinOf(e).length > 1 ? ` (${kinOf(e).length})` : ''}</dt>
+              <dd>
+                {kinOf(e).length ? (
+                  <ul className="nok-list">
+                    {kinOf(e).map((k, i) => (
+                      <li key={i}>
+                        <strong>{k.name}</strong> ({k.relationship || '—'}), {k.phone}
+                        {k.primary && kinOf(e).length > 1 ? <span style={{ marginLeft: 6 }}><Pill tone="primary">Primary</Pill></span> : null}
+                        {(k.email || k.benefitPct !== undefined) && (
+                          <div className="hi-sub">
+                            {[k.email, k.benefitPct !== undefined ? `${k.benefitPct}% benefit share` : ''].filter(Boolean).join(' · ')}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  'On the personnel file'
+                )}
+              </dd>
               <dt>Emergency contact</dt>
               <dd>{e.emergencyContact ? `${e.emergencyContact.name} (${e.emergencyContact.relationship}), ${e.emergencyContact.phone}` : '—'}</dd>
             </dl>
@@ -356,8 +389,8 @@ export const ProfileDrawer: React.FC<{ e: HREmployee; onClose: () => void; unmas
       </Drawer>
       {change && <ChangeModal e={e} kind={change} onClose={() => setChange(null)} />}
       {editing && (
-        <EditDetailsModal
-          e={e}
+        <AddEmployeeWizard
+          employee={e}
           unmask={unmask}
           onClose={() => setEditing(false)}
           onRequestChange={(k) => {

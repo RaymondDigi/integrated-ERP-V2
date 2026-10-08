@@ -1081,3 +1081,86 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Editing an employee in the same screens */
+.ew-locked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface-subtle, rgba(0, 0, 0, 0.03));
+  color: var(--text-primary);
+  font-size: 13.5px;
+}
+.ew-locked svg {
+  flex: none;
+  color: var(--text-tertiary);
+}
+.ew-locked-note {
+  margin-bottom: 14px;
+  margin-top: 12px;
+}
+.ew-locked-note > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ew-locked-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.ew-edit-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 4px 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.ew-edit-summary .ew-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+}
+.ew-changes {
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  overflow-x: auto;
+  margin-bottom: 14px;
+}
+.ew-changes .hr-table {
+  margin: 0;
+}
+.ew-changes td {
+  vertical-align: top;
+}
+.ew-change-from {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-tertiary) 50%, transparent);
+  word-break: break-word;
+}
+.ew-change-to {
+  font-weight: 600;
+  word-break: break-word;
+}
+.ew-change-sensitive {
+  background: color-mix(in srgb, #d97706 6%, transparent);
+}
+.ew-sens-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #b45309;
+  background: color-mix(in srgb, #d97706 14%, transparent);
+}

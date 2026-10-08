@@ -1,32 +1,82 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, Check, ChevronLeft, ChevronRight, UserPlus, AlertCircle } from 'lucide-react';
+import { X, Check, ChevronLeft, ChevronRight, UserPlus, AlertCircle, UserPen, Save, Eye, EyeOff } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
 import { CONTRACT_TYPES } from '../../../data/hrMockData';
+import { hrOfficer, todayIso } from '../../../data/hireEngine';
+import type { ChangeKind } from '../../../data/hireConfig';
+import type { HREmployee } from '../../../types';
+import { useApprovers } from '../hire/shared';
 import { STEPS, emptyForm, nextStaffId, validateStep, blockingErrors, buildEmployee, type EmployeeForm, type StepId } from './wizardModel';
-import { PersonalStep, PlacementStep, ContractStep, PaymentStep, AdditionalStep, ReviewStep } from './WizardSteps';
+import { PersonalStep, PlacementStep, ContractStep, PaymentStep, AdditionalStep, ReviewStep, type EditCtx } from './WizardSteps';
+import { diffEmployee, formFromEmployee } from './employeeEdit';
+import { EditReviewStep } from './EditReviewStep';
 
-export const AddEmployeeWizard: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { hrEmployees, orgStructure, customFields, addHrEmployee, activeTenantSettings: co } = useApp();
+interface Props {
+  onClose: () => void;
+  /** Edit this employee in the same screens used to add one */
+  employee?: HREmployee;
+  unmask?: boolean;
+  /** Job, pay and contract changes hand over to the approved change requests */
+  onRequestChange?: (k: ChangeKind) => void;
+}
+
+const EDIT_STEPS = STEPS.map((s) => (s.id === 'review' ? { ...s, label: 'Review & save', hint: 'Check the changes and confirm' } : s));
+
+export const AddEmployeeWizard: React.FC<Props> = ({ onClose, employee, unmask: unmaskInitial = false, onRequestChange }) => {
+  const { hrEmployees, orgStructure, customFields, addHrEmployee, updateHrEmployee, logEmployeeEdit, addToast, payrollOpenPeriod, activeTenantSettings: co } = useApp();
+  const editing = !!employee;
+  const steps = editing ? EDIT_STEPS : STEPS;
   // New employees start with the active company's rules
   const companyDefaults = {
     probationMonths: String(co.probation.defaultMonths),
     retirementAge: String(co.retirement.normalAge),
     leaveAnnualDays: String(co.leave.annualDays)
   };
-  const [form, setForm] = useState<EmployeeForm>(() => ({ ...emptyForm(nextStaffId(hrEmployees)), ...companyDefaults }));
+  // Editing: the record as loaded, kept to work out what changed
+  const initial = useMemo(
+    () => (employee ? formFromEmployee(employee, orgStructure, hrEmployees, payrollOpenPeriod) : { ...emptyForm(nextStaffId(hrEmployees)), ...companyDefaults }),
+    // Loaded once when the wizard opens
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+  const [form, setForm] = useState<EmployeeForm>(initial);
   const [stepIdx, setStepIdx] = useState(0);
-  const [reached, setReached] = useState(0);
+  // Every step of an existing record can be opened straight away
+  const [reached, setReached] = useState(editing ? STEPS.length - 1 : 0);
   const [tried, setTried] = useState<Partial<Record<StepId, boolean>>>({});
   const [addAnother, setAddAnother] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [unmask, setUnmask] = useState(unmaskInitial);
+  const [reason, setReason] = useState('');
 
-  const step = STEPS[stepIdx];
-  const vctx = { contractTypes: CONTRACT_TYPES, customFields, employees: hrEmployees };
+  // Who records an edit: HR staff of the company, defaulting to its HR officer
+  const approvers = useApprovers();
+  const hrPeople = useMemo(() => {
+    const others = approvers.filter((p) => p.staffId !== employee?.staffId);
+    const hrOnly = others.filter((p) => /\bHR\b|human resource/i.test(p.jobTitle));
+    return hrOnly.length ? hrOnly : others;
+  }, [approvers, employee?.staffId]);
+  const officer = employee ? hrOfficer(employee.orgId, hrEmployees) : undefined;
+  const [actor, setActor] = useState((hrPeople.find((p) => p.staffId === officer?.staffId) ?? hrPeople[0])?.staffId ?? '');
+
+  const step = steps[stepIdx];
+  const vctx = { contractTypes: CONTRACT_TYPES, customFields, employees: hrEmployees, editing: employee, initial };
   const errors = useMemo(() => validateStep(step.id, form, vctx), [step.id, form, customFields, hrEmployees]); // eslint-disable-line react-hooks/exhaustive-deps
   const stepValid = (id: StepId) => blockingErrors(validateStep(id, form, vctx)).length === 0;
-  const dirty = !!(form.firstName || form.lastName || form.nationalId || form.phone);
+  const diff = useMemo(() => (employee ? diffEmployee(employee, initial, form, { org: orgStructure, employees: hrEmployees, customFields }) : null), [employee, initial, form, orgStructure, hrEmployees, customFields]);
+  const dirty = editing ? !!diff?.changes.length : !!(form.firstName || form.lastName || form.nationalId || form.phone);
 
   const set = (patch: Partial<EmployeeForm>) => setForm((f) => ({ ...f, ...patch }));
+  const editCtx: EditCtx | undefined = employee
+    ? {
+        e: employee,
+        unmask,
+        onRequestChange: (k) => {
+          if (diff?.changes.length) addToast({ type: 'info', title: 'Unsaved edits discarded', message: 'Save your edits first if you need them, then raise the request.' });
+          onRequestChange?.(k);
+        }
+      }
+    : undefined;
 
   const requestClose = () => (dirty ? setConfirmClose(true) : onClose());
 
@@ -44,24 +94,29 @@ export const AddEmployeeWizard: React.FC<{ onClose: () => void }> = ({ onClose }
       document.querySelector('.ew-body')?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
-    const n = Math.min(STEPS.length - 1, stepIdx + 1);
+    const n = Math.min(steps.length - 1, stepIdx + 1);
     setStepIdx(n);
     setReached((r) => Math.max(r, n));
   };
 
   const goTo = (id: StepId) => {
-    const i = STEPS.findIndex((s) => s.id === id);
+    const i = steps.findIndex((s) => s.id === id);
     if (i <= reached) setStepIdx(i);
   };
 
-  const create = () => {
-    const firstBad = STEPS.slice(0, -1).find((s) => !stepValid(s.id));
-    if (firstBad) {
-      setTried((t) => ({ ...t, [firstBad.id]: true }));
-      goTo(firstBad.id);
-      return;
+  /** First step with blocking errors, opened with its errors showing. */
+  const firstInvalid = () => {
+    const bad = steps.slice(0, -1).find((s) => !stepValid(s.id));
+    if (bad) {
+      setTried((t) => ({ ...t, [bad.id]: true }));
+      goTo(bad.id);
     }
-    addHrEmployee(buildEmployee(form, orgStructure, CONTRACT_TYPES));
+    return bad;
+  };
+
+  const create = () => {
+    if (firstInvalid()) return;
+    addHrEmployee(buildEmployee(form, orgStructure, CONTRACT_TYPES, hrEmployees));
     if (addAnother) {
       // Keep placement & contract choices to speed up batch onboarding
       const keep = {
@@ -92,8 +147,39 @@ export const AddEmployeeWizard: React.FC<{ onClose: () => void }> = ({ onClose }
     }
   };
 
+  const save = () => {
+    if (!employee || !diff) return;
+    if (firstInvalid()) return;
+    setTried((t) => ({ ...t, review: true }));
+    if (!diff.changes.length) {
+      addToast({ type: 'info', title: 'Nothing changed', message: `${employee.fullName}'s record is unchanged.` });
+      return;
+    }
+    if (diff.sensitive.length && reason.trim().length < 5) return;
+    if (!actor) return;
+    const by = hrEmployees.find((x) => x.staffId === actor)?.fullName ?? 'HR office';
+    const why = reason.trim();
+    const labels = diff.changes.map((c) => c.label).join(', ');
+    updateHrEmployee(employee.staffId, { ...diff.patch, history: [...(employee.history ?? []), { date: todayIso(), kind: 'Details updated', summary: `Changed ${labels}${why ? ` — ${why}` : ''}`, by }] });
+    logEmployeeEdit(
+      employee.staffId,
+      [{ action: `Details updated: ${labels}` }, ...diff.sensitive.map((c) => ({ action: `${c.label}: ${c.from} → ${c.to}${why ? ` (reason: ${why})` : ''}`, sensitive: true }))],
+      by
+    );
+    const payroll = diff.sensitive.some((c) => /bank|M-Pesa|pay rail|tax|statutory/.test(c.label));
+    addToast({ type: 'success', title: 'Details saved', message: `${diff.patch.fullName ?? employee.fullName}: ${labels} updated.${payroll ? ` Payroll uses the new details from ${payrollOpenPeriod.label}.` : ''}` });
+    onClose();
+  };
+
+  /** Editing: save from any step once every step is valid. */
+  const reviewAndSave = () => {
+    if (firstInvalid()) return;
+    setStepIdx(steps.length - 1);
+  };
+
   const showErrors = !!tried[step.id];
   const errorCount = showErrors ? blockingErrors(errors).length : 0;
+  const changeCount = diff?.changes.length ?? 0;
 
   return (
     <div className="ew-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
@@ -101,24 +187,23 @@ export const AddEmployeeWizard: React.FC<{ onClose: () => void }> = ({ onClose }
         {/* Stepper */}
         <aside className="ew-stepper">
           <div className="ew-stepper-head">
-            <span className="ew-stepper-icon">
-              <UserPlus size={18} />
-            </span>
+            <span className="ew-stepper-icon">{editing ? <UserPen size={18} /> : <UserPlus size={18} />}</span>
             <div>
-              <h2 id="ew-title">New employee</h2>
+              <h2 id="ew-title">{employee ? `Edit ${employee.fullName}` : 'New employee'}</h2>
               <span>
-                Step {stepIdx + 1} of {STEPS.length}
+                {employee ? `${employee.staffId} · ` : ''}Step {stepIdx + 1} of {steps.length}
               </span>
             </div>
           </div>
           <ol>
-            {STEPS.map((s, i) => {
-              const done = i < reached || (i < stepIdx);
-              const state = i === stepIdx ? 'current' : done && stepValid(s.id) ? 'done' : done ? 'warn' : i <= reached ? 'open' : 'todo';
+            {steps.map((s, i) => {
+              const done = editing ? i !== stepIdx : i < reached || i < stepIdx;
+              const valid = s.id === 'review' || stepValid(s.id);
+              const state = i === stepIdx ? 'current' : done && valid ? 'done' : done ? 'warn' : i <= reached ? 'open' : 'todo';
               return (
                 <li key={s.id} className={`ew-step ${state}`}>
                   <button type="button" disabled={i > reached} onClick={() => goTo(s.id)} aria-current={i === stepIdx ? 'step' : undefined}>
-                    <span className="ew-step-dot">{state === 'done' ? <Check size={13} /> : state === 'warn' ? '!' : i + 1}</span>
+                    <span className="ew-step-dot">{state === 'done' && !editing ? <Check size={13} /> : state === 'warn' ? '!' : i + 1}</span>
                     <span className="ew-step-text">
                       <b>{s.label}</b>
                       <small>{s.hint}</small>
@@ -128,9 +213,18 @@ export const AddEmployeeWizard: React.FC<{ onClose: () => void }> = ({ onClose }
               );
             })}
           </ol>
-          <div className="ew-progress" aria-hidden="true">
-            <span style={{ width: `${((stepIdx + 1) / STEPS.length) * 100}%` }} />
-          </div>
+          {editing ? (
+            <div className="ew-edit-summary">
+              <span>{changeCount ? `${changeCount} change${changeCount > 1 ? 's' : ''}${diff?.sensitive.length ? ` · ${diff.sensitive.length} sensitive` : ''}` : 'No changes yet'}</span>
+              <button type="button" className="ew-link" onClick={() => setUnmask((x) => !x)}>
+                {unmask ? <EyeOff size={13} /> : <Eye size={13} />} {unmask ? 'Mask numbers' : 'Reveal numbers'}
+              </button>
+            </div>
+          ) : (
+            <div className="ew-progress" aria-hidden="true">
+              <span style={{ width: `${((stepIdx + 1) / steps.length) * 100}%` }} />
+            </div>
+          )}
         </aside>
 
         {/* Content */}
@@ -151,18 +245,33 @@ export const AddEmployeeWizard: React.FC<{ onClose: () => void }> = ({ onClose }
                 <AlertCircle size={15} /> Fix {errorCount} field{errorCount === 1 ? '' : 's'} highlighted below to continue.
               </div>
             )}
-            {step.id === 'personal' && <PersonalStep form={form} set={set} errors={errors} showErrors={showErrors} />}
-            {step.id === 'placement' && <PlacementStep form={form} set={set} errors={errors} showErrors={showErrors} />}
-            {step.id === 'contract' && <ContractStep form={form} set={set} errors={errors} showErrors={showErrors} />}
-            {step.id === 'payment' && <PaymentStep form={form} set={set} errors={errors} showErrors={showErrors} />}
-            {step.id === 'additional' && <AdditionalStep form={form} set={set} errors={errors} showErrors={showErrors} />}
-            {step.id === 'review' && <ReviewStep form={form} goTo={goTo} />}
+            {step.id === 'personal' && <PersonalStep form={form} set={set} errors={errors} showErrors={showErrors} edit={editCtx} />}
+            {step.id === 'placement' && <PlacementStep form={form} set={set} errors={errors} showErrors={showErrors} edit={editCtx} />}
+            {step.id === 'contract' && <ContractStep form={form} set={set} errors={errors} showErrors={showErrors} edit={editCtx} />}
+            {step.id === 'payment' && <PaymentStep form={form} set={set} errors={errors} showErrors={showErrors} edit={editCtx} />}
+            {step.id === 'additional' && <AdditionalStep form={form} set={set} errors={errors} showErrors={showErrors} edit={editCtx} />}
+            {step.id === 'review' &&
+              (diff ? (
+                <EditReviewStep
+                  changes={diff.changes}
+                  reason={reason}
+                  setReason={setReason}
+                  actor={actor}
+                  setActor={setActor}
+                  people={hrPeople}
+                  showErrors={!!tried.review}
+                  goTo={goTo}
+                  payrollFrom={payrollOpenPeriod.label}
+                />
+              ) : (
+                <ReviewStep form={form} goTo={goTo} />
+              ))}
           </div>
 
           <footer className="ew-footer">
             {confirmClose ? (
               <div className="ew-confirm">
-                <span>Discard this new employee? Your entries will be lost.</span>
+                <span>{editing ? `Discard ${changeCount} unsaved change${changeCount === 1 ? '' : 's'}?` : 'Discard this new employee? Your entries will be lost.'}</span>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setConfirmClose(false)}>
                   Keep editing
                 </button>
@@ -177,19 +286,32 @@ export const AddEmployeeWizard: React.FC<{ onClose: () => void }> = ({ onClose }
                 </button>
                 <span className="ew-footer-spacer" />
                 {step.id === 'review' ? (
+                  editing ? (
+                    <button type="button" className="btn btn-primary" onClick={save} disabled={!changeCount}>
+                      <Save size={15} /> Save changes
+                    </button>
+                  ) : (
+                    <>
+                      <label className="ew-check">
+                        <input type="checkbox" checked={addAnother} onChange={(e) => setAddAnother(e.target.checked)} />
+                        <span>Add another after this</span>
+                      </label>
+                      <button type="button" className="btn btn-primary" onClick={create}>
+                        <UserPlus size={15} /> Create employee
+                      </button>
+                    </>
+                  )
+                ) : (
                   <>
-                    <label className="ew-check">
-                      <input type="checkbox" checked={addAnother} onChange={(e) => setAddAnother(e.target.checked)} />
-                      <span>Add another after this</span>
-                    </label>
-                    <button type="button" className="btn btn-primary" onClick={create}>
-                      <UserPlus size={15} /> Create employee
+                    {editing && changeCount > 0 && (
+                      <button type="button" className="btn btn-secondary" onClick={reviewAndSave}>
+                        <Save size={15} /> Review & save
+                      </button>
+                    )}
+                    <button type="button" className="btn btn-primary" onClick={next}>
+                      Continue <ChevronRight size={15} />
                     </button>
                   </>
-                ) : (
-                  <button type="button" className="btn btn-primary" onClick={next}>
-                    Continue <ChevronRight size={15} />
-                  </button>
                 )}
               </>
             )}

@@ -1,3 +1,6 @@
+import { emptyKin, kinErrors, kinFromDrafts, type KinDraft } from '../../../utils/nextOfKin';
+import { workEmail } from '../../../data/hireEngine';
+import { personalEmailError, workEmailError } from '../../../utils/emailRouting';
 import type {
   ContractTypeDefinition,
   CustomFieldDefinition,
@@ -33,11 +36,18 @@ export interface EmployeeForm {
   shifNo: string;
   maritalStatus: string;
   phone: string;
+  /** Company address for sign-in and approvals; blank uses the suggested one */
+  workEmail: string;
   personalEmail: string;
+  /** Square photo as a data URL; optional */
+  photoUrl: string;
   address: string;
-  kinName: string;
-  kinRelationship: string;
-  kinPhone: string;
+  /** Next of kin — one or more, one primary */
+  kins: KinDraft[];
+  ecName: string;
+  ecRelationship: string;
+  ecPhone: string;
+  phoneExtension: string;
   // Placement
   branchId: string;
   stationId: string;
@@ -90,11 +100,15 @@ export const emptyForm = (staffId: string): EmployeeForm => ({
   shifNo: '',
   maritalStatus: '',
   phone: '',
+  workEmail: '',
   personalEmail: '',
+  photoUrl: '',
   address: '',
-  kinName: '',
-  kinRelationship: '',
-  kinPhone: '',
+  kins: [emptyKin(true)],
+  ecName: '',
+  ecRelationship: '',
+  ecPhone: '',
+  phoneExtension: '',
   branchId: '',
   stationId: '',
   departmentId: '',
@@ -145,7 +159,6 @@ export const PAY_BASIS_LABEL: Record<ContractTypeDefinition['payBasis'], { field
 };
 
 const PHONE_RE = /^\+?[\d\s]{9,16}$/;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const KRA_RE = /^[AP]\d{9}[A-Z]$/i;
 
 export type Errors = Partial<Record<string, string>>;
@@ -170,8 +183,11 @@ const customErrors = (group: EmployeeFieldGroup, form: EmployeeForm, fields: Cus
 export const validateStep = (
   step: StepId,
   form: EmployeeForm,
-  ctx: { contractTypes: ContractTypeDefinition[]; customFields: CustomFieldDefinition[]; employees: HREmployee[] }
+  ctx: { contractTypes: ContractTypeDefinition[]; customFields: CustomFieldDefinition[]; employees: HREmployee[]; editing?: HREmployee; initial?: EmployeeForm }
 ): Errors => {
+  // Editing: job, pay and contract terms are locked (changed through approved requests); masked numbers left blank stay on file
+  const ed = ctx.editing;
+  const others = ed ? ctx.employees.filter((x) => x.staffId !== ed.staffId) : ctx.employees;
   const e: Errors = {};
   const req = (k: keyof EmployeeForm, label: string) => {
     if (!String(form[k] ?? '').trim()) e[k] = `${label} is required`;
@@ -180,30 +196,40 @@ export const validateStep = (
   if (step === 'personal') {
     req('firstName', 'First name');
     req('lastName', 'Last name');
-    req('gender', 'Gender');
-    req('dateOfBirth', 'Date of birth');
-    req('nationalId', 'National ID / passport');
+    // Older records may lack these; editing does not force them to be filled
+    if (!ed || ed.gender) req('gender', 'Gender');
+    if (!ed || ed.dateOfBirth) req('dateOfBirth', 'Date of birth');
+    if (!ed) req('nationalId', 'National ID / passport');
     req('phone', 'Mobile number');
     if (form.dateOfBirth && age(form.dateOfBirth) < 18) e.dateOfBirth = 'Employee must be at least 18 years old';
     if (form.nationalId && !/^[A-Z0-9]{6,10}$/i.test(form.nationalId.trim())) e.nationalId = 'Use 6–10 letters or digits';
     const digits = (v: string) => v.replace(/\D/g, '').slice(-9);
-    if (form.phone && ctx.employees.some((x) => digits(x.phone) === digits(form.phone)))
+    if (form.phone && others.some((x) => digits(x.phone) === digits(form.phone)))
       e.phoneWarn = 'Another employee already uses this mobile number — check this is not a duplicate record';
     if (form.phone && !PHONE_RE.test(form.phone.trim())) e.phone = 'Use a format like +254 712 345 678';
-    if (form.personalEmail && !EMAIL_RE.test(form.personalEmail)) e.personalEmail = 'Enter a valid email';
+    const pe = personalEmailError(form.personalEmail);
+    if (pe) e.personalEmail = pe;
+    const we = form.workEmail.trim() || ed ? workEmailError(form.workEmail, ed?.staffId, ctx.employees) : '';
+    if (we) e.workEmail = we;
     if (form.kraPin && !KRA_RE.test(form.kraPin.trim())) e.kraPin = 'KRA PIN looks like A123456789B';
-    if (form.kinPhone && !PHONE_RE.test(form.kinPhone.trim())) e.kinPhone = 'Check the number';
+    Object.assign(e, kinErrors(form.kins ?? []));
+    if ((form.ecRelationship || form.ecPhone) && !form.ecName.trim()) e.ecName = 'Name the emergency contact';
+    if (form.ecName.trim() && !form.ecPhone.trim()) e.ecPhone = 'A phone number is needed for emergencies';
+    else if (form.ecPhone.trim() && !PHONE_RE.test(form.ecPhone.trim())) e.ecPhone = 'Check the number';
+    if (form.phoneExtension.trim() && !/^\d{2,6}$/.test(form.phoneExtension.trim())) e.phoneExtension = '2–6 digits';
     customErrors('personal', form, ctx.customFields, e);
   }
 
   if (step === 'placement') {
-    req('branchId', 'Branch');
-    req('departmentId', 'Department');
-    req('designationId', 'Designation');
+    if (!(ed && ed.branch)) req('branchId', 'Branch');
+    if (!ed) {
+      req('departmentId', 'Department');
+      req('designationId', 'Designation');
+    }
     customErrors('placement', form, ctx.customFields, e);
   }
 
-  if (step === 'contract') {
+  if (step === 'contract' && !ed) {
     req('contractType', 'Contract type');
     req('staffId', 'Staff ID');
     req('startDate', 'Start date');
@@ -222,21 +248,36 @@ export const validateStep = (
     if (form.staffId && ctx.employees.some((x) => x.staffId.toLowerCase() === form.staffId.trim().toLowerCase())) e.staffId = 'This staff ID is already used';
     const p = Number(form.probationMonths);
     if (form.probationMonths && (isNaN(p) || p < 0 || p > 12)) e.probationMonths = '0–12 months';
+  }
+  if (step === 'contract') {
+    if (ed) {
+      const ld = Number(form.leaveAnnualDays);
+      if (form.leaveAnnualDays === '' || isNaN(ld) || ld < 0 || ld > 60) e.leaveAnnualDays = 'Enter 0–60 days';
+      else if (ld < 21) e.leaveAnnualDaysWarn = 'Below the statutory minimum of 21 working days per year';
+    }
+    if (form.noticeDays && !(Number(form.noticeDays) >= 0)) e.noticeDays = 'Enter the number of days';
     customErrors('contract', form, ctx.customFields, e);
   }
 
   if (step === 'payment') {
-    if (!(Number(form.payRate) > 0)) e.payRate = 'Enter an amount greater than zero';
-    form.allowances.forEach((a, i) => {
-      if (!a.label.trim()) e[`allow:${i}`] = 'Name the allowance';
-      else if (!(Number(a.amount) > 0)) e[`allow:${i}`] = 'Enter an amount';
-    });
+    if (!ed) {
+      if (!(Number(form.payRate) > 0)) e.payRate = 'Enter an amount greater than zero';
+      form.allowances.forEach((a, i) => {
+        if (!a.label.trim()) e[`allow:${i}`] = 'Name the allowance';
+        else if (!(Number(a.amount) > 0)) e[`allow:${i}`] = 'Enter an amount';
+      });
+    }
+    const onFile = (v?: string) => !!v && v !== '—';
     if (form.paymentMethod === 'BANK') {
       req('bankName', 'Bank');
-      req('bankAccount', 'Account number');
+      // Editing: a blank account keeps the one on file, unless the bank changed
+      const bankChanged = !!ed && form.bankName !== (ctx.initial?.bankName ?? '');
+      if (!ed || bankChanged || !onFile(ed.bankAccountMasked)) {
+        if (!form.bankAccount.trim()) e.bankAccount = bankChanged ? 'Enter the account number at the new bank' : 'Account number is required';
+      }
       if (form.bankAccount && !/^\d{6,16}$/.test(form.bankAccount.replace(/\s/g, ''))) e.bankAccount = 'Digits only, 6–16 long';
     } else {
-      req('mpesaNumber', 'M-Pesa number');
+      if (!ed || !onFile(ed.mpesaPhoneMasked)) req('mpesaNumber', 'M-Pesa number');
       if (form.mpesaNumber && !/^(\+?254|0)7\d{8}$/.test(form.mpesaNumber.replace(/\s/g, ''))) e.mpesaNumber = 'Use a Safaricom number, e.g. 0712 345 678';
     }
     if (form.pwdExempt && !form.taxExempt) {
@@ -260,7 +301,21 @@ export const blockingErrors = (e: Errors) => Object.keys(e).filter((k) => !k.end
 const mask = (v: string, keepStart = 2, keepEnd = 1) =>
   v.length <= keepStart + keepEnd ? v : `${v.slice(0, keepStart)}${'*'.repeat(Math.max(3, v.length - keepStart - keepEnd))}${v.slice(-keepEnd)}`;
 
-export const buildEmployee = (form: EmployeeForm, org: OrgStructure, contractTypes: ContractTypeDefinition[]): Omit<HREmployee, 'id' | 'orgId'> => {
+/** The company address a new employee gets: initial.surname, numbered when someone already has it. */
+export const suggestWorkEmail = (form: Pick<EmployeeForm, 'firstName' | 'middleName' | 'lastName' | 'contractType'>, contractTypes: ContractTypeDefinition[], employees: HREmployee[]) => {
+  const fullName = [form.firstName, form.middleName, form.lastName].map((x) => x.trim()).filter(Boolean).join(' ');
+  if (!fullName) return '';
+  const daily = contractTypes.find((c) => c.name === form.contractType)?.payBasis === 'DAILY_RATE';
+  const base = workEmail(fullName, daily);
+  const taken = new Set(employees.map((e) => (e.email ?? '').toLowerCase()));
+  if (!taken.has(base)) return base;
+  const [local, domain] = base.split('@');
+  let n = 2;
+  while (taken.has(`${local}${n}@${domain}`)) n++;
+  return `${local}${n}@${domain}`;
+};
+
+export const buildEmployee = (form: EmployeeForm, org: OrgStructure, contractTypes: ContractTypeDefinition[], employees: HREmployee[] = []): Omit<HREmployee, 'id' | 'orgId'> => {
   const branch = org.branches.find((b) => b.id === form.branchId);
   const dept = org.departments.find((d) => d.id === form.departmentId);
   const station = org.stations.find((s) => s.id === form.stationId);
@@ -281,11 +336,14 @@ export const buildEmployee = (form: EmployeeForm, org: OrgStructure, contractTyp
     gender: form.gender || undefined,
     dateOfBirth: form.dateOfBirth,
     maritalStatus: form.maritalStatus || undefined,
-    email: form.personalEmail.trim(),
+    email: (form.workEmail.trim() || suggestWorkEmail(form, contractTypes, employees)).toLowerCase(),
     personalEmail: form.personalEmail.trim() || undefined,
+    photoUrl: form.photoUrl || undefined,
     phone: form.phone.trim(),
     address: form.address.trim() || undefined,
-    nextOfKin: form.kinName.trim() ? { name: form.kinName.trim(), relationship: form.kinRelationship.trim(), phone: form.kinPhone.trim() } : undefined,
+    ...kinFromDrafts(form.kins ?? []),
+    emergencyContact: form.ecName.trim() ? { name: form.ecName.trim(), relationship: form.ecRelationship.trim(), phone: form.ecPhone.trim() } : undefined,
+    phoneExtension: form.phoneExtension.trim() || undefined,
     nationalIdMasked: mask(form.nationalId.trim()),
     kraPinMasked: form.kraPin ? mask(form.kraPin.trim().toUpperCase(), 3, 2) : '—',
     nssfNoMasked: form.nssfNo ? mask(form.nssfNo.trim(), 3, 1) : '—',

@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
-import { Users, Eye, EyeOff, UserPlus, ShieldCheck, FileClock, Network, Inbox } from 'lucide-react';
+import { Users, Eye, EyeOff, UserPlus, ShieldCheck, FileClock, Network, Inbox, Mail } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { AddEmployeeWizard } from './employee-wizard/AddEmployeeWizard';
 import { HireHeader, useModuleTab, type TabDef } from './hire/shared';
 import { DirectoryTab, ChangesTab, ContractsTab, OrgChartTab } from './hire/EmployeeTabs';
 import { EmployeeRequestsTab } from './requests/EmployeeRequestsTab';
+import { NotificationsTab } from './hire/NotificationsTab';
 
 const TABS: TabDef[] = [
   { id: 'directory', label: 'Directory', icon: Users },
   { id: 'requests', label: 'Employee requests', icon: Inbox },
   { id: 'changes', label: 'Changes & audit', icon: ShieldCheck },
   { id: 'contracts', label: 'Contracts & probation', icon: FileClock },
-  { id: 'orgchart', label: 'Org chart', icon: Network }
+  { id: 'orgchart', label: 'Org chart', icon: Network },
+  { id: 'notifications', label: 'Email & notifications', icon: Mail }
 ];
 
 export const EmployeeMasterView: React.FC = () => {
@@ -46,7 +48,7 @@ export const EmployeeMasterView: React.FC = () => {
           </>
         }
       />
-      {tab === 'requests' ? <EmployeeRequestsTab /> : tab === 'changes' ? <ChangesTab /> : tab === 'contracts' ? <ContractsTab /> : tab === 'orgchart' ? <OrgChartTab /> : <DirectoryTab unmask={unmaskPii} />}
+      {tab === 'requests' ? <EmployeeRequestsTab /> : tab === 'changes' ? <ChangesTab /> : tab === 'contracts' ? <ContractsTab /> : tab === 'orgchart' ? <OrgChartTab /> : tab === 'notifications' ? <NotificationsTab /> : <DirectoryTab unmask={unmaskPii} />}
       {wizardOpen && <AddEmployeeWizard onClose={() => setWizardOpen(false)} />}
     </div>
   );

@@ -1,4 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { PhotoUpload } from '../../components/common/EmployeePhoto';
+import { NextOfKinEditor } from '../../components/forms/NextOfKinEditor';
+import { kinErrors, kinFromDrafts } from '../../utils/nextOfKin';
+import React, { useEffect, useState } from 'react';
 import {
   Printer,
   Download,
@@ -14,8 +17,7 @@ import {
   Building2,
   Phone,
   Mail,
-  ShieldCheck,
-  Camera
+  ShieldCheck
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import {
@@ -500,7 +502,6 @@ export const EssProfile: React.FC<{
   const { addToast } = useApp();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(profile);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   // Keep the draft in sync when the profile changes elsewhere (e.g. an AI fix)
   useEffect(() => {
@@ -510,32 +511,25 @@ export const EssProfile: React.FC<{
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.personalEmail);
   const phoneOk = (p: string) => p.trim() === '' || /^\+?[\d\s]{9,16}$/.test(p.trim());
   const dependantsOk = draft.dependants.trim() === '' || /^\d{1,2}$/.test(draft.dependants.trim());
-  const valid = emailOk && /^\+?[\d\s]{9,16}$/.test(draft.phone.trim()) && phoneOk(draft.kinPhone) && phoneOk(draft.emPhone) && dependantsOk;
+  const kinErrs = kinErrors(draft.kins);
+  const kinsShown = kinFromDrafts(profile.kins).nextOfKins ?? [];
+  const valid = emailOk && /^\+?[\d\s]{9,16}$/.test(draft.phone.trim()) && !Object.keys(kinErrs).length && phoneOk(draft.emPhone) && dependantsOk;
 
   const save = () => {
     if (!valid) return;
-    onSave(draft);
+    // The primary next of kin is mirrored into the single fields older screens and the assistant read
+    const { nextOfKin } = kinFromDrafts(draft.kins);
+    onSave({ ...draft, kinName: nextOfKin?.name ?? '', kinRelationship: nextOfKin?.relationship ?? '', kinPhone: nextOfKin?.phone ?? '' });
     setEditing(false);
     addToast({ type: 'success', title: 'Profile updated', message: 'Your personal, contact and next-of-kin details were saved.' });
   };
 
-  const onPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/') || file.size > 3 * 1024 * 1024) {
-      addToast({ type: 'warning', title: 'Photo not accepted', message: 'Use a JPG or PNG image under 3 MB.' });
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      onSave({ ...profile, hasPhoto: true, photoUrl: String(reader.result) });
-      addToast({ type: 'success', title: 'Photo updated', message: 'Your profile photo was uploaded.' });
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+  const onPhoto = (photoUrl: string | undefined) => {
+    onSave({ ...profile, hasPhoto: !!photoUrl, photoUrl });
+    addToast({ type: 'success', title: photoUrl ? 'Photo updated' : 'Photo removed', message: photoUrl ? 'HR, your manager and the staff directory now show this photo.' : 'Your initials are shown instead.' });
   };
 
-  type TextKey = Exclude<keyof EssProfileData, 'hasPhoto' | 'photoUrl' | 'maritalStatus'>;
+  type TextKey = Exclude<keyof EssProfileData, 'hasPhoto' | 'photoUrl' | 'maritalStatus' | 'kins'>;
 
   const field = (key: TextKey, label: string, ok = true, type = 'text', placeholder = '') => (
     <label className="req-field">
@@ -585,16 +579,13 @@ export const EssProfile: React.FC<{
     <div className="ess-profile">
       <aside className="ess-card ess-profile-card">
         <div className="ess-photo-wrap">
-          {profile.photoUrl ? (
-            <img className="ess-avatar lg ess-photo" src={profile.photoUrl} alt={`${ESS_EMPLOYEE.fullName}`} />
-          ) : (
-            <div className="ess-avatar lg">{ESS_EMPLOYEE.initials}</div>
-          )}
-          <button className="ess-photo-btn" onClick={() => fileRef.current?.click()} title="Upload profile photo" aria-label="Upload profile photo">
-            <Camera size={14} />
-          </button>
-          <input ref={fileRef} type="file" accept="image/*" hidden onChange={onPhoto} />
+          <PhotoUpload name={ESS_EMPLOYEE.fullName} photoUrl={profile.photoUrl} size={88} withButtons={false} onChange={onPhoto} onError={(m) => addToast({ type: 'warning', title: 'Photo not accepted', message: m })} />
         </div>
+        {profile.photoUrl && (
+          <button className="ess-link-btn" onClick={() => onPhoto(undefined)}>
+            Remove photo
+          </button>
+        )}
         <h2>{ESS_EMPLOYEE.fullName}</h2>
         <p>{ESS_EMPLOYEE.jobTitle}</p>
         <span className="badge badge-success">Active</span>
@@ -602,8 +593,8 @@ export const EssProfile: React.FC<{
           <li>
             <Building2 size={14} /> {ESS_EMPLOYEE.department}, {ESS_EMPLOYEE.branch}
           </li>
-          <li>
-            <Mail size={14} /> {ESS_EMPLOYEE.workEmail}
+          <li title="Your work email signs you in and receives approval requests">
+            <Mail size={14} /> {ESS_EMPLOYEE.workEmail} <small className="ess-hint">· sign-in</small>
           </li>
           <li>
             <Phone size={14} /> {profile.phone}
@@ -657,17 +648,35 @@ export const EssProfile: React.FC<{
           <h4 className="ess-subhead">Contact</h4>
           <div className="ess-form-grid">
             {field('phone', 'Mobile number', /^\+?[\d\s]{9,16}$/.test(draft.phone.trim()), 'tel')}
-            {field('personalEmail', 'Personal email', emailOk, 'email')}
+            {field('personalEmail', 'Personal email — payslips & notices', emailOk, 'email')}
             {field('address', 'Home address')}
             {field('postalAddress', 'Postal address', true, 'text', 'e.g. P.O. Box 1234-00100 Nairobi')}
           </div>
 
-          <h4 className="ess-subhead">Next of kin & emergency contact</h4>
+          <h4 className="ess-subhead">Next of kin{kinsShown.length > 1 ? ` (${kinsShown.length})` : ''}</h4>
+          {editing ? (
+            <NextOfKinEditor value={draft.kins} onChange={(kins) => setDraft((d) => ({ ...d, kins }))} errors={kinErrs} />
+          ) : (
+            <ul className="ess-kin-list">
+              {kinsShown.map((k, i) => (
+                <li key={i}>
+                  <div>
+                    <strong>{k.name}</strong>
+                    {k.primary && kinsShown.length > 1 && <span className="badge badge-success">Primary</span>}
+                    <span className="ess-hint">
+                      {k.relationship} · {k.phone}
+                      {k.email ? ` · ${k.email}` : ''}
+                    </span>
+                  </div>
+                  {k.benefitPct !== undefined && <span className="ess-kin-share">{k.benefitPct}%</span>}
+                </li>
+              ))}
+              {!kinsShown.length && <li className="ess-missing">No next of kin on file — add at least one.</li>}
+            </ul>
+          )}
+
+          <h4 className="ess-subhead">Emergency contact</h4>
           <div className="ess-form-grid">
-            {field('kinName', 'Next of kin')}
-            {field('kinRelationship', 'Relationship')}
-            {field('kinPhone', 'Next of kin phone', phoneOk(draft.kinPhone), 'tel')}
-            <span />
             {field('emName', 'Emergency contact', true, 'text', 'Someone other than you')}
             {field('emRelationship', 'Relationship')}
             {field('emPhone', 'Emergency phone', phoneOk(draft.emPhone), 'tel')}

@@ -503,6 +503,17 @@ export interface EmployeeAllowance {
   amount: number;
 }
 
+export interface NextOfKin {
+  name: string;
+  relationship: string;
+  phone: string;
+  email?: string;
+  idNumber?: string;
+  /** Share of death-in-service benefits, gratuity and dues (%) */
+  benefitPct?: number;
+  primary?: boolean;
+}
+
 export interface HREmployee {
   id: string;
   orgId: string;
@@ -534,8 +545,13 @@ export interface HREmployee {
   dateOfBirth?: string;
   maritalStatus?: string;
   personalEmail?: string;
+  /** Profile photo (square JPEG data URL, about 320 px) — shared by HR, payroll and the portal */
+  photoUrl?: string;
   address?: string;
+  /** Primary next of kin (kept in step with nextOfKins for the portal and older screens) */
   nextOfKin?: { name: string; relationship: string; phone: string };
+  /** Everyone named as next of kin; one is primary. Benefit shares, when given, total 100%. */
+  nextOfKins?: NextOfKin[];
   branchId?: string;
   stationId?: string;
   departmentId?: string;

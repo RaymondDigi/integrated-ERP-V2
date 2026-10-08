@@ -51,8 +51,11 @@ export const Header: React.FC = () => {
     setIsAiDrawerOpen,
     isLauncherOpen,
     setIsLauncherOpen,
-    addToast
+    addToast,
+    hrEmployees
   } = useApp();
+  // The signed-in person's photo from their employee record
+  const myPhoto = session?.staffId ? hrEmployees.find((e) => e.staffId === session.staffId)?.photoUrl : undefined;
 
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [, setIsAppMenuOpen] = useState(false);
@@ -283,8 +286,8 @@ export const Header: React.FC = () => {
             aria-expanded={isProfileDropdownOpen}
             aria-label="Open User Profile menu"
           >
-            <div className="avatar-img-wrapper" style={{ background: '#237857', color: '#fff', fontWeight: 700 }}>
-              {session?.initials ?? 'JK'}
+            <div className="avatar-img-wrapper" style={{ background: '#237857', color: '#fff', fontWeight: 700, overflow: 'hidden' }}>
+              {myPhoto ? <img src={myPhoto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (session?.initials ?? 'JK')}
             </div>
             <div className="profile-info">
               <span className="profile-name">{session?.name ?? 'Joseph Kiprono'}</span>

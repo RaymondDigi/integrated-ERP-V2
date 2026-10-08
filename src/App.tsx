@@ -1,4 +1,4 @@
-import React, { useLayoutEffect } from 'react';
+import React, { useEffect, useLayoutEffect } from 'react';
 import { useApp } from './context/AppContext';
 import { Header } from './components/shell/Header';
 import { ModuleSidebar } from './components/shell/ModuleSidebar';
@@ -65,10 +65,10 @@ import { SettingsView } from './views/SettingsView';
 import { FormsInputsView } from './views/FormsInputsView';
 import { ProfileView } from './views/ProfileView';
 import { LoginView } from './views/auth/LoginView';
-import { useSession } from './auth/session';
+import { setDirectory, useSession } from './auth/session';
 
 export const App: React.FC = () => {
-  const { currentView, moduleTabs } = useApp();
+  const { currentView, moduleTabs, hrEmployees } = useApp();
   // Every screen and module tab opens at the top
   const tabKey = moduleTabs[currentView] ?? '';
   useLayoutEffect(() => {
@@ -77,6 +77,8 @@ export const App: React.FC = () => {
     window.scrollTo(0, 0);
   }, [currentView, tabKey]);
 
+  // Sign-in follows the Employee Master: work emails, new hires and leavers
+  useEffect(() => setDirectory(hrEmployees), [hrEmployees]);
   // Unified sign-in: nothing behind it until a session exists
   const session = useSession();
   if (!session) return <LoginView />;

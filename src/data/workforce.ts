@@ -1,3 +1,4 @@
+import { demoPersonalEmail } from '../utils/emailRouting';
 import type { HREmployee } from '../types';
 import { INITIAL_HR_EMPLOYEES } from './hrMockData';
 
@@ -170,6 +171,7 @@ const make = (orgId: string, s: Seed, i: number): HREmployee => {
     staffId: s.staffId,
     fullName: s.fullName,
     email: email(s.fullName, casual),
+    personalEmail: demoPersonalEmail(s.fullName, i),
     phone: `+254 7${String(10 + (i % 89)).padStart(2, '0')} ${String(100 + ((i * 37) % 900))} ${String(100 + ((i * 59) % 900))}`,
     ...mask(i),
     contractType: s.contract ?? STD,
@@ -191,8 +193,9 @@ const make = (orgId: string, s: Seed, i: number): HREmployee => {
 const buildWorkforce = (): HREmployee[] => {
   // Original records, with department names aligned to the organisation structure
   const renamed: Record<string, string> = { 'Finance & Payroll': 'Finance & Administration', 'Production & Factory': 'Engineering & Maintenance', 'Customer Service': 'Sales & Marketing' };
-  const out: HREmployee[] = INITIAL_HR_EMPLOYEES.map((e) => ({
+  const out: HREmployee[] = INITIAL_HR_EMPLOYEES.map((e, k) => ({
     ...e,
+    personalEmail: e.personalEmail ?? demoPersonalEmail(e.fullName, k + 1),
     department: renamed[e.department] ?? e.department,
     // Piece-rate operatives earn about 48 units a day
     payRateKes: e.payRateKes ?? (e.pieceRatePerUnitKes ? Math.round(e.pieceRatePerUnitKes * 48) : undefined),
@@ -231,6 +234,14 @@ const HIRE_FIELDS: Record<string, Partial<HREmployee>> = {
 /** Personal details the portal user keeps on file (shown in HR, payroll and the employee portal alike). */
 const PORTAL_USER: Partial<HREmployee> = {
   email: 'j.kiprono@intergrated-erp.ke',
+  // As typed on the portal profile — the portal assistant spots the misspelt domain
+  personalEmail: 'joseph.kiprono@gmial.com',
+  nextOfKin: { name: 'Mercy Kiprono', relationship: 'Spouse', phone: '+254 733 210 448' },
+  nextOfKins: [
+    { name: 'Mercy Kiprono', relationship: 'Spouse', phone: '+254 733 210 448', email: 'mercy.kiprono@gmail.com', idNumber: '28****61', benefitPct: 60, primary: true },
+    { name: 'Ian Kiprotich Kiprono', relationship: 'Son', phone: '+254 733 210 448', benefitPct: 25 },
+    { name: 'Priscah Jeruto Kiprono', relationship: 'Mother', phone: '+254 720 615 302', benefitPct: 15 }
+  ],
   phone: '+254 722 418 905',
   nationalIdMasked: '27*****3',
   kraPinMasked: 'A01*****4K',
@@ -242,6 +253,31 @@ const PORTAL_USER: Partial<HREmployee> = {
   grade: 'JG-12'
 };
 
-export const WORKFORCE: HREmployee[] = buildWorkforce()
-  .map((e) => (HIRE_FIELDS[e.staffId] ? { ...e, ...HIRE_FIELDS[e.staffId] } : e))
-  .map((e) => (e.staffId === 'KHE-0102' ? { ...e, ...PORTAL_USER } : e));
+/** Every work email signs someone in, so it must be unique: later namesakes get j.kiprono2@…, j.kiprono3@… */
+const uniqueEmails = (list: HREmployee[]) => {
+  const seen = new Map<string, number>();
+  const bump = (addr: string) => {
+    const [local, domain] = addr.toLowerCase().split('@');
+    const n = (seen.get(`${local}@${domain}`) ?? 0) + 1;
+    seen.set(`${local}@${domain}`, n);
+    return n === 1 ? `${local}@${domain}` : `${local}${n}@${domain}`;
+  };
+  // Named demo accounts keep their plain address
+  for (const e of list) if (e.staffId.startsWith('KHE-0') && e.email) seen.set(e.email.toLowerCase(), 1);
+  const personal = new Set<string>();
+  return list.map((e) => {
+    const out = e.staffId.startsWith('KHE-0') || !e.email ? e : { ...e, email: bump(e.email) };
+    // Namesakes would share a demo personal address too; tag the later ones with their staff number
+    const pe = out.personalEmail?.toLowerCase();
+    if (!pe) return out;
+    const unique = personal.has(pe) ? pe.replace('@', `.${out.staffId.replace(/\D/g, '').slice(-3)}@`) : pe;
+    personal.add(unique);
+    return unique === out.personalEmail ? out : { ...out, personalEmail: unique };
+  });
+};
+
+export const WORKFORCE: HREmployee[] = uniqueEmails(
+  buildWorkforce()
+    .map((e) => (HIRE_FIELDS[e.staffId] ? { ...e, ...HIRE_FIELDS[e.staffId] } : e))
+    .map((e) => (e.staffId === 'KHE-0102' ? { ...e, ...PORTAL_USER } : e))
+);
