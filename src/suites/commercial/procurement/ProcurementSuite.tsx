@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { LayoutDashboard, ClipboardList, ShoppingCart, PackageCheck, Truck, Boxes, ChevronRight, Clock3, AlertTriangle, Receipt, CheckCircle2, Send, Scale, RotateCcw, FilePlus2 } from 'lucide-react';
+import { LayoutDashboard, ClipboardList, ShoppingCart, PackageCheck, Truck, Boxes, ChevronRight, Clock3, AlertTriangle, Receipt, CheckCircle2, Send, Scale, RotateCcw, FilePlus2, Gavel, Globe, Users, FileSignature, Store, FileCheck2, Warehouse, ListChecks, Ship, CalendarRange, BarChart3, Settings2, ShieldAlert } from 'lucide-react';
 import { useCommercial, type ProcurementPage } from '../store';
 import { approvalRights, needsReorder, poLate, poStage, reqTotal, supplierStats, totals } from '../engine';
 import { daysBetween, kes, round2, TODAY } from '../../finance/engine';
@@ -8,6 +8,24 @@ import { SuiteSidebar, type SuiteNavGroup } from '../../ui/SuiteSidebar';
 import { ComActorSwitcher } from '../parts';
 import { RequisitionsPage, PurchaseOrdersPage, ReceiptsPage, SuppliersPage } from './Purchasing';
 import { ProductsPage } from '../trading/Fulfilment';
+import { EXT_LABEL, useProcurementExt, type ProcExtPage } from './ext/store';
+import { contractsExpiring, expiringDocuments } from './ext/engine';
+import { SourcingPage } from './Sourcing';
+import { VendorsPage } from './Vendors';
+import { SupplierPortalPage } from './SupplierPortal';
+import { ContractsPage } from './Contracts';
+import { CataloguePage } from './Catalogue';
+import { InvoicesPage } from './Invoices';
+import { InventoryPage } from './Inventory';
+import { StoresPage } from './Stores';
+import { LandedPage } from './Landed';
+import { PlanPage } from './Plan';
+import { ReportsPage } from './Reports';
+import { SettingsPage } from './Settings';
+
+type NavPage = ProcurementPage | ProcExtPage;
+const CORE: ProcurementPage[] = ['overview', 'requisitions', 'orders', 'receipts', 'suppliers', 'stock'];
+const isCore = (p: NavPage): p is ProcurementPage => (CORE as string[]).includes(p);
 
 const LABEL: Record<ProcurementPage, string> = {
   overview: 'Overview',
@@ -25,6 +43,7 @@ const greet = () => {
 
 const ProcurementOverview: React.FC = () => {
   const { state, actor, party, setProcurement: go, poValue, reorder } = useCommercial();
+  const ext = useProcurementExt();
   const approved = state.purchaseOrders.filter((o) => o.status === 'APPROVED');
   const spendYtd = round2(approved.filter((o) => o.date.slice(0, 4) === TODAY.slice(0, 4)).reduce((s, o) => s + totals(o.lines, state.products).net, 0));
   const awaiting = state.purchaseOrders.filter((o) => ['AWAITING', 'PART_RECEIVED'].includes(poStage(o)));
@@ -59,6 +78,17 @@ const ProcurementOverview: React.FC = () => {
     if (poLate(o)) items.push({ id: `l${o.id}`, tone: 'critical', icon: <AlertTriangle size={15} />, title: `Chase ${party(o.supplierId)?.name}`, detail: `${o.number} is ${daysBetween(o.expected, TODAY)} days late`, onClick: () => go('orders', o.id) });
   }
   for (const p of lowStock) items.push({ id: p.sku, tone: 'critical', icon: <Boxes size={15} />, title: `Reorder ${p.name}`, detail: `${p.stock} ${p.unit} left, reorder level ${p.reorderLevel}`, onClick: () => go('stock') });
+  const xs = ext.state;
+  for (const { profile, doc, days } of expiringDocuments(xs.suppliers, xs.settings.docAlertDays))
+    items.push({ id: `d${doc.id}`, tone: days < 0 ? 'critical' : 'warning', icon: <ShieldAlert size={15} />, title: `${profile.name}: certificate ${days < 0 ? 'expired' : 'expiring'}`, detail: `${doc.number} ${days < 0 ? `${-days} days ago` : `in ${days} days`}`, onClick: () => ext.go('vendors', profile.id) });
+  for (const { c, days } of contractsExpiring(xs.contracts, xs.settings.contractAlertDays)) items.push({ id: `c${c.id}`, tone: 'warning', icon: <FileSignature size={15} />, title: `Contract ${c.number} ends in ${days} days`, detail: c.title, onClick: () => ext.go('contracts', c.id) });
+  for (const i of xs.invoices.filter((x) => x.status === 'ON_HOLD')) items.push({ id: `h${i.id}`, tone: 'warning', icon: <Receipt size={15} />, title: `Invoice ${i.number} on hold`, detail: i.hold?.reason ?? '', onClick: () => ext.go('invoices', i.id) });
+  if (actor.role === 'MANAGER' || actor.role === 'DIRECTOR') {
+    for (const r of xs.storesReqs.filter((x) => x.status === 'SUBMITTED')) items.push({ id: `sr${r.id}`, tone: 'info', icon: <ListChecks size={15} />, title: `Approve stores request ${r.number}`, detail: `${r.department} · ${r.lines.length} items`, onClick: () => ext.go('stores', r.id) });
+    for (const m of xs.moves.filter((x) => x.status === 'PENDING')) items.push({ id: `mv${m.id}`, tone: 'info', icon: <Warehouse size={15} />, title: `Approve issue ${m.number}`, detail: `${m.costCentre} · ${kes(m.value, { compact: true })}`, onClick: () => ext.go('inventory', 'movements') });
+    for (const p of xs.suppliers.filter((x) => x.status === 'PENDING_APPROVAL')) items.push({ id: `sp${p.id}`, tone: 'info', icon: <Users size={15} />, title: `Approve supplier ${p.name}`, detail: p.category, onClick: () => ext.go('vendors', p.id) });
+  }
+  if (actor.role === 'DIRECTOR' && xs.plan.status === 'SUBMITTED') items.push({ id: 'plan', tone: 'info', icon: <CalendarRange size={15} />, title: `Approve the ${xs.plan.year} procurement plan`, detail: `${xs.plan.lines.length} lines`, onClick: () => ext.go('plan') });
 
   const top = state.purchaseOrders
     .map((o) => o.supplierId)
@@ -88,6 +118,12 @@ const ProcurementOverview: React.FC = () => {
           </button>
           <button type="button" onClick={() => go('orders')}>
             <PackageCheck size={16} /> Receive goods
+          </button>
+          <button type="button" onClick={() => ext.go('catalogue')}>
+            <Store size={16} /> Shop the catalogue
+          </button>
+          <button type="button" onClick={() => ext.go('sourcing', 'new')}>
+            <Gavel size={16} /> New sourcing event
           </button>
           {lowStock[0] && (
             <button
@@ -204,38 +240,69 @@ const ProcurementOverview: React.FC = () => {
 
 export const ProcurementSidebar: React.FC = () => {
   const { state, actor, procurement, setProcurement, reset, poValue } = useCommercial();
+  const ext = useProcurementExt();
+  const xs = ext.state;
   const reqAct = state.requisitions.filter((r) => approvalRights(r, reqTotal(r), actor).can || (r.status === 'APPROVED' && !r.poId)).length;
   const poAct = state.purchaseOrders.filter((o) => approvalRights(o, poValue(o), actor).can || ['TO_SEND', 'TO_BILL'].includes(poStage(o))).length;
-  const groups: SuiteNavGroup<ProcurementPage>[] = [
-    { label: 'Procurement', items: [{ id: 'overview', label: 'Overview', icon: LayoutDashboard }] },
+  const groups: SuiteNavGroup<NavPage>[] = [
+    {
+      label: 'Procurement',
+      items: [
+        { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+        { id: 'reports', label: 'Reports & analytics', icon: BarChart3 },
+        { id: 'plan', label: 'Plan & budget', icon: CalendarRange, badge: xs.plan.status === 'SUBMITTED' ? 1 : 0, badgeTone: 'warning' }
+      ]
+    },
     {
       label: 'Buy',
       items: [
+        { id: 'catalogue', label: 'Shop & catalogue', icon: Store },
         { id: 'requisitions', label: 'Requisitions', icon: ClipboardList, badge: reqAct },
+        { id: 'sourcing', label: 'Sourcing events', icon: Gavel, badge: xs.events.filter((e) => e.status === 'OPEN' || e.status === 'EVALUATION').length, badgeTone: 'neutral' },
         { id: 'orders', label: 'Purchase orders', icon: ShoppingCart, badge: poAct || state.purchaseOrders.filter((o) => poLate(o)).length, badgeTone: poAct ? 'warning' : 'critical' },
-        { id: 'suppliers', label: 'Suppliers', icon: Truck }
+        { id: 'contracts', label: 'Contracts', icon: FileSignature, badge: contractsExpiring(xs.contracts, xs.settings.contractAlertDays).length, badgeTone: 'warning' }
       ]
     },
+    {
+      label: 'Suppliers',
+      items: [
+        { id: 'vendors', label: 'Supplier management', icon: Users, badge: xs.suppliers.filter((p) => p.status === 'PENDING_APPROVAL').length, badgeTone: 'warning' },
+        { id: 'suppliers', label: 'Supplier accounts', icon: Truck },
+        { id: 'portal', label: 'Supplier portal', icon: Globe }
+      ]
+    },
+    { label: 'Pay', items: [{ id: 'invoices', label: 'Invoice matching', icon: FileCheck2, badge: xs.invoices.filter((i) => i.status === 'ON_HOLD').length, badgeTone: 'critical' }] },
     {
       label: 'Stores',
       items: [
         { id: 'receipts', label: 'Goods received', icon: PackageCheck },
-        { id: 'stock', label: 'Stock & reorder', icon: Boxes, badge: state.products.filter((p) => p.kind === 'MATERIAL' && needsReorder(state, p)).length, badgeTone: 'critical' }
+        { id: 'stock', label: 'Stock & reorder', icon: Boxes, badge: state.products.filter((p) => p.kind === 'MATERIAL' && needsReorder(state, p)).length, badgeTone: 'critical' },
+        { id: 'inventory', label: 'Inventory control', icon: Warehouse, badge: xs.moves.filter((m) => m.status === 'PENDING').length, badgeTone: 'warning' },
+        { id: 'stores', label: 'Stores requests', icon: ListChecks, badge: xs.storesReqs.filter((r) => r.status === 'SUBMITTED').length, badgeTone: 'warning' },
+        { id: 'landed', label: 'Landed cost & clearing', icon: Ship }
       ]
-    }
+    },
+    { label: 'Setup', items: [{ id: 'settings', label: 'Settings', icon: Settings2 }] }
   ];
   return (
     <SuiteSidebar
       name="Procurement"
-      tagline="Request · source · order · receive"
+      tagline="Source · buy · receive · pay"
       icon={ShoppingCart}
       groups={groups}
-      active={procurement.page}
-      onSelect={(p) => setProcurement(p)}
+      active={ext.page?.page ?? procurement.page}
+      onSelect={(p) => (isCore(p) ? (ext.page ? ext.goCore(p) : setProcurement(p)) : ext.go(p))}
       footer={
         <div className="sx-side-actor">
           <ComActorSwitcher />
-          <button type="button" className="sx-link sx-reset" onClick={reset}>
+          <button
+            type="button"
+            className="sx-link sx-reset"
+            onClick={() => {
+              reset();
+              ext.reset();
+            }}
+          >
             <RotateCcw size={12} /> Reset demo data
           </button>
         </div>
@@ -245,16 +312,18 @@ export const ProcurementSidebar: React.FC = () => {
 };
 
 export const ProcurementCrumb: React.FC = () => {
-  const { procurement, setProcurement } = useCommercial();
+  const { procurement } = useCommercial();
+  const ext = useProcurementExt();
+  const here = ext.page ? EXT_LABEL[ext.page.page] : procurement.page !== 'overview' ? LABEL[procurement.page] : null;
   return (
     <span className="sx-crumb">
-      <button type="button" onClick={() => setProcurement('overview')}>
+      <button type="button" onClick={() => ext.goCore('overview')}>
         Procurement
       </button>
-      {procurement.page !== 'overview' && (
+      {here && (
         <>
           <ChevronRight size={11} />
-          <b>{LABEL[procurement.page]}</b>
+          <b>{here}</b>
         </>
       )}
     </span>
@@ -263,9 +332,28 @@ export const ProcurementCrumb: React.FC = () => {
 
 export const ProcurementSuite: React.FC = () => {
   const { procurement } = useCommercial();
+  const ext = useProcurementExt();
+  const xp = ext.page?.page;
   useEffect(() => {
     document.getElementById('main-content')?.scrollTo({ top: 0 });
-  }, [procurement.page]);
+  }, [procurement.page, xp]);
+  if (xp)
+    return (
+      <div className="sx-suite" key={`x-${xp}`}>
+        {xp === 'sourcing' && <SourcingPage />}
+        {xp === 'portal' && <SupplierPortalPage />}
+        {xp === 'vendors' && <VendorsPage />}
+        {xp === 'contracts' && <ContractsPage />}
+        {xp === 'catalogue' && <CataloguePage />}
+        {xp === 'invoices' && <InvoicesPage />}
+        {xp === 'inventory' && <InventoryPage />}
+        {xp === 'stores' && <StoresPage />}
+        {xp === 'landed' && <LandedPage />}
+        {xp === 'plan' && <PlanPage />}
+        {xp === 'reports' && <ReportsPage />}
+        {xp === 'settings' && <SettingsPage />}
+      </div>
+    );
   return (
     <div className="sx-suite" key={procurement.page}>
       {procurement.page === 'overview' && <ProcurementOverview />}

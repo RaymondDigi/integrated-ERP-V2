@@ -177,6 +177,10 @@ export interface ReqLine {
   description: string;
   qty: number;
   estPrice: number;
+  /** Procurement: unit, specification and service type for free-text and service lines */
+  uom?: string;
+  spec?: string;
+  serviceType?: string;
 }
 
 export interface SupplierQuote {
@@ -199,6 +203,8 @@ export interface Requisition extends Workflow {
   quotes: SupplierQuote[];
   awardedTo?: string;
   poId?: string;
+  /** Split awards: one purchase order per supplier for the lines it won */
+  awards?: { supplierId: string; poId: string; lineIds: string[]; eventId?: string }[];
 }
 
 export interface POLine extends Line {

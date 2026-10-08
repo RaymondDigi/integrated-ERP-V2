@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useFinance } from '../finance/store';
-import { addDays, kes, TODAY, localStamp } from '../finance/engine';
+import { addDays, kes, round2, TODAY, localStamp } from '../finance/engine';
 import { buildCommercialSeed, COM_ACTORS } from './data';
 import { approvalRights, isFinalApproval, lineNet, orderExceptions, totals, reqTotal, quoteTotal } from './engine';
 import { useAccess } from '../../platform/access';
@@ -17,6 +17,7 @@ import type {
   Line,
   Opportunity,
   OrderLine,
+  Product,
   POLine,
   PurchaseOrder,
   Quotation,
@@ -26,6 +27,7 @@ import type {
   Stage,
   SupplierQuote
 } from './types';
+import { prcHooks } from './procurement/ext/hooks';
 
 export type TradingPage =
   | 'overview'
@@ -92,6 +94,10 @@ const useCommercialStore = () => {
     return ro ? fail(ro) : null;
   };
   const isOps = actor.role === 'STOREKEEPER' || actor.role === 'MANAGER';
+  // Procurement: read-only sign-ins cannot change anything; the procurement extension adds budget, contract and supplier checks
+  const prcAccess = useAccess();
+  const prcBlock = (c?: Parameters<NonNullable<typeof prcHooks.check>>[0]) =>
+    !prcAccess.canWrite ? 'This is a read-only account — you can view procurement but not change it' : c ? (prcHooks.check?.(c) ?? null) : null;
 
   const setActor = (role: ComRole) => {
     commit({ ...ref.current, actor: COM_ACTORS[role] });
@@ -264,7 +270,8 @@ const useCommercialStore = () => {
   const approveDoc = <T extends SalesOrder | Requisition | PurchaseOrder>(
     key: 'orders' | 'requisitions' | 'purchaseOrders',
     id: string,
-    value: (d: T) => number
+    value: (d: T) => number,
+    note?: string
   ): Result => {
     const g = guard();
     if (g) return g;
@@ -274,7 +281,18 @@ const useCommercialStore = () => {
     const v = value(d);
     const r = approvalRights(d, v, actor);
     if (!r.can) return fail(r.reason || 'You cannot approve this');
-    const final = isFinalApproval(d, v, actor.role);
+    let final = isFinalApproval(d, v, actor.role);
+    if (key !== 'orders') {
+      const blocked = prcBlock({ action: 'approve', kind: key, doc: d as Requisition | PurchaseOrder, value: v, actor });
+      if (blocked) return fail(blocked);
+      // A configured approval chain decides who signs next and when the document is fully approved
+      const plan = prcHooks.approvalPlan?.(key, d as Requisition | PurchaseOrder, v);
+      if (plan && plan.length) {
+        const nextRole = plan[d.approvals.length];
+        if (nextRole && nextRole !== actor.role) return fail(`The next approval in this chain is for the ${COM_ACTORS[nextRole as ComRole]?.title ?? nextRole}`);
+        final = d.approvals.length + 1 >= plan.length;
+      }
+    }
     commit({
       ...s,
       [key]: list.map((x) =>
@@ -283,7 +301,7 @@ const useCommercialStore = () => {
               ...x,
               status: final ? 'APPROVED' : 'SUBMITTED',
               approvals: [...x.approvals, { by: actor.name, role: actor.role, at: now() }],
-              history: [...x.history, log(actor.role === 'DIRECTOR' && x.approvals.length ? 'Approved (director)' : 'Approved')]
+              history: [...x.history, log(actor.role === 'DIRECTOR' && x.approvals.length ? 'Approved (director)' : 'Approved', note?.trim() || undefined)]
             }
           : x
       )
@@ -301,7 +319,9 @@ const useCommercialStore = () => {
     const d = (s[key] as (SalesOrder | Requisition | PurchaseOrder)[]).find((x) => x.id === id)!;
     if (!approvalRights(d, value, actor).can) return fail('You cannot reject this');
     if (!note.trim()) return fail('Give a reason');
+    if (key !== 'orders' && prcBlock()) return fail(prcBlock()!);
     commit({ ...s, [key]: (s[key] as (SalesOrder | Requisition | PurchaseOrder)[]).map((x) => (x.id === id ? { ...x, status: 'REJECTED', approvals: [], history: [...x.history, log('Rejected', note)] } : x)) });
+    if (key !== 'orders') prcHooks.afterReject?.(key, d as Requisition | PurchaseOrder, note);
     return done('Returned', `${d.number} was rejected`);
   };
   /** Goods plus order charges (freight, handling, minimum-order), with VAT. */
@@ -424,12 +444,29 @@ const useCommercialStore = () => {
   };
 
   /* ================= Requisitions ================= */
-  const saveRequisition = (r: Omit<Partial<Requisition>, 'lines'> & Pick<Requisition, 'department' | 'requestedBy' | 'neededBy' | 'justification'> & { lines: ReqLine[] }): Result => {
+  const saveRequisition = (
+    r: Omit<Partial<Requisition>, 'lines'> & Pick<Requisition, 'department' | 'requestedBy' | 'neededBy' | 'justification'> & { lines: ReqLine[] },
+    opts: { asApprover?: boolean } = {}
+  ): Result => {
     const s = ref.current;
     const lines = r.lines.filter((l) => l.description.trim() && l.qty > 0);
     if (!lines.length) return fail('Add at least one item');
+    if (lines.some((l) => !(l.estPrice >= 0))) return fail('Estimated prices cannot be negative');
     if (!r.justification.trim()) return fail('Explain why it is needed');
+    const blocked = prcBlock({ action: 'saveRequisition', req: { ...r, lines }, actor });
+    if (blocked) return fail(blocked);
     if (r.id) {
+      const ex = s.requisitions.find((x) => x.id === r.id);
+      if (!ex) return fail('Requisition not found');
+      // Approvers may correct quantities and prices while it is with them; otherwise only drafts change
+      const approverEdit = !!opts.asApprover && ex.status === 'SUBMITTED' && (actor.role === 'MANAGER' || actor.role === 'DIRECTOR') && ex.preparedBy !== actor.name;
+      if (opts.asApprover && !approverEdit) return fail('Only a manager or director approving it can edit a submitted requisition');
+      if (!approverEdit && ex.status !== 'DRAFT' && ex.status !== 'REJECTED') return fail('Only draft or returned requisitions can be edited');
+      if (approverEdit) {
+        const est = round2(lines.reduce((a, l) => a + l.qty * l.estPrice, 0));
+        commit({ ...s, requisitions: s.requisitions.map((x) => (x.id === r.id ? { ...x, lines, neededBy: r.neededBy, history: [...x.history, log('Edited by approver', `Estimate now ${est.toLocaleString()}`)] } : x)) });
+        return done('Requisition corrected', `${ex.number} is still awaiting approval`, r.id);
+      }
       commit({ ...s, requisitions: s.requisitions.map((x) => (x.id === r.id ? { ...x, ...r, lines, status: 'DRAFT', history: [...x.history, log('Edited')] } : x)) });
       return done('Requisition saved', s.requisitions.find((x) => x.id === r.id)!.number, r.id);
     }
@@ -445,35 +482,51 @@ const useCommercialStore = () => {
   const submitRequisition = (id: string): Result => {
     const r = ref.current.requisitions.find((x) => x.id === id)!;
     if (r.status !== 'DRAFT' && r.status !== 'REJECTED') return fail('Only drafts can be submitted');
+    const blocked = prcBlock({ action: 'submitRequisition', req: r, actor });
+    if (blocked) return fail(blocked);
     updateReq(id, { status: 'SUBMITTED', approvals: [] }, 'Submitted for approval');
     return done('Submitted', `${r.number} is with the Commercial Manager`);
   };
-  const approveRequisition = (id: string) => approveDoc<Requisition>('requisitions', id, reqTotal);
+  const approveRequisition = (id: string, note?: string) => approveDoc<Requisition>('requisitions', id, reqTotal, note);
   const rejectRequisition = (id: string, note: string) => rejectDoc('requisitions', id, note, reqTotal(ref.current.requisitions.find((x) => x.id === id)!));
   const addQuote = (id: string, q: SupplierQuote): Result => {
     const r = ref.current.requisitions.find((x) => x.id === id)!;
+    if (prcBlock()) return fail(prcBlock()!);
+    if (r.status !== 'APPROVED') return fail('Quotes are recorded once the requisition is approved');
     if (!q.supplierId) return fail('Choose the supplier');
     if (r.lines.some((l) => !(q.prices[l.id] > 0))) return fail('Enter a unit price for every line');
     updateReq(id, { quotes: [...r.quotes.filter((x) => x.supplierId !== q.supplierId), q] }, `Quote received from ${party(q.supplierId)?.name}`);
     return done('Quote recorded', `${party(q.supplierId)?.name}: ${quoteTotal(r, q).toLocaleString()}`);
   };
   /** Award to a supplier (with or without competing quotes) and draft the purchase order. */
-  const award = (id: string, supplierId: string, reason: string): Result => {
+  const award = (
+    id: string,
+    supplierId: string,
+    reason: string,
+    opts: { lineIds?: string[]; prices?: Record<string, number>; leadDays?: number; eventId?: string } = {}
+  ): Result => {
     const s = ref.current;
     const r = s.requisitions.find((x) => x.id === id)!;
     if (r.status !== 'APPROVED') return fail('The requisition must be approved first');
-    if (r.poId) return fail('A purchase order already exists for this requisition');
+    // Split awards: each supplier gets a purchase order for the lines it won
+    const awarded = r.awards?.flatMap((a) => a.lineIds) ?? (r.poId ? r.lines.map((l) => l.id) : []);
+    const wanted = (opts.lineIds ?? r.lines.map((l) => l.id)).filter((lid) => !awarded.includes(lid));
+    if (!wanted.length) return fail(r.poId ? 'A purchase order already exists for this requisition' : 'Choose the lines to award');
+    const blocked = prcBlock({ action: 'award', supplierId, req: r, actor });
+    if (blocked) return fail(blocked);
     const q = r.quotes.find((x) => x.supplierId === supplierId);
     const cheapest = [...r.quotes].sort((a, b) => quoteTotal(r, a) - quoteTotal(r, b))[0];
-    if (cheapest && cheapest.supplierId !== supplierId && !reason.trim()) return fail('You are not choosing the lowest quote — give a reason for the file');
+    if (!opts.prices && cheapest && cheapest.supplierId !== supplierId && !reason.trim()) return fail('You are not choosing the lowest quote — give a reason for the file');
     const { number, sequence } = next(s, 'PO');
-    const lines: POLine[] = r.lines.map((l) => ({ id: uid('pl'), sku: l.sku, description: l.description, qty: l.qty, price: q?.prices[l.id] ?? l.estPrice, discountPct: 0, received: 0, billed: 0 }));
+    const lines: POLine[] = r.lines
+      .filter((l) => wanted.includes(l.id))
+      .map((l) => ({ id: uid('pl'), sku: l.sku, description: l.description, qty: l.qty, price: opts.prices?.[l.id] ?? q?.prices[l.id] ?? prcHooks.contractPrice?.(supplierId, l.sku) ?? l.estPrice, discountPct: 0, received: 0, billed: 0 }));
     const order: PurchaseOrder = {
       id: uid('po'),
       number,
       supplierId,
       date: TODAY,
-      expected: addDays(TODAY, q?.leadDays ?? 10),
+      expected: addDays(TODAY, opts.leadDays ?? q?.leadDays ?? 10),
       lines,
       requisitionId: r.id,
       bills: [],
@@ -487,7 +540,17 @@ const useCommercialStore = () => {
       ...s,
       sequence,
       purchaseOrders: [order, ...s.purchaseOrders],
-      requisitions: s.requisitions.map((x) => (x.id === id ? { ...x, awardedTo: supplierId, poId: order.id, history: [...x.history, log(`Awarded to ${party(supplierId)?.name} — ${number}`, reason || undefined)] } : x))
+      requisitions: s.requisitions.map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              awardedTo: x.awardedTo ?? supplierId,
+              poId: x.poId ?? order.id,
+              awards: [...(x.awards ?? []), { supplierId, poId: order.id, lineIds: wanted, eventId: opts.eventId }],
+              history: [...x.history, log(`Awarded to ${party(supplierId)?.name} — ${number}`, [wanted.length < r.lines.length ? `${wanted.length} of ${r.lines.length} lines` : '', reason].filter(Boolean).join(' · ') || undefined)]
+            }
+          : x
+      )
     });
     return done('Purchase order drafted', `${number} for ${party(supplierId)?.name}`, order.id);
   };
@@ -499,7 +562,12 @@ const useCommercialStore = () => {
     if (!o.supplierId) return fail('Choose a supplier');
     const lines = o.lines.filter((l) => l.description.trim() && l.qty > 0 && l.price > 0).map((l) => ({ ...l, received: (l as Partial<POLine>).received ?? 0, billed: (l as Partial<POLine>).billed ?? 0 }));
     if (!lines.length) return fail('Add at least one item with a price');
+    const blocked = prcBlock({ action: 'savePO', po: { ...o, lines }, actor });
+    if (blocked) return fail(blocked);
     if (o.id) {
+      const ex = s.purchaseOrders.find((x) => x.id === o.id);
+      if (!ex) return fail('Purchase order not found');
+      if (ex.status !== 'DRAFT' && ex.status !== 'REJECTED') return fail('Only draft or returned orders can be edited — amend an approved order instead');
       commit({ ...s, purchaseOrders: s.purchaseOrders.map((x) => (x.id === o.id ? { ...x, ...o, lines, status: 'DRAFT', history: [...x.history, log('Edited')] } : x)) });
       return done('Purchase order saved', s.purchaseOrders.find((x) => x.id === o.id)!.number, o.id);
     }
@@ -515,19 +583,30 @@ const useCommercialStore = () => {
   const submitPO = (id: string): Result => {
     const o = ref.current.purchaseOrders.find((x) => x.id === id)!;
     if (o.status !== 'DRAFT' && o.status !== 'REJECTED') return fail('Only drafts can be submitted');
+    const blocked = prcBlock({ action: 'submitPO', po: o, actor });
+    if (blocked) return fail(blocked);
+    const auto = prcHooks.autoApprove?.(o);
+    if (auto) {
+      updatePO(id, { status: 'APPROVED', approvals: [] }, 'Approved automatically', auto);
+      return done('Order approved', `${o.number}: ${auto}`);
+    }
     updatePO(id, { status: 'SUBMITTED', approvals: [] }, 'Submitted for approval');
     return done('Submitted', `${o.number} is waiting for approval`);
   };
-  const approvePO = (id: string) => approveDoc<PurchaseOrder>('purchaseOrders', id, poValue);
+  const approvePO = (id: string, note?: string) => approveDoc<PurchaseOrder>('purchaseOrders', id, poValue, note);
   const rejectPO = (id: string, note: string) => rejectDoc('purchaseOrders', id, note, poValue(ref.current.purchaseOrders.find((x) => x.id === id)!));
   const sendPO = (id: string): Result => {
     const o = ref.current.purchaseOrders.find((x) => x.id === id)!;
     if (o.status !== 'APPROVED') return fail('Only approved orders can be sent');
+    const blocked = prcBlock({ action: 'sendPO', po: o, actor });
+    if (blocked) return fail(blocked);
     updatePO(id, { sentAt: now() }, 'Sent to supplier');
     return done('Sent to supplier', `${o.number} emailed to ${party(o.supplierId)?.name}`);
   };
   const cancelPO = (id: string): Result => {
     const o = ref.current.purchaseOrders.find((x) => x.id === id)!;
+    if (prcBlock()) return fail(prcBlock()!);
+    if (o.status === 'VOID') return fail('This order is already cancelled');
     if (o.lines.some((l) => l.received > 0)) return fail('Goods have been received — close the balance instead');
     updatePO(id, { status: 'VOID' }, 'Cancelled');
     return done('Purchase order cancelled', o.number);
@@ -535,8 +614,10 @@ const useCommercialStore = () => {
   /** Stores receives goods: stock goes up and the order moves to billing. */
   const receive = (poId: string, lines: { lineId: string; qty: number; rejected: number }[], deliveryNote: string, notes: string): Result => {
     const s = ref.current;
+    if (prcBlock()) return fail(prcBlock()!);
     if (!isOps) return fail('Goods are received by Stores — switch to John Kiprop (Stores & Dispatch)');
     const o = s.purchaseOrders.find((x) => x.id === poId)!;
+    if (o.status !== 'APPROVED' || o.closed) return fail('Only open, approved orders can be received');
     if (o.preparedBy === actor.name) return fail('You raised this order, so someone else must receive the goods');
     if (!o.sentAt) return fail('The order has not been sent to the supplier yet');
     const got = lines.filter((l) => l.qty > 0 || l.rejected > 0);
@@ -544,10 +625,17 @@ const useCommercialStore = () => {
     if (!deliveryNote.trim()) return fail("Enter the supplier's delivery note number");
     const products = s.products.map((p) => ({ ...p }));
     for (const g of got) {
-      const l = o.lines.find((x) => x.id === g.lineId)!;
-      if (g.qty > l.qty - l.received) return fail(`${l.description}: only ${l.qty - l.received} outstanding`);
+      const l = o.lines.find((x) => x.id === g.lineId);
+      if (!l) return fail('That line is not on the order');
+      if (g.qty < 0 || g.rejected < 0) return fail('Quantities cannot be negative');
+      if (g.qty + g.rejected > l.qty - l.received) return fail(`${l.description}: only ${l.qty - l.received} outstanding (accepted + rejected)`);
       const p = products.find((x) => x.sku === l.sku);
-      if (p) p.stock += g.qty;
+      // Services are confirmed without touching stock; goods convert from the order unit and re-average the cost
+      if (p && p.kind !== 'SERVICE') {
+        const units = g.qty * (prcHooks.unitFactor?.(p.sku) ?? 1);
+        if (units > 0 && p.stock + units > 0) p.cost = round2((p.stock * p.cost + g.qty * l.price) / (p.stock + units));
+        p.stock += units;
+      }
     }
     const { number, sequence } = next(s, 'GRN');
     const grn: GoodsReceipt = { id: uid('gr'), number, poId, date: TODAY, lines: got, receivedBy: actor.name, deliveryNote, notes };
@@ -566,17 +654,37 @@ const useCommercialStore = () => {
           : x
       )
     });
+    prcHooks.after?.('received', grn, o);
     return done('Goods received', `${number} — stock updated`, grn.id);
   };
   /** Raise the supplier bill in Finance with the order and goods-received note matched. */
-  const billPO = (id: string, supplierInvoice: string): Result => {
+  const billPO = (
+    id: string,
+    supplierInvoice: string,
+    invoice?: { lines: { lineId: string; qty: number; price: number }[]; matched: boolean; date?: string; extra?: { description: string; account: string; amount: number; vat: boolean }[]; note?: string }
+  ): Result => {
     const s = ref.current;
+    if (prcBlock()) return fail(prcBlock()!);
     const o = s.purchaseOrders.find((x) => x.id === id)!;
     const due = o.lines.filter((l) => l.received > l.billed);
     if (!due.length) return fail('Nothing received is waiting to be billed');
     if (!supplierInvoice.trim()) return fail("Enter the supplier's invoice number");
+    const blocked = prcBlock({ action: 'bill', po: o, actor });
+    if (blocked) return fail(blocked);
+    if (invoice) {
+      for (const il of invoice.lines) {
+        const l = o.lines.find((x) => x.id === il.lineId);
+        if (!l) return fail('Invoice line is not on the order');
+        if (il.qty <= 0 || il.price <= 0) return fail('Invoice quantities and prices must be above zero');
+        if (il.qty > l.received - l.billed) return fail(`${l.description}: only ${l.received - l.billed} received and not yet billed`);
+      }
+    }
     const sup = party(o.supplierId);
-    const lastGrn = s.receipts.find((g) => g.poId === id);
+    // Every receipt on the order is part of the match, not only the latest
+    const grnNumbers = s.receipts.filter((g) => g.poId === id).map((g) => g.number);
+    // Without the supplier's invoice lines, the bill is matched only when goods were received and are billed at the order price
+    const billLines = invoice ? invoice.lines.map((il) => ({ l: o.lines.find((x) => x.id === il.lineId)!, qty: il.qty, price: il.price })) : due.map((l) => ({ l, qty: l.received - l.billed, price: l.price }));
+    const matched = invoice ? invoice.matched : grnNumbers.length > 0 && billLines.every((b) => b.qty <= b.l.received - b.l.billed);
     const r = finance.saveDocument(
       {
         kind: 'BILL',
@@ -585,21 +693,96 @@ const useCommercialStore = () => {
         dueDate: addDays(TODAY, sup?.terms ?? 30),
         reference: supplierInvoice,
         department: 'Operations',
-        notes: `Matched to ${o.number}`,
-        match: { po: o.number, grn: lastGrn?.number ?? '', matched: true },
-        lines: due.map((l) => {
-          const prod = s.products.find((x) => x.sku === l.sku);
-          return { id: uid('l'), description: l.description, account: prod?.account ?? '5000', qty: l.received - l.billed, price: l.price, vat: prod?.vatable ?? true };
-        })
+        notes: [`Matched to ${o.number}`, invoice?.note].filter(Boolean).join(' · '),
+        match: { po: o.number, grn: grnNumbers.join(', '), matched },
+        lines: [
+          ...billLines.map(({ l, qty, price }) => {
+            const prod = s.products.find((x) => x.sku === l.sku);
+            return { id: uid('l'), description: l.description, account: prod?.account ?? '5000', qty, price, vat: prod?.vatable ?? true };
+          }),
+          ...(invoice?.extra ?? []).filter((x) => x.amount > 0).map((x) => ({ id: uid('l'), description: x.description, account: x.account, qty: 1, price: x.amount, vat: x.vat }))
+        ]
       },
       actor.name
     );
     if (!r.ok || !r.id) return r;
     const bill = finance.snapshot().documents.find((x) => x.id === r.id)!;
-    const lines = o.lines.map((l) => ({ ...l, billed: l.received }));
-    updatePO(id, { lines, bills: [...o.bills, { id: bill.id, number: bill.number }], closed: lines.every((l) => l.billed >= l.qty) }, `Billed — ${bill.number} created in Finance`);
-    return done('Bill raised in Finance', `${bill.number} with three-way match — ready for approval`, bill.id);
+    const lines = o.lines.map((l) => ({ ...l, billed: l.billed + (billLines.find((b) => b.l.id === l.id)?.qty ?? 0) }));
+    updatePO(id, { lines, bills: [...o.bills, { id: bill.id, number: bill.number }], closed: lines.every((l) => l.billed >= l.qty) }, `Billed — ${bill.number} created in Finance`, matched ? undefined : 'Raised with match exceptions');
+    return done('Bill raised in Finance', matched ? `${bill.number} matched to ${o.number} and ${grnNumbers.join(', ')} — ready for approval` : `${bill.number} raised with match exceptions — the approver will see them`, bill.id);
   };
+  /** Receipt adjustment: take back a goods-received note that was posted in error (nothing billed against it yet). */
+  const reverseReceipt = (grnId: string, reason: string): Result => {
+    const s = ref.current;
+    if (prcBlock()) return fail(prcBlock()!);
+    if (actor.role !== 'MANAGER') return fail('Only the Commercial Manager can reverse a goods-received note');
+    if (!reason.trim()) return fail('Say why the receipt is being reversed');
+    const g = s.receipts.find((x) => x.id === grnId);
+    if (!g) return fail('Receipt not found');
+    if (g.notes.startsWith('[Reversed')) return fail(`${g.number} is already reversed`);
+    const o = s.purchaseOrders.find((x) => x.id === g.poId)!;
+    const products = s.products.map((p) => ({ ...p }));
+    for (const gl of g.lines) {
+      const l = o.lines.find((x) => x.id === gl.lineId)!;
+      if (l.received - gl.qty < l.billed) return fail(`${l.description} has already been billed — raise a debit note instead`);
+      const p = products.find((x) => x.sku === l.sku);
+      if (p && p.kind !== 'SERVICE') {
+        const units = gl.qty * (prcHooks.unitFactor?.(p.sku) ?? 1);
+        if (p.stock < units) return fail(`${p.name}: only ${p.stock} ${p.unit} left in stock to take back`);
+        p.stock -= units;
+      }
+    }
+    commit({
+      ...s,
+      products,
+      receipts: s.receipts.map((x) => (x.id === grnId ? { ...x, notes: `[Reversed: ${reason}] ${x.notes}` } : x)),
+      purchaseOrders: s.purchaseOrders.map((x) =>
+        x.id === o.id ? { ...x, closed: false, lines: x.lines.map((l) => ({ ...l, received: l.received - (g.lines.find((gl) => gl.lineId === l.id)?.qty ?? 0) })), history: [...x.history, log(`Receipt ${g.number} reversed`, reason)] } : x
+      )
+    });
+    return done('Receipt reversed', `${g.number}: stock and the order are back as before`);
+  };
+  /** Amend an approved order (quantities, prices, delivery date). A higher value goes back for approval. */
+  const amendPO = (id: string, lines: { lineId: string; qty: number; price: number }[], expected: string, reason: string): Result => {
+    const s = ref.current;
+    if (prcBlock()) return fail(prcBlock()!);
+    if (actor.role === 'STOREKEEPER') return fail('Purchasing amends orders, not Stores');
+    const o = s.purchaseOrders.find((x) => x.id === id);
+    if (!o) return fail('Purchase order not found');
+    if (o.status !== 'APPROVED' || o.closed) return fail('Only open, approved orders can be amended');
+    if (!reason.trim()) return fail('Give the reason for the amendment');
+    for (const a of lines) {
+      const l = o.lines.find((x) => x.id === a.lineId);
+      if (!l) return fail('Line not on the order');
+      if (a.qty < l.received) return fail(`${l.description}: ${l.received} already received — quantity cannot go below that`);
+      if (!(a.price > 0)) return fail(`${l.description}: enter a price above zero`);
+      if (a.price !== l.price && l.billed > 0) return fail(`${l.description} is partly billed — its price cannot change`);
+    }
+    const nextLines = o.lines.map((l) => {
+      const a = lines.find((x) => x.lineId === l.id);
+      return a ? { ...l, qty: a.qty, price: a.price } : l;
+    });
+    const before = poValue(o);
+    const after = totals(nextLines, s.products).total;
+    const reapprove = after > before + 0.005;
+    const rev = o.history.filter((h) => h.action.startsWith('Amended')).length + 1;
+    commit({
+      ...s,
+      purchaseOrders: s.purchaseOrders.map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              lines: nextLines,
+              expected: expected || x.expected,
+              ...(reapprove ? { status: 'SUBMITTED' as const, approvals: [] } : {}),
+              history: [...x.history, log(`Amended — revision ${rev}`, `${reason} · value ${before.toLocaleString()} → ${after.toLocaleString()}${reapprove ? ' · needs re-approval' : ''}`)]
+            }
+          : x
+      )
+    });
+    return done(reapprove ? 'Amendment sent for approval' : 'Order amended', `${o.number} revision ${rev}${reapprove ? ' — the value went up, so it needs approval again' : ''}`, String(rev));
+  };
+
   /** Low stock: draft a requisition for the reorder quantity. */
   const reorder = (sku: string): Result => {
     const p = ref.current.products.find((x) => x.sku === sku)!;
@@ -738,6 +921,26 @@ const useCommercialStore = () => {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  /** Procurement item master: a new purchased item numbered by category, or a one-off purchase made a catalogue item. */
+  const addMaterial = (p: Omit<Product, 'sku' | 'stock' | 'price'> & { sku?: string }): Result => {
+    const s = ref.current;
+    if (prcBlock()) return fail(prcBlock()!);
+    if (!p.name.trim()) return fail('Name the item');
+    if (s.products.some((x) => x.name.toLowerCase() === p.name.trim().toLowerCase())) return fail('An item with that name already exists');
+    const prefix = (p.category.replace(/[^A-Za-z]/g, '').slice(0, 3) || 'MAT').toUpperCase();
+    const n = (s.sequence[`ITEM-${prefix}`] ?? 0) + 1;
+    const sku = p.sku?.trim() || `${prefix}-${String(n).padStart(3, '0')}`;
+    if (s.products.some((x) => x.sku === sku)) return fail(`Item number ${sku} is taken`);
+    commit({ ...s, sequence: { ...s.sequence, [`ITEM-${prefix}`]: n }, products: [...s.products, { ...p, name: p.name.trim(), sku, stock: 0, price: 0 } as Product] });
+    return done('Item added to the catalogue', `${sku} — ${p.name}`, sku);
+  };
+  /** Revalues item cost (landed cost, weighted average). */
+  const setItemCost = (changes: { sku: string; cost: number }[]): Result => {
+    const s = ref.current;
+    if (prcBlock()) return fail(prcBlock()!);
+    commit({ ...s, products: s.products.map((p) => (changes.some((c) => c.sku === p.sku && c.cost >= 0) ? { ...p, cost: round2(changes.find((c) => c.sku === p.sku)!.cost) } : p)) });
+    return { ok: true };
+  };
 
   const reset = () => {
     commit(buildCommercialSeed(finance.snapshot()));
@@ -802,6 +1005,10 @@ const useCommercialStore = () => {
     completeActivity,
     reset,
     adjustStock,
+    addMaterial,
+    setItemCost,
+    reverseReceipt,
+    amendPO,
     snapshot: () => ref.current,
     orderValue,
     poValue,

@@ -1,0 +1,30 @@
+/* Procurement extension: small additions on top of the suite kit */
+.prx-tabs { margin: 4px 0 12px; overflow-x: auto; }
+.prx-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; align-items: center; }
+.prx-filters .form-control { width: auto; min-width: 120px; max-width: 200px; }
+.prx-barcode { color: var(--text-primary); display: block; }
+.prx-diff { background: var(--surface-subtle, rgba(127, 127, 127, 0.06)); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px; font-size: 12px; white-space: pre-wrap; max-height: 360px; overflow: auto; }
+.prx-diff-add { background: var(--status-success-bg); color: var(--status-success-text); }
+.prx-diff-del { background: var(--status-critical-bg); color: var(--status-critical-text); text-decoration: line-through; }
+.prx-chart svg { width: 100%; height: auto; color: var(--text-secondary); }
+.prx-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.prx-card { border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 6px; background: var(--surface-card, transparent); }
+.prx-card h3 { font-size: 14px; margin: 0; }
+.prx-card small { color: var(--text-secondary); }
+.prx-card .prx-price { font-weight: 700; font-size: 15px; }
+.prx-facets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.prx-brand { border-radius: 12px; padding: 14px 16px; color: #fff; margin-bottom: 12px; }
+.prx-brand b { font-size: 16px; display: block; }
+.prx-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.prx-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+.prx-inline .form-control { width: auto; min-width: 110px; flex: 1 1 140px; }
+.prx-msg { border-left: 3px solid var(--border-subtle); padding: 4px 8px; margin: 6px 0; }
+.prx-msg.supplier { border-color: #c98f6b; }
+.prx-msg.buyer { border-color: #237857; }
+.prx-msg small { color: var(--text-secondary); display: block; }
+.prx-kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 13px; }
+.prx-body { white-space: pre-wrap; font-size: 13px; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px; max-height: 320px; overflow: auto; }
+@media (max-width: 760px) {
+  .prx-split { grid-template-columns: minmax(0, 1fr); }
+  .prx-filters .form-control { max-width: none; flex: 1 1 140px; }
+}
