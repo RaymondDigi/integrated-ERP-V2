@@ -364,7 +364,7 @@ export const ReportsPage: React.FC = () => {
               { key: 's', header: 'Subject', render: (n) => n.subject },
               { key: 'r', header: 'Reference', render: (n) => n.ref ?? '' }
             ]}
-            empty="No production notices yet — a failed chop, failed QC, over-exposure or a late job will raise one."
+            empty="No production notices yet — approvals, a failed chop, a QC write-off or over-exposure will raise one."
           />
         </Panel>
       )}
