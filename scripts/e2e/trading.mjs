@@ -178,5 +178,5 @@ const expectText = async (locator, text, step) => {
 await browser.close();
 console.log(`passed=${passed.length} problems=${problems.length}`);
 for (const p of passed) console.log(`  ok  ${p}`);
-for (const p of [...new Set(problems)]) console.log(`  FAIL ${p}`);
+for (const p of new Set(problems)) console.log(`  FAIL ${p}`);
 process.exit(problems.length ? 1 : 0);
