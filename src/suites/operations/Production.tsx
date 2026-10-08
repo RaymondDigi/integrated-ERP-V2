@@ -1,18 +1,43 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Factory, Layers, FlaskConical, Plus, Play, CheckCircle2, XCircle, Ban, AlertTriangle, PackageCheck, Gauge, Send } from 'lucide-react';
+import { LayoutDashboard, Factory, Layers, FlaskConical, Plus, Play, CheckCircle2, XCircle, Ban, AlertTriangle, PackageCheck, Gauge, Send, Leaf, ScrollText, ClipboardList, Cog, Route, Calculator, CalendarRange, LineChart, FlaskRound, FileBarChart, Coins } from 'lucide-react';
 import { useOperations, type ProductionPage } from './store';
 import { BATCH_LABEL, batchCost, batchYield, materialNeed, shortages } from './engine';
 import { addDays, fmtDate, kes, round2, TODAY } from '../finance/engine';
 import type { Batch, QualityCheck, Recipe } from './types';
-import { ApprovalPanel, Bars, Chips, DataTable, DefList, Drawer, Field, FlowSteps, Hero, LinkButton, Modal, Panel, Pill, Stat, SuitePage, TodoList, greeting, type Column, type FlowAction, type TodoItem } from '../ui/kit';
+import { ApprovalPanel, Bars, Chips, DataTable, DefList, Drawer, Field, FlowSteps, Hero, LinkButton, Modal, Panel, Pill, SearchBox, Stat, SuitePage, TodoList, greeting, type Column, type FlowAction, type TodoItem } from '../ui/kit';
 import { SuiteSidebar, type SuiteNavGroup } from '../ui/SuiteSidebar';
 import { Crumb, OpsFooter, useFocus, useTopOnChange } from './parts';
+import { useBlending } from './production/store';
+import { useLiveSchedule } from './production/hooks';
+import { wipValue } from './production/engine';
+import { BatchExtras } from './production/BatchExtras';
+import { BlendsheetsPage, LotsPage } from './production/BlendPages';
+import { CostingPage, RoutingsPage, WorkCentresPage } from './production/EngineeringPages';
+import { PlanningPage, SchedulePage, SimulationPage, WorkOrdersPage } from './production/PlanningPages';
+import { ReportsPage } from './production/ReportPages';
 
-const LABEL: Record<ProductionPage, string> = { overview: 'Overview', batches: 'Batches', recipes: 'Recipes', quality: 'Quality' };
+const LABEL: Record<ProductionPage, string> = {
+  overview: 'Overview',
+  batches: 'Batches',
+  recipes: 'Recipes',
+  quality: 'Quality',
+  lots: 'Tea lots',
+  blendsheets: 'Blendsheets',
+  workorders: 'Work orders',
+  workcentres: 'Work centres',
+  routings: 'Routings',
+  costing: 'Standard costs',
+  schedule: 'Schedule',
+  planning: 'MPS & MRP',
+  simulation: 'What-if',
+  reports: 'Reports'
+};
 const B_PILL: Record<Batch['status'], string> = { PLANNED: 'DRAFT', RELEASED: 'APPROVED', IN_PROGRESS: 'OPEN', QC: 'SUBMITTED', COMPLETED: 'POSTED', REJECTED: 'REJECTED', CANCELLED: 'VOID' };
 
 const POverview: React.FC = () => {
   const { state, actor, products, setProduction: go, pname } = useOperations();
+  const bl = useBlending();
+  const wip = wipValue(bl.state, state, products);
   const done = state.batches.filter((b) => b.status === 'COMPLETED');
   const month = done.filter((b) => b.date.slice(0, 7) === TODAY.slice(0, 7));
   const avgYield = done.length ? done.reduce((s, b) => s + batchYield(b), 0) / done.length : 0;
@@ -21,6 +46,9 @@ const POverview: React.FC = () => {
   const upcoming = state.batches.filter((b) => ['PLANNED', 'RELEASED'].includes(b.status)).sort((a, b) => a.date.localeCompare(b.date));
   const recipe = (b: Batch) => state.recipes.find((r) => r.id === b.recipeId)!;
   const todo: TodoItem[] = [
+    ...bl.state.blendsheets.filter((b) => b.status === 'SUBMITTED').map((b) => ({ id: `bs${b.id}`, tone: 'warning' as const, icon: <ScrollText size={15} />, title: `Approve blendsheet ${b.number}`, detail: `${b.targetKg.toLocaleString()} kg · ${b.plant === 'TOWER' ? 'tower' : 'drum'}`, onClick: () => go('blendsheets', b.id) })),
+    ...bl.state.blendsheets.filter((b) => b.status === 'APPROVED' && b.date <= addDays(TODAY, 2)).map((b) => ({ id: `bi${b.id}`, tone: 'info' as const, icon: <Leaf size={15} />, title: `Issue teas for ${b.number}`, detail: `${b.lines.length} lots to the ${b.plant === 'TOWER' ? 'tower' : 'drums'}`, onClick: () => go('blendsheets', b.id) })),
+    ...bl.state.blendsheets.flatMap((b) => b.chops.filter((c) => c.result && !c.result.pass && !b.chops.some((x) => x.reworkOf === c.id) && b.status === 'IN_PROGRESS').map((c) => ({ id: `ch${c.id}`, tone: 'critical' as const, icon: <FlaskRound size={15} />, title: `Chop ${c.seq} of ${b.number} failed`, detail: c.result!.reasons.join('; '), onClick: () => go('blendsheets', b.id) }))),
     ...state.batches.filter((b) => b.status === 'QC').map((b) => ({ id: b.id, tone: 'warning' as const, icon: <FlaskConical size={15} />, title: `Quality check ${b.number}`, detail: `${b.plannedQty} × ${recipe(b).name}`, onClick: () => go('batches', b.id) })),
     ...upcoming
       .filter((b) => b.status === 'PLANNED')
@@ -55,6 +83,12 @@ const POverview: React.FC = () => {
         <Stat label="QC pass rate" value={`${Math.round(passRate * 100)}%`} detail={`${qcDone.length} batches checked`} icon={<FlaskConical size={17} />} tone="violet" onClick={() => go('quality')} />
         <Stat label="Planned" value={upcoming.length} detail={upcoming.length ? `Next: ${fmtDate(upcoming[0].date)}` : 'Nothing planned'} icon={<Factory size={17} />} tone="gold" onClick={() => go('batches')} />
       </div>
+      <div className="sx-stats">
+        <Stat label="Work in process" value={kes(wip.total, { compact: true })} detail={`${wip.rows.length} batches and blends on the floor`} icon={<Coins size={17} />} tone="orange" onClick={() => go('reports')} />
+        <Stat label="Blendsheets open" value={bl.state.blendsheets.filter((b) => !['COMPLETED', 'CANCELLED'].includes(b.status)).length} detail={`${bl.state.blendsheets.filter((b) => b.status === 'SUBMITTED').length} awaiting approval`} icon={<ScrollText size={17} />} tone="violet" onClick={() => go('blendsheets')} />
+        <Stat label="Tea free to blend" value={`${Math.round(bl.state.lots.filter((l) => l.status === 'AVAILABLE').reduce((a, l) => a + l.kgBalance, 0)).toLocaleString()} kg`} detail={`${bl.state.lots.filter((l) => l.status === 'ON_HOLD').length} lots on hold`} icon={<Leaf size={17} />} onClick={() => go('lots')} />
+        <Stat label="Schedule" value="Open" detail="Gantt, load and dispatch lists" icon={<CalendarRange size={17} />} tone="blue" onClick={() => go('schedule')} />
+      </div>
       <div className="sx-row sx-row-wide">
         <Panel title={<>Needs your attention {todo.length > 0 && <span className="sx-count">{todo.length}</span>}</>} subtitle="Quality checks, releases and material shortages">
           <TodoList items={todo} />
@@ -72,6 +106,7 @@ const POverview: React.FC = () => {
 
 const BatchTable: React.FC<{ rows: Batch[]; onOpen: (id: string) => void; selected?: string | null }> = ({ rows, onOpen, selected }) => {
   const { state, products } = useOperations();
+  const { sched } = useLiveSchedule();
   const recipe = (b: Batch) => state.recipes.find((r) => r.id === b.recipeId)!;
   const columns: Column<Batch>[] = [
     { key: 'n', header: 'Batch', render: (b) => <b className="sx-mono">{b.number}</b>, sort: (b) => b.number, width: 130 },
@@ -91,6 +126,15 @@ const BatchTable: React.FC<{ rows: Batch[]; onOpen: (id: string) => void; select
     },
     { key: 'd', header: 'Date', render: (b) => fmtDate(b.date), sort: (b) => b.date },
     { key: 'q', header: 'Planned', render: (b) => b.plannedQty, align: 'right' },
+    {
+      key: 'f',
+      header: 'Expected completion',
+      render: (b) => {
+        const j = sched.find((x) => x.id === b.id);
+        return j ? <span className={j.lateDays > 0 ? 'sx-danger-text' : ''}>{fmtDate(j.finish)}</span> : <span className="sx-muted">—</span>;
+      },
+      hideOnMobile: true
+    },
     {
       key: 'o',
       header: 'Output',
@@ -116,9 +160,14 @@ const BatchesPage: React.FC = () => {
   const [openId, setOpenId] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
   const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'COMPLETED' | 'REJECTED'>('ALL');
+  const [q, setQ] = useState('');
   useFocus(production.focus, (id) => state.batches.some((b) => b.id === id), setOpenId, () => setPlanning(true));
+  const hay = (b: Batch) => {
+    const r = state.recipes.find((x) => x.id === b.recipeId);
+    return `${b.number} ${r?.name ?? ''} ${r?.product ?? ''} ${b.forOrder ?? ''}`.toLowerCase();
+  };
   const rows = state.batches.filter(
-    (b) => filter === 'ALL' || (filter === 'OPEN' && ['PLANNED', 'RELEASED', 'IN_PROGRESS', 'QC'].includes(b.status)) || b.status === filter
+    (b) => (filter === 'ALL' || (filter === 'OPEN' && ['PLANNED', 'RELEASED', 'IN_PROGRESS', 'QC'].includes(b.status)) || b.status === filter) && (!q.trim() || hay(b).includes(q.trim().toLowerCase()))
   );
   const open = state.batches.find((b) => b.id === openId);
   return (
@@ -133,6 +182,7 @@ const BatchesPage: React.FC = () => {
       }
     >
       <div className="sx-toolbar">
+        <SearchBox value={q} onChange={setQ} placeholder="Batch number, product, SKU or order" />
         <Chips
           value={filter}
           onChange={setFilter}
@@ -160,7 +210,9 @@ const BatchesPage: React.FC = () => {
 };
 
 const BatchDrawer: React.FC<{ b: Batch; onClose: () => void }> = ({ b, onClose }) => {
-  const { state, actor, products, pname, releaseBatch, startBatch, sendToQc, cancelBatch } = useOperations();
+  const { state, actor, products, pname } = useOperations();
+  const { releaseBatch, startBatch, sendToQc, cancelBatch, state: blend } = useBlending();
+  const paused = blend.ext[b.id]?.stops.some((x) => !x.to);
   const [qc, setQc] = useState(false);
   const r = state.recipes.find((x) => x.id === b.recipeId)!;
   const need = materialNeed(r, b.plannedQty);
@@ -169,7 +221,7 @@ const BatchDrawer: React.FC<{ b: Batch; onClose: () => void }> = ({ b, onClose }
   const actions: FlowAction[] = [];
   if (b.status === 'PLANNED') actions.push({ label: 'Release to the floor', icon: <Send size={14} />, onClick: () => releaseBatch(b.id), title: actor.role !== 'MANAGER' ? 'The Operations Manager releases batches' : undefined });
   if (b.status === 'RELEASED') actions.push({ label: 'Issue materials and start', icon: <Play size={14} />, onClick: () => startBatch(b.id), disabled: short.length > 0 });
-  if (b.status === 'IN_PROGRESS') actions.push({ label: 'Finish run — send to QC', icon: <FlaskConical size={14} />, onClick: () => sendToQc(b.id) });
+  if (b.status === 'IN_PROGRESS') actions.push({ label: 'Finish run — send to QC', icon: <FlaskConical size={14} />, onClick: () => sendToQc(b.id), disabled: paused, title: paused ? 'Resume the line first' : undefined });
   if (b.status === 'QC') actions.push({ label: 'Record quality results', icon: <FlaskConical size={14} />, onClick: () => setQc(true), title: actor.role !== 'QC' ? 'The Quality Controller records results' : undefined });
   if (['PLANNED', 'RELEASED'].includes(b.status)) actions.push({ label: 'Cancel', icon: <Ban size={14} />, onClick: () => cancelBatch(b.id), tone: 'ghost' });
   const cost = batchCost(b, products);
@@ -251,6 +303,7 @@ const BatchDrawer: React.FC<{ b: Batch; onClose: () => void }> = ({ b, onClose }
             {b.rejectedQty > 0 && b.status === 'COMPLETED' && <p className="sx-note">{b.rejectedQty} units rejected at inspection.</p>}
           </>
         )}
+        <BatchExtras b={b} />
         <h4 className="sx-subhead">Progress</h4>
         <ApprovalPanel
           steps={<FlowSteps steps={['Planned', 'Released', 'Running', 'Quality', 'In stock']} at={at} off={b.status === 'CANCELLED' || b.status === 'REJECTED'} />}
@@ -269,10 +322,21 @@ const BatchDrawer: React.FC<{ b: Batch; onClose: () => void }> = ({ b, onClose }
 };
 
 const QcModal: React.FC<{ b: Batch; r: Recipe; onClose: () => void }> = ({ b, r, onClose }) => {
-  const { recordQc } = useOperations();
-  const [checks, setChecks] = useState<QualityCheck[]>(r.checks.map((c) => ({ parameter: c, target: c, result: '', pass: true })));
+  const { recordQc, evaluateChecks, state: blend } = useBlending();
+  // Numeric limits from the routing's inspection step replace the matching free-text checks
+  const spec = blend.routings.find((x) => x.id === blend.ext[b.id]?.routingId)?.ops.find((o) => o.kind === 'INSPECTION')?.spec ?? [];
+  const specLabel = (sp: (typeof spec)[number]) => `${sp.parameter} (${sp.unit})${sp.min !== undefined ? ` ≥ ${sp.min}` : ''}${sp.max !== undefined ? ` ≤ ${sp.max}` : ''}`;
+  const covered = (c: string) => spec.some((sp) => c.toLowerCase().includes(sp.parameter.toLowerCase().split(' ').pop()!));
+  const [checks, setChecks] = useState<QualityCheck[]>([
+    ...spec.map((sp) => ({ parameter: specLabel(sp), target: specLabel(sp), result: '', pass: true })),
+    ...r.checks.filter((c) => !covered(c)).map((c) => ({ parameter: c, target: c, result: '', pass: true }))
+  ]);
   const [rejected, setRejected] = useState(0);
-  const set = (i: number, patch: Partial<QualityCheck>) => setChecks(checks.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  const isSpec = (c: QualityCheck) => spec.some((sp) => c.parameter === specLabel(sp));
+  const set = (i: number, patch: Partial<QualityCheck>) => {
+    const nextChecks = checks.map((c, j) => (j === i ? { ...c, ...patch } : c));
+    setChecks(evaluateChecks(b.id, nextChecks).map((c) => (isSpec(c) && !c.result ? { ...c, pass: true } : c)));
+  };
   const fail = checks.some((c) => !c.pass);
   return (
     <Modal
@@ -303,13 +367,17 @@ const QcModal: React.FC<{ b: Batch; r: Recipe; onClose: () => void }> = ({ b, r,
             <tr key={c.parameter}>
               <td>{c.parameter}</td>
               <td>
-                <input className="form-control" value={c.result} onChange={(e) => set(i, { result: e.target.value })} placeholder="Measured value" />
+                <input className="form-control" value={c.result} inputMode={isSpec(c) ? 'decimal' : undefined} onChange={(e) => set(i, { result: e.target.value })} placeholder={isSpec(c) ? 'Number' : 'Measured value'} />
               </td>
               <td>
-                <select className="form-control" value={c.pass ? 'pass' : 'fail'} onChange={(e) => set(i, { pass: e.target.value === 'pass' })}>
-                  <option value="pass">Pass</option>
-                  <option value="fail">Fail</option>
-                </select>
+                {isSpec(c) ? (
+                  c.result ? <Pill status={c.pass ? 'POSTED' : 'REJECTED'} label={c.pass ? 'Within limits' : 'Out of limits'} /> : <span className="sx-muted">Enter value</span>
+                ) : (
+                  <select className="form-control" value={c.pass ? 'pass' : 'fail'} onChange={(e) => set(i, { pass: e.target.value === 'pass' })}>
+                    <option value="pass">Pass</option>
+                    <option value="fail">Fail</option>
+                  </select>
+                )}
               </td>
             </tr>
           ))}
@@ -325,8 +393,10 @@ const QcModal: React.FC<{ b: Batch; r: Recipe; onClose: () => void }> = ({ b, r,
 };
 
 const PlanModal: React.FC<{ onClose: () => void; onSaved: (id: string) => void }> = ({ onClose, onSaved }) => {
-  const { state, products, planBatch, pname, commercial } = useOperations();
+  const { state, products, pname, commercial } = useOperations();
+  const { planBatch, state: blend, actor } = useBlending();
   const [recipeId, setRecipeId] = useState(state.recipes[0].id);
+  const params = blend.params.find((p) => p.recipeId === recipeId);
   const r = state.recipes.find((x) => x.id === recipeId)!;
   const [qty, setQty] = useState(r.batchSize);
   const [date, setDate] = useState(addDays(TODAY, 2));
@@ -371,7 +441,7 @@ const PlanModal: React.FC<{ onClose: () => void; onSaved: (id: string) => void }
             ))}
           </select>
         </Field>
-        <Field label="Quantity" hint={`Standard batch ${r.batchSize}`}>
+        <Field label="Quantity" hint={params ? `${params.minBatch}–${params.maxBatch}, multiples of ${params.orderMultiple}` : `Standard batch ${r.batchSize}`}>
           <input className="form-control" type="number" min="1" value={qty} onChange={(e) => setQty(Number(e.target.value))} />
         </Field>
         <Field label="Production date">
@@ -406,6 +476,9 @@ const PlanModal: React.FC<{ onClose: () => void; onSaved: (id: string) => void }
         </tbody>
       </table>
       {short.length > 0 && <p className="sx-note sx-danger-text">Plan it now and raise a requisition in Procurement — it cannot start until materials arrive.</p>}
+      {params && date < addDays(TODAY, params.ptfDays) && actor.role !== 'MANAGER' && (
+        <p className="sx-note sx-danger-text">That date is inside the {params.ptfDays}-day planning time fence — only the Operations Manager can add batches there.</p>
+      )}
     </Modal>
   );
 };
@@ -499,14 +572,40 @@ const QualityPage: React.FC = () => {
 
 export const ProductionSidebar: React.FC = () => {
   const { state, production, setProduction } = useOperations();
+  const blend = useBlending().state;
   const groups: SuiteNavGroup<ProductionPage>[] = [
     { label: 'Production', items: [{ id: 'overview', label: 'Overview', icon: LayoutDashboard }] },
+    {
+      label: 'Blending',
+      items: [
+        { id: 'lots', label: 'Tea lots', icon: Leaf, badge: blend.lots.filter((l) => l.status === 'ON_HOLD').length },
+        { id: 'blendsheets', label: 'Blendsheets', icon: ScrollText, badge: blend.blendsheets.filter((b) => b.status === 'SUBMITTED').length }
+      ]
+    },
     {
       label: 'Make',
       items: [
         { id: 'batches', label: 'Batches', icon: Factory, badge: state.batches.filter((b) => b.status === 'PLANNED').length, badgeTone: 'neutral' },
+        { id: 'workorders', label: 'Work orders', icon: ClipboardList },
         { id: 'recipes', label: 'Recipes', icon: Layers },
         { id: 'quality', label: 'Quality', icon: FlaskConical, badge: state.batches.filter((b) => b.status === 'QC').length }
+      ]
+    },
+    {
+      label: 'Engineering',
+      items: [
+        { id: 'workcentres', label: 'Work centres', icon: Cog },
+        { id: 'routings', label: 'Routings', icon: Route },
+        { id: 'costing', label: 'Standard costs', icon: Calculator }
+      ]
+    },
+    {
+      label: 'Planning',
+      items: [
+        { id: 'schedule', label: 'Schedule', icon: CalendarRange },
+        { id: 'planning', label: 'MPS & MRP', icon: LineChart },
+        { id: 'simulation', label: 'What-if', icon: FlaskRound },
+        { id: 'reports', label: 'Reports', icon: FileBarChart }
       ]
     }
   ];
@@ -525,6 +624,16 @@ export const ProductionSuite: React.FC = () => {
       {production.page === 'batches' && <BatchesPage />}
       {production.page === 'recipes' && <RecipesPage />}
       {production.page === 'quality' && <QualityPage />}
+      {production.page === 'lots' && <LotsPage />}
+      {production.page === 'blendsheets' && <BlendsheetsPage />}
+      {production.page === 'workorders' && <WorkOrdersPage />}
+      {production.page === 'workcentres' && <WorkCentresPage />}
+      {production.page === 'routings' && <RoutingsPage />}
+      {production.page === 'costing' && <CostingPage />}
+      {production.page === 'schedule' && <SchedulePage />}
+      {production.page === 'planning' && <PlanningPage />}
+      {production.page === 'simulation' && <SimulationPage />}
+      {production.page === 'reports' && <ReportsPage />}
     </div>
   );
 };
