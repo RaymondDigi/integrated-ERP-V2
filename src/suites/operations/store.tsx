@@ -7,7 +7,6 @@ import { addDays, round2, TODAY, localStamp } from '../finance/engine';
 import { buildOperationsSeed, OPS_ACTORS } from './data';
 import { LABOUR_RATE, materialNeed, shipBlockers, SHIP_STAGES, stockAt, shipValue, woCost } from './engine';
 import type { Batch, OperationsState, OpsRole, QualityCheck, Shipment, StockMove, WorkOrder } from './types';
-import { useAccess } from '../../platform/access';
 import { notify } from '../../platform/outbox';
 import { audit } from '../../platform/audit';
 import { opsHooks } from './hooks';
